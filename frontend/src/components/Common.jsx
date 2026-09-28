@@ -1,0 +1,17 @@
+import React from 'react';
+import { Inbox, ArrowUpRight, Info, Loader2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+export { Button, Input };
+export const PageHeading = ({ eyebrow = 'SEU CENTRO DE GESTÃO', title, description, children }) => <div className="page-heading"><div><span className="eyebrow" data-testid="page-eyebrow">{eyebrow}</span><h1 data-testid="page-title">{title}</h1><p data-testid="page-description">{description}</p></div><div className="heading-actions">{children}</div></div>;
+export const Badge = ({ children, tone = 'neutral', testId }) => <span data-testid={testId} className={`status-badge ${tone}`}><i/>{children}</span>;
+export const Field = ({ label, id, children, ...props }) => <label className="field" htmlFor={id}><span data-testid={`${id}-label`}>{label}</span>{children || <Input id={id} data-testid={id} {...props}/>}</label>;
+export const Select = ({ id, children, ...props }) => <select id={id} data-testid={id} {...props}>{children}</select>;
+export const Modal = ({ title, description, open, onClose, children, id = 'form-modal' }) => <Dialog open={open} onOpenChange={v => !v && onClose()}><DialogContent data-testid={id} className="app-modal"><DialogHeader><DialogTitle data-testid={`${id}-title`}>{title}</DialogTitle><DialogDescription data-testid={`${id}-description`} className={description ? '' : 'sr-only'}>{description || 'Informações e ações para este registro.'}</DialogDescription></DialogHeader>{children}</DialogContent></Dialog>;
+export const Empty = ({ title, description, icon: Icon = Inbox, children, id = 'empty-state' }) => <div className="empty-state" data-testid={id}><div className="empty-icon"><Icon size={28} strokeWidth={1.4}/></div><h3 data-testid={`${id}-title`}>{title}</h3><p data-testid={`${id}-description`}>{description}</p>{children}</div>;
+export const Notice = ({ children, tone = '', id = 'notice' }) => <div className={`notice ${tone}`} data-testid={id}><Info size={17}/><span>{children}</span></div>;
+export const Stat = ({ label, value, caption, icon: Icon, tone = '', id }) => <div className={`stat ${tone}`} data-testid={`${id}-card`}><div className="stat-top"><span data-testid={`${id}-label`}>{label}</span><Icon size={18}/></div><strong data-testid={`${id}-value`}>{value}</strong><span className="stat-caption" data-testid={`${id}-caption`}>{caption}</span></div>;
+export const Submit = ({ busy, children = 'Salvar', id = 'submit-form' }) => <Button data-testid={id} type="submit" disabled={busy}>{busy ? <Loader2 className="spin"/> : null}{children}</Button>;
+export const FormError = ({ error }) => error ? <p role="alert" className="form-error" data-testid="form-error">{error}</p> : null;
+export const SectionHeading = ({ title, caption, children }) => <div className="section-heading"><div><h2 data-testid="section-title">{title}</h2>{caption && <p data-testid="section-caption">{caption}</p>}</div>{children}</div>;
