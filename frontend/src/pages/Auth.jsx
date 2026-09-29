@@ -3,6 +3,8 @@ import { ArrowRight, ShieldCheck, Fingerprint, Layers3, Activity, Monitor } from
 import { api, errorText } from '../lib/api';
 import { Brand, BrandMark } from '../components/Brand';
 import { Field, Submit, FormError } from '../components/Common';
+import { Link } from 'react-router-dom';
+import { DesktopDownload } from '../components/DesktopDownload';
 export default function Auth({ setup, onLogin }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   async function submit(e) { e.preventDefault(); setBusy(true); setError(''); const data = Object.fromEntries(new FormData(e.currentTarget));
@@ -15,6 +17,6 @@ export default function Auth({ setup, onLogin }) {
       {setup && <><Field id="setup-name" name="name" label="Seu nome" placeholder="Como podemos chamar você?" required minLength={2} maxLength={70}/><Field id="setup-agency" name="agency_name" label="Nome da agência" placeholder="Sua agência" required minLength={2} maxLength={70}/></>}
       <Field id="auth-email" name="email" label="E-mail de trabalho" type="email" placeholder="voce@agencia.com.br" required autoComplete="username"/>
       <Field id="auth-password" name="password" label="Senha do gerenciador" type="password" placeholder={setup ? 'Mínimo de 8 caracteres' : 'Sua senha'} minLength={8} maxLength={128} required autoComplete={setup ? 'new-password' : 'current-password'}/><FormError error={error}/><Submit id="auth-submit" busy={busy}>{setup ? 'Criar meu workspace' : 'Entrar no workspace'}<ArrowRight size={17}/></Submit>
-    </form><div className="auth-security" data-testid="auth-security"><ShieldCheck size={16}/><span>Este acesso é independente da sua conta Privacy.<br/>Nunca solicitamos a senha das criadoras.</span></div></section>
+    </form><div className="auth-security" data-testid="auth-security"><ShieldCheck size={16}/><span>Este acesso é independente da sua conta Privacy.<br/>Nunca solicitamos a senha das criadoras.</span></div>{!window.altaDesktop?.installed && <div className="auth-desktop-download"><DesktopDownload id="login-download-desktop"/><Link data-testid="login-download-details" to="/baixar">Instalação, requisitos e sessões por computador<ArrowRight size={13}/></Link></div>}</section>
     </div><footer className="auth-footer"><span data-testid="auth-copyright">© {new Date().getFullYear()} Alta Core · Alta Agency</span><span data-testid="auth-footer-note">Gestão com contexto. Privacidade por princípio.</span></footer></div>;
 }

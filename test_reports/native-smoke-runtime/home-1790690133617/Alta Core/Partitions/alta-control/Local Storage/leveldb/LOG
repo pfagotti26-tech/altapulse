@@ -1,0 +1,4 @@
+2026/09/29-13:55:33.774 210d Creating DB /app/test_reports/native-smoke-runtime/home-1790690133617/Alta Core/Partitions/alta-control/Local Storage/leveldb since it was missing.
+2026/09/29-13:55:33.783 210d Reusing MANIFEST /app/test_reports/native-smoke-runtime/home-1790690133617/Alta Core/Partitions/alta-control/Local Storage/leveldb/MANIFEST-000001
+2026/09/29-13:56:06.521 2102 Level-0 table #5: started
+2026/09/29-13:56:06.525 2102 Level-0 table #5: 21297 bytes OK

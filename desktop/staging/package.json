@@ -1,0 +1,9 @@
+{
+  "name": "alta-core-desktop",
+  "productName": "Alta Core",
+  "version": "0.2.1",
+  "main": "main.cjs",
+  "author": "Alta Agency",
+  "license": "UNLICENSED",
+  "description": "Alta Core — navegador de perfis locais autorizados"
+}

@@ -45,6 +45,9 @@ async def login(body: Login, request: Request, response: Response):
 async def me(user=Depends(current_user)): return {'user': user, 'settings': await settings()}
 @router.post('/auth/logout')
 async def logout(request: Request, response: Response):
+    await db.desktop_leases.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
+    await db.desktop_tokens.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
+    await db.desktop_tickets.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
     await db.sessions.delete_many({'token_hash': digest(request.cookies.get('vertice_session', ''))})
     response.delete_cookie('vertice_session', path='/api')
     return {'ok': True}

@@ -1,0 +1,74 @@
+{
+  "summary": "Retested CRITICAL native auth ticket flow on Linux Electron runtime copy. Device register 401 is fixed after ticket authorize exchange, and ticket machine-binding + one-time use checks passed. However, native browser open lifecycle is still unstable in this run (lease opens then is released quickly, renderer context closed before full assertions).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/desktop/leases",
+        "issue": "Lease acquires (200) but is released almost immediately in tested flow, preventing stable native WebContentsView verification from completing.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/desktop/auth/exchange",
+        "issue": "Invalid short ticket returns 422 schema validation (expected). This was observed in post-logout negative check."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Native Browser Workspace",
+        "issue": "Runtime state remained 'Navegador fechado' in one run and close button stayed disabled; in latest run renderer/page context closed before runtime checks.",
+        "selector": "[data-testid='browser-runtime-state'], [data-testid='close-native-browser']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Desktop authorize/register -> open creator native browser",
+        "issue": "Auth ticket exchange and register now succeed, but full open verification is flaky/unstable due rapid lease release and/or app context close before assertions complete.",
+        "affected_selectors": [
+          "[data-testid='sidebar-creator-<temp_id>']",
+          "[data-testid='browser-runtime-state']",
+          "[data-testid='close-native-browser']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/native-smoke-runtime/tools/native_smoke.js",
+    "/app/test_reports/native-smoke-runtime/tools/cleanup_native_device.py",
+    "/app/test_reports/native-smoke-runtime/artifacts/native_smoke_result.json",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "action_items": [
+    "Investigate why native open flow does not stay open long enough for deterministic assertions (lease created then promptly deleted in logs).",
+    "Instrument BrowserWorkspace/main.cjs event sequence around route navigation and open() calls to detect duplicate/overlapping opens and forced close paths.",
+    "Re-run Linux native smoke after stabilizing open lifecycle; then validate WebContentsView /api/health stand-in load, non-zero bounds, and session separation evidence.",
+    "Windows runtime and actual Privacy page remain unvalidated in this retest."
+  ],
+  "critical_code_review_comments": [
+    "Main retest confirms auth architecture shift is working: /desktop/auth/ticket + /desktop/auth/exchange and native token-gated register path now return success.",
+    "Observed backend evidence includes initial register 401 followed by ticket issuance/exchange and subsequent register 200, matching intended fallback/authorize path.",
+    "Open-flow instability likely lies in desktop runtime lifecycle/timing, not ticket issuance itself; backend showed /desktop/leases 200 then immediate DELETE in same scenario."
+  ],
+  "updated_files": [
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/main.cjs",
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/preload.cjs",
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/browser.cjs",
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/policy.cjs",
+    "/app/test_reports/native-smoke-runtime/tools/native_smoke.js",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "success_rate": {
+    "backend": "80%",
+    "frontend": "55%"
+  },
+  "seed_data_creation": "Created TEMP_NATIVE creators during smoke runs; cleaned with /app/test_reports/native-smoke-runtime/tools/cleanup_native_device.py. Real creator Mel Martins (e004895129b339393d0da552) untouched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Used isolated runtime copy under /app/test_reports/native-smoke-runtime/AltaCoreSmoke with MOCKED stand-in page (privacy_url=/api/health, own origin allowlist). xvfb-run unavailable (missing xauth); use manual Xvfb :99 launch. Credential source honored from /root/alta-core-test.env. Latest artifact: /app/test_reports/native-smoke-runtime/artifacts/native_smoke_result.json.",
+  "rca of the issue": "RCA (current evidence): Native auth fix is effective for register path (ticket issue/exchange + register approved). Remaining failure is in native browser open stabilization: backend logs show lease POST 200 followed by fast DELETE, while UI/runtime assertions either stay closed or renderer closes. Repro: launch isolated Electron app, login, ticket checks, authorize, register, create TEMP_NATIVE, navigate to /navegador/<temp_id>. Mitigation: add deterministic tracing around BrowserWorkspace auto-open effect and CreatorBrowser.open()/close() generation transitions to isolate premature close trigger."
+}

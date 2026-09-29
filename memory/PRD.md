@@ -12,7 +12,7 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 
 ## Requisitos estáticos
 - Interface PT-BR, clara, grafite, estados verdes/âmbar/vermelhos; rotas separadas Criadoras, Operação, Vendas, Qualidade, Equipe e turnos, Relatórios, Configurações. Responsiva; sem fotos/conteúdo íntimo.
-- Uma estação Windows no MVP. Perfis persistentes isolados por criadora, não usar perfil pessoal, impedir duplicação. Login/2FA/CAPTCHA manuais diretamente na Privacy.
+- Escopo inicial: uma estação Windows com componente assistido. Ampliação solicitada em 2026-09-29: aplicativo desktop com instalações em computadores distintos, perfis locais por criadora e autorização de dispositivos. Não usar perfil pessoal; impedir abertura simultânea da mesma criadora no navegador integrado. Login/2FA/CAPTCHA manuais diretamente na Privacy, por computador.
 - Integração somente pelo DOM realmente visível. Proibidos endpoints/API Privacy, chamadas ocultas, interceptação de tráfego, cookies/tokens da Privacy, bypass, mensagens automáticas, compras/saques ou qualquer escrita financeira.
 - Acompanhamento parcial passivo, sem clicar, rolar ou trocar conversas. Revisão manual local apenas com turno pausado e aviso sobre marcação de leitura. Sem varredura nem transmissão remota.
 - Gestor/chatter com credenciais próprias. Um responsável por criadora em cada intervalo; conflitos explícitos. Correções justificadas e auditadas.
@@ -60,6 +60,36 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Limpeza final remove gestor temporário e fixtures sintéticas, mantendo índices e workspace pronto para primeiro cadastro. Credenciais temporárias não devem ser usadas pelo usuário.
 
 ## Backlog priorizado / próximos passos
+### Aplicativo desktop e distribuição — 2026-09-29
+- Pedido do usuário: aplicativo instalado para ele e a sócia Fernanda, criadoras na lateral e navegador dentro do sistema como no Lauth, com botão de instalação fácil para chatters no próprio site Alta Core.
+- Referência https://lauth-lp.framer.website/ analisada; anuncia perfis isolados, grupos e permissões de equipe, mas não documenta o mecanismo de sessão. Não foram reproduzidos recursos anti-detect, proxies, camuflagem ou garantias de evitar bloqueios.
+- Na clarificação, o usuário marcou ambos os modelos: login direto por computador e login único do admin distribuído para computadores. Foi comunicado antes de construir que esta entrega implementa **login local por computador**; login único entre máquinas exige arquitetura adicional. Não considerar o modelo B entregue.
+- Novo `/app/desktop`: Electron 44.4.5, WebContentsView nativo (não iframe/webview), sandbox/contextIsolation ativos, Node desativado na Privacy, sem preload Alta Core no conteúdo externo. Chromium persistente isolado por instalação+criadora; administradores podem autenticar diretamente na máquina do chatter e trocar o usuário Alta Core local, sem transportar arquivos ou cookies.
+- Web React existente carregada pelo aplicativo; novas telas `/navegador/:creatorId`, `/computadores`, página pública `/baixar`. Barra lateral tem lista pesquisável de criadoras autorizadas para gestor/chatter. No navegador web comum, a área informa instalação necessária; não simula Privacy conectada.
+- Download público na tela de login, `/baixar`, navegação autenticada e acesso do chatter. Instalador real Windows x64 NSIS, versão corrigida **0.2.1**, cerca de 110 MB, sem dependência de Python e sem exigência de administrador Windows. Atalhos e desinstalador por usuário; atualizações manuais. Pacote Python anterior preservado em Configurações → Componente assistido anterior, claramente separado.
+- Novo backend `desktop_routes.py`: computadores do gestor aprovados para o próprio acesso; instalações de chatter pendentes até autorização de gestor; permissões de criadora continuam independentes. Revogação disponível, listagens por função. Fernanda NÃO recebeu conta com e-mail presumido; pode ser cadastrada como Gestor em Equipe e turnos com dados reais fornecidos pela agência.
+- Reservas de navegador (`desktop_leases`) exclusivas por criadora, TTL45s e heartbeat10s; revalidação de usuário ativo, sessão Alta Core original, atribuição, computador e turno. Logout/revogação invalidam reservas. Chatter precisa do próprio turno ativo e não pausado; gestor pode preparar login sem turno ou com atendimento pausado, sem tomar janela ocupada.
+- Autenticação nativa própria em `desktop_auth.py`: código temporário de uso único, 45s, vinculado à máquina e à sessão web Alta Core, trocado por token em memória no processo nativo. Somente rotas desktop aceitam esse token, sempre rechecando sessão de origem. Não lê/extrai cookies do painel ou Privacy; nenhum token chega à página Privacy ou ao instalador.
+- Perfil integrado NÃO coleta mensagens/metadados, não envia conteúdos ao painel, não usa API Privacy e não ativa o leitor Python anterior. Indicadores continuam indisponíveis até validação específica de leitura. Atendimento e login são humanos.
+- O instalador é **sem assinatura digital** e isso é exibido no download. Não desativar proteções Windows. Compatibilidade Windows/Privacy real não foi validada; a compilação e os testes abaixo não a substituem.
+
+#### Validação desktop e correções
+- `/app/test_reports/iteration_5.json`: 6/6 testes backend de permissões/dispositivos/reservas, 5/5 testes Node de política de URL/partição/bounds e fluxos web/mobile aprovados. Instalador completo anterior foi baixado e seu SHA-256 conferido via URL pública.
+- Teste nativo adicional Linux arm64/Xvfb descobriu falha real de autenticação: session.fetch do processo nativo não recebia a sessão web. Corrigido com tickets próprios de uso único, sem extrair cookies. Relatórios intermediários iteration_6 e iteration_7 registram falhas já tratadas e não representam o estado final.
+- Ajuste React StrictMode: abertura automática agendada/cancelável para evitar abertura duplicada durante montagem de desenvolvimento; aviso exhaustive-deps removido. Geração de abertura nativa cancela operações pendentes quando a rota fecha.
+- Uma falha SIGTRAP adicional foi rastreada a `font_data_service_impl.cc: No space left on device` no `/dev/shm` de 64 MB do contêiner Linux. O teste isolado passou com `--disable-dev-shm-usage`; essa opção e `--no-sandbox` foram usadas SOMENTE no runner Linux root. **Não estão no aplicativo Windows publicado.**
+- Resultado nativo final em `/app/test_reports/native-smoke-runtime/artifacts/native_smoke_result.json`: **25 passos aprovados**, incluindo login real Alta Core, ticket vinculado e uso único, registro, criação de reserva, WebContentsView com dimensões não nulas, partição distinta, ausência de preload/Node no conteúdo, fechamento/reabertura, desmontagem de rota, logout e recusa de token pós-logout.
+- A página externa nesse teste foi substituída por `/api/health` SOMENTE na cópia isolada de teste (MOCKED stand-in). Não é integração Privacy validada nem endpoint simulado em produção. Nenhuma conta privada foi aberta. A configuração de distribuição usa PRIVACY_URL real da .env e nenhum flag de teste.
+- Binário0.2.0 foi retirado de circulação durante a correção; manifesto0.2.1 será publicado atomicamente após build, com checksum. Não entregar o binário antigo como atualizado.
+- Publicação concluída: `/api/desktop/release` retorna versão0.2.1 disponível; `Alta-Core-0.2.1-Setup-x64.exe`, 114.965.344 bytes; SHA-256 `71f3612df4fae7f0d08805e5805948369792cb4ca5c7bb50eb90e172f64c487a`. Manifesto e hash local verificados após a compilação final. Indicadores de assinatura, validação Windows, sincronização e monitoramento permanecem falsos, como divulgado.
+- Preservar a criadora real Mel Martins (`e004895129b339393d0da552`), conta gestor de teste e quaisquer registros reais. Apenas fixtures TEMP_* e computadores do runner são removidos após QA.
+
+#### Pendências deste novo escopo
+- P0: validar instalação, janela nativa, entrada manual e eventuais redirecionamentos legítimos na Privacy usando Windows autorizado; mapeamento/monitoramento do chat ainda não implementado no navegador integrado.
+- P0 separado: decidir arquitetura/autorização para login único do admin acessível em computadores distintos. Não há sincronização de cookies/sessões; eventual navegador remoto exigirá escopo próprio.
+- P1: assinatura digital do instalador, atualização automática segura e política de revisão de versões do Chromium.
+- P1: UI de exclusão de perfis locais e encerramento explícito de sessão Privacy; revogar Alta Core não é revogar a sessão da plataforma nem impedir acesso físico ao diretório de perfil.
+
 ### Atualização de marca e acesso — 2026-09-29
 - Pedido literal: “qual o login e senha para teste? e o nome precisa mudar porque é um produto da alta deveria ser Alta Core. Este é o site da Alta Agency www.altaagency.com.br”.
 - Escolha confirmada: “Aplicar também os logotipos enviados e a identidade visual do site da Alta Agency”, com pedido “se puder no logo mudar agency por core porque ai fica dentro do nome do produto”.
