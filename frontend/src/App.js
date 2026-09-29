@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { api } from './lib/api';
 import { Toaster } from './components/ui/sonner';
 import { Shell } from './components/Shell';
+import { Brand } from './components/Brand';
 import Auth from './pages/Auth';
 import Creators from './pages/Creators';
 import Operation from './pages/Operation';
@@ -12,6 +13,7 @@ import Team from './pages/Team';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import './App.css';
+import './AltaTheme.css';
 
 const Context = createContext(null);
 export const useApp = () => useContext(Context);
@@ -35,7 +37,7 @@ export default function App() {
   }, [user, refresh]);
   const login = async () => { const r = await api.get('/auth/me'); setUser(r.data.user); setConfig(r.data.settings); };
   const logout = async () => { await api.post('/auth/logout'); setUser(null); setCreators([]); };
-  if (loading) return <div className="app-loading" data-testid="app-loading"><div className="brand-mark"/><span>Vértice</span><i/></div>;
+  if (loading) return <div className="app-loading" data-testid="app-loading"><Brand/><i/></div>;
   if (connectionError) return <div className="app-loading" data-testid="connection-error"><h2>Não foi possível conectar</h2><button data-testid="retry-connection" onClick={load}>Tentar novamente</button></div>;
   return <Context.Provider value={{ user, config, setConfig, creators, station, refresh, logout }}><BrowserRouter>
     {!user ? <Auth setup={setup} onLogin={login}/> : <Shell><Routes>

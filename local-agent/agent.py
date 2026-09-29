@@ -1,4 +1,4 @@
-"""Vértice Windows — perfis locais visíveis e ponte somente com o próprio painel."""
+"""Alta Core Windows — perfis locais visíveis e ponte somente com o próprio painel."""
 import asyncio
 import json
 import os
@@ -28,13 +28,14 @@ PRIVACY_HOST = urlparse(PRIVACY_URL).hostname
 class Desktop:
     def __init__(self):
         if sys.platform != 'win32': raise RuntimeError('Este componente é destinado ao Windows 10/11.')
-        self.base = Path(os.environ['LOCALAPPDATA']) / 'Vertice'
+        previous_base = Path(os.environ['LOCALAPPDATA']) / 'Vertice'
+        self.base = previous_base if previous_base.exists() else Path(os.environ['LOCALAPPDATA']) / 'AltaCore'
         self.base.mkdir(parents=True, exist_ok=True)
         self.app = tk.Tk()
-        self.app.title('Vértice • Estação local')
+        self.app.title('Alta Core • Estação local')
         self.app.geometry('730x590')
         self.app.minsize(610, 530)
-        self.app.configure(bg='#f5f8f3')
+        self.app.configure(bg='#fafafa')
         self.events = queue.Queue()
         self.stop = threading.Event()
         self.pause = threading.Event()
@@ -51,10 +52,11 @@ class Desktop:
         if self.token: self.start_worker()
 
     def build_ui(self):
-        tk.Label(self.app, text='vértice.', bg='#f5f8f3', fg='#267049', font=('Segoe UI', 27, 'bold')).pack(anchor='w', padx=28, pady=(23, 3))
-        tk.Label(self.app, text='ESTAÇÃO LOCAL  /  WINDOWS', bg='#f5f8f3', fg='#889480', font=('Segoe UI', 9)).pack(anchor='w', padx=30)
+        self.logo = tk.PhotoImage(file=str(ROOT / 'alta-core-black.png')).subsample(6, 6)
+        tk.Label(self.app, image=self.logo, bg='#fafafa').pack(anchor='w', padx=28, pady=(18, 3))
+        tk.Label(self.app, text='ESTAÇÃO LOCAL  /  WINDOWS', bg='#fafafa', fg='#87878d', font=('Segoe UI', 9)).pack(anchor='w', padx=30)
         self.status = tk.StringVar(value='Conectando…' if self.token else 'Conecte esta estação com o código do gestor.')
-        tk.Label(self.app, textvariable=self.status, bg='#f5f8f3', fg='#617359', wraplength=660, justify='left').pack(anchor='w', padx=30, pady=17)
+        tk.Label(self.app, textvariable=self.status, bg='#fafafa', fg='#67676f', wraplength=660, justify='left').pack(anchor='w', padx=30, pady=17)
         self.pair_frame = ttk.Frame(self.app)
         self.pair_frame.pack(fill='x', padx=30, pady=5)
         self.code = tk.StringVar()
@@ -70,7 +72,7 @@ class Desktop:
         ttk.Button(controls, textvariable=self.pause_label, command=self.toggle_pause).pack(side='left')
         ttk.Button(controls, text='Mapeamento e validação', command=self.configure_reader).pack(side='left', padx=8)
         ttk.Button(controls, text='Desconectar', command=self.disconnect).pack(side='right')
-        tk.Label(self.app, text='Logins e verificações são feitos na Privacy. Não há envio de mensagens pelo componente.\nRevisão manual: pause o turno no painel antes de navegar. Abrir conversas pode marcá-las como lidas.', bg='#f5f8f3', fg='#8a9980', wraplength=660, justify='left', font=('Segoe UI', 9)).pack(anchor='w', padx=30, pady=20)
+        tk.Label(self.app, text='Logins e verificações são feitos na Privacy. Não há envio de mensagens pelo componente.\nRevisão manual: pause o turno no painel antes de navegar. Abrir conversas pode marcá-las como lidas.', bg='#fafafa', fg='#87878d', wraplength=660, justify='left', font=('Segoe UI', 9)).pack(anchor='w', padx=30, pady=20)
 
     def api(self, method, path, body=None, authenticated=True):
         headers = {'Authorization': 'Bearer ' + self.token} if authenticated and self.token else {}

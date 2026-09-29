@@ -1,4 +1,4 @@
-# Vértice — Gerenciador de criadoras e supervisão de chatters
+# Alta Core — Gerenciador de criadoras e supervisão de chatters
 
 ## Pedido original
 “Você consegue criar um sistema que entra num sistema de uma privacy.com.br já logado porque sou uma agência autorizado pela criadora a operar na conta para que fique monitorando as conversas dos chatter que atuam na conta, verifique o tempo de resposta, a condução de mensagem que está sendo trabalhada, vendas realizada por aquele chatter no período. Me responda antes de fazer e qual seria a proposta”.
@@ -60,6 +60,17 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Limpeza final remove gestor temporário e fixtures sintéticas, mantendo índices e workspace pronto para primeiro cadastro. Credenciais temporárias não devem ser usadas pelo usuário.
 
 ## Backlog priorizado / próximos passos
+### Atualização de marca e acesso — 2026-09-29
+- Pedido literal: “qual o login e senha para teste? e o nome precisa mudar porque é um produto da alta deveria ser Alta Core. Este é o site da Alta Agency www.altaagency.com.br”.
+- Escolha confirmada: “Aplicar também os logotipos enviados e a identidade visual do site da Alta Agency”, com pedido “se puder no logo mudar agency por core porque ai fica dentro do nome do produto”.
+- Quatro PDFs originais preservados em `/app/brand-assets`. Assets derivados pelo script `/app/scripts/build_alta_brand.py` preservam os caminhos originais do símbolo e lettering alta; somente o descritor agency foi substituído por core em Poppins Light. Variantes horizontais/empilhadas branca/preta/vermelha e favicon publicados localmente.
+- Site Alta consultado; vermelho oficial identificado no CSS: #C41E3A. Aplicados preto/branco/vermelho no login, menu e ações, com painel claro, texto grafite e estados positivos verdes/alertas âmbar preservados.
+- Nome público Alta Core em title, metadata pt-BR, favicon, login, rodapé, carregamento, API health, relatórios CSV e pacote Windows. Pacote `Alta-Core-Windows.zip` inclui logos locais; novos perfis em pasta AltaCore. Identificadores internos de sessão/keyring e pasta antiga preservados por compatibilidade, não renomeados destrutivamente.
+- Usuário solicitou acesso pronto: gestor `teste@altaagency.com.br`, nome Gestor de teste, workspace Alta Agency. Senha local em `/root/alta-core-test.env` (600). **Preservar esta conta após testes; a limpeza anterior da entrega inicial não se aplica a ela.** Nenhuma conta Privacy, nenhuma autenticação externa nova.
+- Sem preenchimento com vendas ou métricas fictícias e sem ativação automática de retenção. Conta de teste tem permissão gestor; antes de usar dados reais, criar acessos nominativos e desativar o acesso compartilhado pela Equipe.
+- QA `/app/test_reports/iteration_4.json`: 8/8 testes backend, login/logout real, nomes de arquivos e integridade ZIP, navegação desktop/mobile. Ajuste final do botão de fechar menu móvel: posição contida, largura responsiva e abertura sem transição de deslocamento; sidebar rolável em alturas menores.
+- Limitação já existente mantida: execução Windows/compatibilidade das telas Privacy ainda dependem de validação na estação autorizada; a mudança de marca não habilita coleta por si só.
+
 ### P0 — dependências para monitoramento real
 1. Usuário criar gestor e cadastrar perfis/operadores; instalar componente na estação Windows autorizada.
 2. Validar abertura/isolamento/login manual na Privacy no computador real, sem transmitir credenciais.

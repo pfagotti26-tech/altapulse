@@ -1,0 +1,209 @@
+/* Alta Core: identidade oficial Alta Agency, mantendo cores semânticas de estado. */
+:root {
+  --alta-red: #C41E3A;
+  --alta-red-hover: #a61931;
+  --alta-black: #111113;
+  --alta-soft: #faf0f2;
+  --ink: #262629;
+  --muted-text: #737379;
+  --line: #e7e7e9;
+  --surface: #f7f7f8;
+  --primary: 350 73% 44%;
+  --ring: 350 73% 44%;
+  --accent: 350 45% 97%;
+  --accent-foreground: 350 65% 36%;
+  --border: 240 5% 90%;
+  --input: 240 5% 87%;
+}
+body { color: var(--ink); background: var(--surface); }
+::selection { background: #f6d8de; color: #691126; }
+button:focus-visible, a:focus-visible { outline-color: var(--alta-red); }
+input[type=checkbox] { accent-color: var(--alta-red); }
+.alta-brand { display: block; width: 155px; max-width: 100%; line-height: 0; }
+.alta-brand img { display: block; width: 100%; height: auto; object-fit: contain; }
+.alta-brand.stacked { width: 144px; }
+.alta-mark { object-fit: contain; width: 30px; height: 30px; }
+.sidebar { background: var(--alta-black); border-color: #27272b; overflow-y: auto; overflow-x: hidden; }
+.sidebar-bottom { padding-top: 24px; }
+.brand-row { padding-top: 0; padding-bottom: 23px; }
+.sidebar .workspace { background: #1b1b1e; border-color: #303035; }
+.sidebar .workspace strong { color: #f5f5f6; }
+.sidebar .workspace small, .sidebar .workspace > svg { color: #93939d; }
+.workspace-icon { color: #f4b8c3; background: #382027; border-color: #5a2833; }
+.nav-caption { color: #72727f; }
+.sidebar .nav-item { color: #a5a5b0; }
+.sidebar .nav-item:hover { background: #222226; color: #f5f5f6; }
+.sidebar .nav-item.active { background: #382027; color: #ffabbc; }
+.nav-count { background: #592331; color: #ffcbd6; }
+.station-mini { background: #19191c; border-color: #323237; }
+.station-mini strong, .station-mini svg { color: #c4c4cb; }
+.station-mini p { color: #90909c; }
+.station-mini a { color: #ea9cac; }
+.sidebar .user-block { border-color: #303034; }
+.sidebar .user-block strong { color: #ececee; }
+.sidebar .user-block small { color: #92929d; }
+.user-avatar, .small-avatar { background: #f6e3e7; color: #ae344b; }
+.sidebar .user-avatar { background: #35222a; color: #f6b1bf; border-color: #17171a; outline-color: #4b2a34; }
+.sidebar .icon-btn { color: #9797a4; }
+.sidebar .icon-btn:hover { background: #2c2429; color: #f0b7c3; }
+.topbar { background: #ffffffed; }
+.breadcrumb, .timezone, .timezone span, .subtle-label, .heading-date, .eyebrow { color: #85858c; }
+.breadcrumb strong { color: #53535b; }
+.icon-btn { color: #83838c; }
+.icon-btn:hover { color: var(--alta-red); background: var(--alta-soft); }
+.notification-dot { background: var(--alta-red); }
+.page-heading h1 { color: #28282d; }
+.page-heading p, .section-heading p, .body-muted { color: #777780; }
+.heading-actions > button { box-shadow: none; }
+.stat-top { color: #777780; }
+.stat-top svg { color: #94949e; }
+.stat strong { color: #34343b; }
+.stat-caption { color: #8d8d96; }
+.connection-banner { background: #faf5f6; border-color: #eadfe2; }
+.connection-icon { color: #ad475c; background: #f3e2e6; }
+.connection-banner strong { color: #55484d; }
+.connection-banner p { color: #8a7b80; }
+.connection-banner a { color: #a23e53; }
+.section-heading h2 { color: #414149; }
+.count-label { color: #787881; background: #f0f0f2; border-color: #e2e2e6; }
+.filter-tabs > button { color: #86868f; }
+.filter-tabs > button.selected { border-color: #e6d8dc; color: #a32b44; }
+.filter-tabs > button:hover { background: #f7edf0; color: #a32b44; }
+.filter-tabs > button > span { background: #f3e6ea; color: #a85567; }
+.search-field, .view-toggle { border-color: var(--line); }
+.search-field, .view-toggle button { color: #96969f; }
+.view-toggle button.selected { color: #ad304a; background: #f7ebee; }
+.creator-card:hover { border-color: #d7c5ca; box-shadow: 0 4px 17px #41222b05; }
+.creator-name h3 { color: #3c3c43; }
+.creator-name > span, .creator-data span, .creator-observation { color: #92929b; }
+.creator-data strong { color: #656570; }
+.creator-data, .creator-card-actions { border-color: #efeff1; }
+.creator-card-actions > button { color: #62626e; }
+.shift-link { color: #a1334b; }
+.shift-link:hover { color: #74192e; }
+.platform-label { color: #a4a4ad; }
+.add-creator-tile { color: #927d84; border-color: #ded2d6; background: #f9f6f7; }
+.add-creator-tile:hover { border-color: #c49aa5; background: #f6edef; }
+.add-creator-tile > span { color: #ba687c; border-color: #dfc4cc; }
+.add-creator-tile strong { color: #7e686f; }
+.add-creator-tile small { color: #a1848d; }
+.list-footer, .page-footer { color: #92929a; }
+.empty-state { background: radial-gradient(ellipse at center, #f3f0f180, transparent 65%); }
+.empty-icon { color: #af7e8a; background: #fffafb; border-color: #e9dce0; box-shadow: 0 0 0 9px #f5f0f2, 0 0 0 10px #ede5e8; }
+.empty-state h3 { color: #655e64; }
+.empty-state p { color: #92858d; }
+.notice { color: #7c7179; background: #f6f3f5; border-color: #e6dfe3; }
+.notice > svg { color: #a68592; }
+.notice.amber { color: #926e32; background: #fcf7ec; border-color: #ebe0c9; }
+.notice.danger { color: #a8474f; background: #fff0f1; border-color: #f0d7da; }
+.observation-line, .inline-empty { color: #8b838b; }
+.period-select { color: #83838d; }
+th { background: #f5f5f7; color: #84848f; }
+td, td:first-child { color: #70707d; border-color: #efeff2; }
+tbody tr:hover { background: #fdfbfc; }
+.page-tabs > button { color: #89828b; }
+.page-tabs > button.selected { color: var(--alta-red); border-bottom-color: var(--alta-red); }
+.page-tabs > button > span { background: #f3e8ec; color: #aa586d; }
+.person-cell > div:nth-child(2) > span { color: #95959e; }
+.you-tag { color: #a06477; background: #f5eaf0; }
+.permissions-list { background: #f7f5f7; }
+.permissions-list > label { color: #766773; }
+.quality-principles svg, .quality-principles strong { color: #76646f; }
+.quality-principles span { color: #94868f; }
+.criterion > strong { color: #665260; }
+.criterion > p { color: #93818d; }
+.criterion-options button { color: #8f818c; border-color: #e4dfe3; }
+.criterion-options button.selected.nao_avaliavel { background: #f3eff2; border-color: #c8bec5; color: #7d6f79; }
+.review-details > div { color: #786773; }
+.station-device { color: #a95b70; background: #f4e7ec; border-color: #e9d9df; }
+.station-status-text h2, .privacy-boundary h2, .settings-section > div > h2 { color: #54464f; }
+.station-status-text p, .privacy-boundary p, .settings-section > div > p { color: #90808a; }
+.step-number { color: #e6dbe0; }
+.step-icon, .privacy-boundary { color: #b27085; }
+.setup-step h3 { color: #68545f; }
+.setup-step p { color: #927e8a; }
+.setup-step p strong { color: #725c68; }
+.setup-step small { color: #a28a97; }
+.consent-block { background: #f7f1f4; border-color: #e8dce2; }
+.checkbox-label { color: #816b78; }
+.consent-block > p { color: #9a8390; }
+.pairing-code { color: #a43755; background: #faf0f4; border-color: #d5a4b4; }
+.report-card > svg { color: #b16f85; }
+.report-card h3 { color: #69545f; }
+.report-card p { color: #93808b; }
+.report-card button { color: #956c7d; }
+.audit-detail > strong { color: #6d5361; }
+.audit-detail p { color: #94828c; }
+.audit-detail pre { color: #896d7c; background: #f7f0f3; }
+.app-modal { border-color: #e7dfe4!important; box-shadow: 0 20px 70px #28151c33!important; }
+.app-modal h2 { color: #493740!important; }
+.app-modal [id$=description] { color: #8a7782; }
+.field > span { color: #6b5b64; }
+.field input:not([type=checkbox]), select { border-color: #e2dce0; color: #5c4c55; }
+.field input:focus, select:focus { border-color: #ca879c; box-shadow: 0 0 0 3px #f8e9ef; }
+.field input::placeholder { color: #ac9da6; }
+.color-swatch.selected { outline-color: var(--alta-red); }
+.app-loading { background: #faf8f9; color: var(--alta-red); }
+.app-loading > i { border-color: #eed5dd; border-top-color: var(--alta-red); }
+/* Login: marca Alta em primeiro plano; formulário funcional, sem conteúdo de assinantes. */
+.auth-page { background: var(--alta-black); }
+.auth-header { padding: 21px 6%; border-bottom: 1px solid #2b272b; }
+.auth-header .alta-brand { width: 140px; }
+.auth-header > span { color: #97919b; font-size: 10px; }
+.auth-main { flex: 1; margin: 0; width: 100%; max-width: none; grid-template-columns: 1fr 1fr; gap: 0; padding: 0; align-items: stretch; }
+.auth-intro { padding: 40px 14%; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
+.auth-intro > .alta-brand { width: 101px; margin-bottom: 26px; }
+.auth-intro .eyebrow { color: #8d8791; font-size: 9px; margin-bottom: 13px; }
+.auth-intro h1 { color: #f7f5f6; font-size: 42px; line-height: 1.25; font-weight: 650; }
+.auth-intro h1 em { color: #e34b66; }
+.auth-intro > p { color: #96909b; font-size: 13px; margin-top: 19px; }
+.auth-operation-art { margin-top: 29px; width: 100%; max-width: 330px; gap: 13px; }
+.art-node { background: #1c191e; border-color: #38313a; color: #b2a6b6; box-shadow: none; }
+.art-node.center { background: #241a20; border-color: #54303d; }
+.art-line { border-color: #4b3542; }
+.art-line:after { background: #4b3542; }
+.auth-form-section { width: 100%; max-width: none; margin: 0; background: #fff; padding: 55px 18%; display: flex; flex-direction: column; justify-content: center; }
+.auth-form-icon { color: var(--alta-red); }
+.auth-form-section > .eyebrow { color: #a78a98; }
+.auth-form-section h2 { color: #30262d; font-size: 25px; }
+.auth-form-section > .body-muted { color: #8b7b85; }
+.auth-form-section .field > span { color: #76616e; }
+.auth-form-section .field input { border-color: #e7dde3; color: #58424f; }
+.auth-form-section form > button { background: var(--alta-red); color: #fff; box-shadow: none; }
+.auth-form-section form > button:hover { background: var(--alta-red-hover); }
+.auth-security { color: #998490; border-color: #f1e8ed; font-size: 10px; }
+.auth-security svg { color: #b18499; }
+.auth-footer { padding: 20px 6%; color: #8f828f; font-size: 10px; border-top: 1px solid #2b272b; }
+/* Operação saudável continua verde; marca vermelha não significa erro. */
+.stat.green strong, .stat.green .stat-top svg { color: #367751; }
+.status-badge.green { background: #edf6ee; color: #528460; }
+.status-badge.amber { background: #fbf4e7; color: #a7792b; }
+.status-badge.red { background: #fbeeed; color: #ac4c48; }
+@media(max-width:1250px) {
+  .auth-intro { padding: 40px 11%; }
+  .auth-form-section { padding: 45px 13%; }
+  .auth-intro h1 { font-size: 38px; }
+}
+@media(max-width:1000px) {
+  .sidebar .alta-brand { width: 133px; }
+  .auth-intro { padding: 38px 10%; }
+  .auth-intro h1 { font-size: 34px; }
+  .auth-form-section { padding: 42px 10%; }
+  .auth-operation-art { grid-template-columns: 1fr 55px 1fr; }
+}
+@media(max-width:760px) {
+  .sidebar { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .15s; }
+  .sidebar.open { opacity: 1; visibility: visible; pointer-events: auto; }
+  .sidebar .brand-row { position: relative; padding-right: 33px; }
+  .sidebar .brand-row > a { display: block; max-width: 155px; min-width: 0; }
+  .sidebar .mobile-close { position: absolute; right: 0; top: 12px; width: 30px; height: 30px; z-index: 2; }
+  .sidebar .alta-brand { width: 155px; }
+  .auth-header { padding: 18px 7%; }
+  .auth-header .alta-brand { width: 119px; }
+  .auth-header > span { font-size: 8px; max-width: 120px; text-align: right; line-height: 1.8; }
+  .auth-main { display: flex; flex-direction: column; width: 100%; padding: 0; max-width: none; }
+  .auth-intro { display: none; }
+  .auth-form-section { flex: 1; padding: 45px 8%; max-width: none; }
+  .auth-form-section h2 { font-size: 24px; }
+  .auth-footer { padding: 20px 7%; font-size: 9px; }
+}

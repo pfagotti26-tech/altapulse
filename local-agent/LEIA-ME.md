@@ -1,4 +1,6 @@
-# Vértice — estação Windows
+# Alta Core — estação Windows
+
+Produto Alta Agency. Identidade visual derivada dos arquivos de marca fornecidos, com o descritor “core”. O pacote inclui o logotipo localmente; não depende de imagens remotas.
 
 ## Instalação e conexão
 1. Windows 10/11, Python 3.11 ou superior com Tk e Python Launcher (py). Instale Python pela distribuição oficial, caso necessário.
@@ -13,7 +15,7 @@ Gerenciamento de perfis persistentes separados, lock por perfil, confirmação l
 O leitor não adivinha dados. Se os atributos de sequência e horários exigidos abaixo não estiverem disponíveis, os respectivos indicadores continuarão indisponíveis. Não existe fallback por API, interceptação ou extração de cookies. A validação pode concluir que uma tela não suporta a métrica sob estas restrições.
 
 ## Validação local do adaptador — somente com responsável técnico autorizado
-`Mapeamento e validação` pausa a leitura e abre `%LOCALAPPDATA%\Vertice\adapter.json`. O arquivo contém campos vazios, não exemplos fictícios. Valide na página real, sem salvar HTML, mensagens ou capturas. Inspeção deve ser manual/local e somente nos elementos permitidos. Não copiar logs de rede. Não mapear inputs, campos editáveis, senhas, cookies ou tokens. As credenciais continuam exclusivamente no navegador.
+`Mapeamento e validação` pausa a leitura e abre `%LOCALAPPDATA%\AltaCore\adapter.json`. Instalações anteriores conservam sua pasta original para não perder as sessões locais. O arquivo contém campos vazios, não exemplos fictícios. Valide na página real, sem salvar HTML, mensagens ou capturas. Inspeção deve ser manual/local e somente nos elementos permitidos. Não copiar logs de rede. Não mapear inputs, campos editáveis, senhas, cookies ou tokens. As credenciais continuam exclusivamente no navegador.
 
 Campos de chat:
 - `container`: seletor de um contêiner de conversa efetivamente visível, não do corpo genérico da página.
@@ -42,9 +44,9 @@ Preencher `validation_scope` com a descrição técnica dos campos/telas autoriz
 4. Finaliza a revisão; depois retoma o turno. Fechar o formulário não encerra a revisão; use Encerrar revisão.
 
 ## Segurança e persistência
-- `%LOCALAPPDATA%\Vertice\profiles\<id interno>`: perfis dedicados. Nunca é usado o perfil pessoal Chrome/Edge. Apenas uma instância por pasta; há lock de arquivo no Windows.
+- `%LOCALAPPDATA%\AltaCore\profiles\<id interno>`: perfis dedicados. Em instalações anteriores a pasta original é preservada. Nunca é usado o perfil pessoal Chrome/Edge. Apenas uma instância por pasta; há lock de arquivo no Windows.
 - Sessões ficam nos perfis do Chromium, sob o usuário Windows. O código não lê, exporta nem sincroniza cookies ou arquivos de perfil. Não compartilhar nem copiar a pasta. Restrinja o usuário Windows e use proteção de disco.
-- Token próprio do Vértice e chave de pseudonimização ficam no Windows Credential Manager via `keyring`, não no pacote nem no painel. Revogação do token interrompe coleta e comandos, não transfere ou apaga a sessão Privacy.
+- Token próprio do Alta Core e chave de pseudonimização ficam no Windows Credential Manager via `keyring`, não no pacote nem no painel. Identificadores internos legados são mantidos por compatibilidade. Revogação do token interrompe coleta e comandos, não transfere ou apaga a sessão Privacy.
 - `config.json` contém apenas URLs públicas do painel e da Privacy. Toda comunicação do agente é HTTPS ao seu próprio painel. Navegação normal é feita pelo Chromium. Não há requests Python para a Privacy.
 - Sem screenshots, HTML, texto de mensagens, mídia, request listeners ou endpoints Privacy. Nenhuma automação de envio, clique, rolagem, compra, saque, CAPTCHA, proxy ou anti-detect.
 - Uma aba escondida ou conteúdo fora da área visível não é lido. Estação offline, mudança de DOM ou falta de dados geram estado de interrupção/sem dados. Não há cobertura integral ou recuperação retroativa.
