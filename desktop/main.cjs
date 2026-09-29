@@ -7,7 +7,10 @@ const { allowedUrl } = require('./policy.cjs');
 const { CreatorBrowser } = require('./browser.cjs');
 const config = require('./config.json');
 if (!allowedUrl(config.app_url, [config.app_url]) || !allowedUrl(config.privacy_url, config.privacy_origins)) throw new Error('Configuração inválida.');
-app.setName('Alta Core');
+// Reutiliza a pasta existente sem copiar ou exportar sessões locais.
+const legacyUserData = path.join(app.getPath('appData'), 'Alta Core');
+app.setName('Alta Pulse');
+if (fs.existsSync(path.join(legacyUserData, 'machine.json'))) app.setPath('userData', legacyUserData);
 if (!app.requestSingleInstanceLock()) app.quit();
 let window, browser;
 app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
@@ -26,12 +29,12 @@ app.whenReady().then(async () => {
   const control = session.fromPartition('persist:alta-control');
   control.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
   const icon = nativeImage.createFromPath(path.join(__dirname, 'brand/favicon.png'));
-  window = new BrowserWindow({ width: 1460, height: 940, minWidth: 1050, minHeight: 720, title: 'Alta Core', icon,
+  window = new BrowserWindow({ width: 1460, height: 940, minWidth: 1050, minHeight: 720, title: 'Alta Pulse', icon,
     backgroundColor: '#111113', autoHideMenuBar: true, webPreferences: { partition: 'persist:alta-control',
       preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false,
       webSecurity: true, devTools: false, webviewTag: false, navigateOnDragDrop: false } });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'Alta Core', submenu: [{ label: 'Sobre o Alta Core', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Alta Core', message: `Alta Core ${config.version}`, detail: 'Alta Agency · Perfis locais isolados\nLogin da Privacy necessário em cada computador.\nSem sincronização de sessões ou leitura automática nesta versão.\nElectron/Chromium — licenças incluídas na instalação.' }) }, { type: 'separator' }, { role: 'quit', label: 'Sair' }] },
+    { label: 'Alta Pulse', submenu: [{ label: 'Sobre o Alta Pulse', click: () => dialog.showMessageBox(window, { type: 'info', title: 'Alta Pulse', message: `Alta Pulse ${config.version}`, detail: 'Alta Agency · Perfis locais isolados\nLogin da Privacy necessário em cada computador.\nSem sincronização de sessões ou leitura automática nesta versão.\nElectron/Chromium — licenças incluídas na instalação.' }) }, { type: 'separator' }, { role: 'quit', label: 'Sair' }] },
     { label: 'Editar', submenu: [{ role: 'undo', label: 'Desfazer' }, { role: 'redo', label: 'Refazer' }, { type: 'separator' }, { role: 'cut', label: 'Recortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Colar' }, { role: 'selectAll', label: 'Selecionar tudo' }] }
   ]));
   browser = new CreatorBrowser(window, control, config, machineId);
@@ -59,7 +62,7 @@ app.whenReady().then(async () => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('render-process-gone', () => browser.close().catch(() => {}));
   window.webContents.on('did-fail-load', (_event, code, _desc, _url, mainFrame) => {
-    if (mainFrame && code !== -3) dialog.showMessageBox(window, { type: 'warning', title: 'Conexão Alta Core', message: 'Não foi possível abrir o painel.', detail: 'Verifique sua internet. O aplicativo precisa estar conectado para validar os acessos.', buttons: ['Tentar novamente', 'Fechar'] }).then(r => r.response === 0 ? window.loadURL(config.app_url).catch(() => {}) : window.close());
+    if (mainFrame && code !== -3) dialog.showMessageBox(window, { type: 'warning', title: 'Conexão Alta Pulse', message: 'Não foi possível abrir o painel.', detail: 'Verifique sua internet. O aplicativo precisa estar conectado para validar os acessos.', buttons: ['Tentar novamente', 'Fechar'] }).then(r => r.response === 0 ? window.loadURL(config.app_url).catch(() => {}) : window.close());
   });
   let closing = false;
   window.on('close', event => {

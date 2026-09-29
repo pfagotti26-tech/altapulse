@@ -1,7 +1,7 @@
-"""Troca de uso único entre a sessão web Alta Core e seu processo nativo.
+"""Troca de uso único entre a sessão web Alta Pulse e seu processo nativo.
 
 Não lê, transporta nem armazena cookies da Privacy. Token nativo só autoriza
-rotas /desktop e depende continuamente da sessão web Alta Core de origem.
+rotas /desktop e depende continuamente da sessão web Alta Pulse de origem.
 """
 import secrets
 from datetime import timedelta
@@ -34,7 +34,7 @@ async def exchange_ticket(body: ExchangeIn):
     if not ticket: raise HTTPException(401, 'A autorização temporária expirou ou já foi utilizada.')
     session = await db.sessions.find_one({'token_hash': ticket['session_hash'], 'user_id': ticket['user_id'], 'expires_at': {'$gt': now()}}, {'_id': 0})
     user = await db.users.find_one({'id': ticket['user_id'], 'active': True}, {'_id': 0})
-    if not session or not user: raise HTTPException(401, 'Sua sessão Alta Core terminou. Entre novamente.')
+    if not session or not user: raise HTTPException(401, 'Sua sessão Alta Pulse terminou. Entre novamente.')
     if user.get('must_change_password') or session.get('auth_version', 0) != user.get('auth_version', 0):
         raise HTTPException(401, 'Atualize sua senha pessoal e entre novamente.')
     token = secrets.token_urlsafe(48)
@@ -50,7 +50,7 @@ async def native_user(request: Request):
     if not token: raise HTTPException(401, 'A autorização do aplicativo expirou. Entre novamente.')
     session = await db.sessions.find_one({'token_hash': token['session_hash'], 'user_id': token['user_id'], 'expires_at': {'$gt': now()}}, {'_id': 0})
     user = await db.users.find_one({'id': token['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0})
-    if not session or not user: raise HTTPException(401, 'Sua sessão Alta Core terminou. Entre novamente.')
+    if not session or not user: raise HTTPException(401, 'Sua sessão Alta Pulse terminou. Entre novamente.')
     if user.get('must_change_password') or session.get('auth_version', 0) != user.get('auth_version', 0):
         raise HTTPException(401, 'Atualize sua senha pessoal e entre novamente.')
     request.state.desktop_session_hash = token['session_hash']

@@ -1,9 +1,9 @@
 {
-  "name": "alta-core-desktop",
-  "productName": "Alta Core",
-  "version": "0.2.1",
+  "name": "alta-pulse-desktop",
+  "productName": "Alta Pulse",
+  "version": "0.2.2",
   "main": "main.cjs",
   "author": "Alta Agency",
   "license": "UNLICENSED",
-  "description": "Alta Core — navegador de perfis locais autorizados"
+  "description": "Alta Pulse — navegador de perfis locais autorizados"
 }

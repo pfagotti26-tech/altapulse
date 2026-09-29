@@ -6,7 +6,7 @@ export const dateTime = date => date ? new Intl.DateTimeFormat('pt-BR', { timeZo
 export const duration = seconds => seconds == null ? '—' : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 export const initials = name => name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 export async function download(path, filename) {
-  filename = filename.replace(/^vertice-/i, 'alta-core-');
+  filename = filename.replace(/^(?:vertice|alta-core)-/i, 'alta-pulse-');
   const r = await api.get(path, { responseType: 'blob' }); const url = URL.createObjectURL(r.data);
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

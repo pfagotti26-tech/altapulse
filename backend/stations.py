@@ -129,9 +129,9 @@ async def download_agent(user=Depends(manager)):
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
         for file in source.glob('*'):
             if file.is_file() and file.suffix in ['.py', '.ps1', '.bat', '.md', '.json']:
-                package.write(file, 'Alta-Core-Windows/' + file.name)
-        package.writestr('Alta-Core-Windows/config.json', json.dumps({'app_url': ORIGIN, 'privacy_url': os.environ['PRIVACY_URL']}, indent=2))
+                package.write(file, 'Alta-Pulse-Windows/' + file.name)
+        package.writestr('Alta-Pulse-Windows/config.json', json.dumps({'app_url': ORIGIN, 'privacy_url': os.environ['PRIVACY_URL']}, indent=2))
         assets = Path(__file__).parent.parent / 'frontend/public/brand'
-        for name in ['alta-core-black.png', 'alta-mark-red.png']:
-            package.write(assets / name, 'Alta-Core-Windows/' + name)
-    return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': 'attachment; filename="Alta-Core-Windows.zip"'})
+        for name in ['alta-pulse-black.png', 'alta-mark-red.png']:
+            package.write(assets / name, 'Alta-Pulse-Windows/' + name)
+    return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': 'attachment; filename="Alta-Pulse-Windows.zip"'})

@@ -1,1 +1,1 @@
-71f3612df4fae7f0d08805e5805948369792cb4ca5c7bb50eb90e172f64c487a  Alta-Core-0.2.1-Setup-x64.exe
+d8277227bdca75fe87e1e9cb9f0e77e6dc26d5e2adaf7536f5f621bc1e2ecb41  Alta-Pulse-0.2.2-Setup-x64.exe

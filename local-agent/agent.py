@@ -1,4 +1,4 @@
-"""Alta Core Windows — perfis locais visíveis e ponte somente com o próprio painel."""
+"""Alta Pulse Windows — componente assistido anterior; perfis locais visíveis."""
 import asyncio
 import json
 import os
@@ -32,7 +32,7 @@ class Desktop:
         self.base = previous_base if previous_base.exists() else Path(os.environ['LOCALAPPDATA']) / 'AltaCore'
         self.base.mkdir(parents=True, exist_ok=True)
         self.app = tk.Tk()
-        self.app.title('Alta Core • Estação local')
+        self.app.title('Alta Pulse • Componente assistido')
         self.app.geometry('730x590')
         self.app.minsize(610, 530)
         self.app.configure(bg='#fafafa')
@@ -52,7 +52,7 @@ class Desktop:
         if self.token: self.start_worker()
 
     def build_ui(self):
-        self.logo = tk.PhotoImage(file=str(ROOT / 'alta-core-black.png')).subsample(6, 6)
+        self.logo = tk.PhotoImage(file=str(ROOT / 'alta-pulse-black.png')).subsample(6, 6)
         tk.Label(self.app, image=self.logo, bg='#fafafa').pack(anchor='w', padx=28, pady=(18, 3))
         tk.Label(self.app, text='ESTAÇÃO LOCAL  /  WINDOWS', bg='#fafafa', fg='#87878d', font=('Segoe UI', 9)).pack(anchor='w', padx=30)
         self.status = tk.StringVar(value='Conectando…' if self.token else 'Conecte esta estação com o código do gestor.')

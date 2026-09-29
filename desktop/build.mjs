@@ -18,21 +18,21 @@ for (const file of ['main.cjs', 'preload.cjs', 'browser.cjs', 'policy.cjs', 'LEI
 fs.mkdirSync(path.join(stage, 'brand'), { recursive: true });
 fs.copyFileSync(path.join(root, '../frontend/public/brand/favicon.png'), path.join(stage, 'brand/favicon.png'));
 // Metadata gerada somente no estágio de empacotamento; não altera o package.json do projeto.
-fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({ name: 'alta-core-desktop', productName: 'Alta Core', version, main: 'main.cjs', author: 'Alta Agency', license: 'UNLICENSED', description: 'Alta Core — navegador de perfis locais autorizados' }, null, 2));
+fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({ name: 'alta-pulse-desktop', productName: 'Alta Pulse', version, main: 'main.cjs', author: 'Alta Agency', license: 'UNLICENSED', description: 'Alta Pulse — navegador de perfis locais autorizados' }, null, 2));
 fs.writeFileSync(path.join(stage, 'config.json'), JSON.stringify({ version, app_url: frontend.REACT_APP_BACKEND_URL,
   privacy_url: env.PRIVACY_URL, privacy_origins: [new URL(env.PRIVACY_URL).origin] }, null, 2));
-await packager({ dir: stage, name: 'AltaCore', platform: 'win32', arch: 'x64', electronVersion,
+await packager({ dir: stage, name: 'AltaPulse', platform: 'win32', arch: 'x64', electronVersion,
   out: path.join(root, 'dist'), overwrite: true, asar: true, prune: false,
-  executableName: 'AltaCore', appVersion: version, buildVersion: version,
-  win32metadata: { CompanyName: 'Alta Agency', FileDescription: 'Alta Core', ProductName: 'Alta Core', OriginalFilename: 'AltaCore.exe' },
+  executableName: 'AltaPulse', appVersion: version, buildVersion: version,
+  win32metadata: { CompanyName: 'Alta Agency', FileDescription: 'Alta Pulse', ProductName: 'Alta Pulse', OriginalFilename: 'AltaPulse.exe' },
   icon: path.join(root, '../frontend/public/favicon.ico') });
 execFileSync('makensis', ['-V2', `-DVERSION=${version}`, path.join(root, 'installer.nsi')], { cwd: root, stdio: 'inherit' });
-const filename = `Alta-Core-${version}-Setup-x64.exe`;
+const filename = `Alta-Pulse-${version}-Setup-x64.exe`;
 const file = path.join(root, 'dist', filename);
 const bytes = fs.readFileSync(file);
 if (bytes.subarray(0, 2).toString() !== 'MZ') throw new Error('Instalador PE inválido.');
 const manifest = { version, filename, size_bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
-  built_at: new Date().toISOString(), platform: 'Windows 10/11 x64', electron_version: electronVersion };
+  built_at: new Date().toISOString(), platform: 'Windows 10/11 x64', electron_version: electronVersion, product_name: 'Alta Pulse' };
 fs.renameSync(file, path.join(release, filename));
 fs.writeFileSync(path.join(release, 'manifest.json.tmp'), JSON.stringify(manifest, null, 2));
 fs.renameSync(path.join(release, 'manifest.json.tmp'), path.join(release, 'manifest.json'));

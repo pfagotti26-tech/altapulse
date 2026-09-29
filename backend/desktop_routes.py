@@ -1,4 +1,4 @@
-"""Controle do Alta Core Desktop. Nunca recebe credenciais ou sessões da Privacy."""
+"""Controle do Alta Pulse Desktop. Nunca recebe credenciais ou sessões da Privacy."""
 import json
 from pathlib import Path
 from datetime import timedelta, datetime

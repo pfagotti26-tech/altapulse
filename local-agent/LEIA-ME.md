@@ -1,6 +1,8 @@
-# Alta Core — estação Windows
+# Alta Pulse — componente assistido anterior
 
-Produto Alta Agency. Identidade visual derivada dos arquivos de marca fornecidos, com o descritor “core”. O pacote inclui o logotipo localmente; não depende de imagens remotas.
+Este pacote Python é o componente assistido anterior, não o novo instalador desktop Alta Pulse. Nomes internos de pasta/cofre das instalações existentes são mantidos por compatibilidade; a marca pública foi atualizada.
+
+Produto Alta Agency. Identidade visual derivada dos arquivos de marca fornecidos, com o descritor “pulse”. O pacote inclui o logotipo localmente; não depende de imagens remotas.
 
 ## Instalação e conexão
 1. Windows 10/11, Python 3.11 ou superior com Tk e Python Launcher (py). Instale Python pela distribuição oficial, caso necessário.
@@ -46,7 +48,7 @@ Preencher `validation_scope` com a descrição técnica dos campos/telas autoriz
 ## Segurança e persistência
 - `%LOCALAPPDATA%\AltaCore\profiles\<id interno>`: perfis dedicados. Em instalações anteriores a pasta original é preservada. Nunca é usado o perfil pessoal Chrome/Edge. Apenas uma instância por pasta; há lock de arquivo no Windows.
 - Sessões ficam nos perfis do Chromium, sob o usuário Windows. O código não lê, exporta nem sincroniza cookies ou arquivos de perfil. Não compartilhar nem copiar a pasta. Restrinja o usuário Windows e use proteção de disco.
-- Token próprio do Alta Core e chave de pseudonimização ficam no Windows Credential Manager via `keyring`, não no pacote nem no painel. Identificadores internos legados são mantidos por compatibilidade. Revogação do token interrompe coleta e comandos, não transfere ou apaga a sessão Privacy.
+- Token próprio do Alta Pulse e chave de pseudonimização ficam no Windows Credential Manager via `keyring`, não no pacote nem no painel. Identificadores internos legados são mantidos por compatibilidade. Revogação do token interrompe coleta e comandos, não transfere ou apaga a sessão Privacy.
 - `config.json` contém apenas URLs públicas do painel e da Privacy. Toda comunicação do agente é HTTPS ao seu próprio painel. Navegação normal é feita pelo Chromium. Não há requests Python para a Privacy.
 - Sem screenshots, HTML, texto de mensagens, mídia, request listeners ou endpoints Privacy. Nenhuma automação de envio, clique, rolagem, compra, saque, CAPTCHA, proxy ou anti-detect.
 - Uma aba escondida ou conteúdo fora da área visível não é lido. Estação offline, mudança de DOM ou falta de dados geram estado de interrupção/sem dados. Não há cobertura integral ou recuperação retroativa.

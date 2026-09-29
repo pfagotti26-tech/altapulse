@@ -1,0 +1,45 @@
+{
+  "summary": "Executed scoped backend+frontend validation for Alta Pulse 0.2.2 branding release. Public release/download contracts, installer integrity, NSIS extraction, legacy ZIP naming, and key UI branding flows passed. Original Windows execution-permission issue remains unresolved/unverified on real Windows host.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "Windows host launcher behavior (outside API)",
+        "issue": "User-reported Windows message 'O Windows não pode acessar o dispositivo, caminho ou arquivo especificado' is still NOT reproducible/verified in this Linux QA environment; cannot be marked fixed.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10_pulse_release_and_artifacts.py",
+    "/app/test_reports/pytest/pytest_results_iteration10.xml"
+  ],
+  "action_items": [
+    "Share installer link for Alta Pulse 0.2.2 as requested, but keep Windows block status explicitly unresolved.",
+    "Collect Windows Protection History / Smart App Control evidence on affected machine to continue RCA.",
+    "Do not present branding rename as fix for Windows launch policy restrictions."
+  ],
+  "critical_code_review_comments": [
+    "desktop/main.cjs, installer.nsi, build.mjs and release manifest are consistently renamed to Alta Pulse with 0.2.2 values and compatibility paths retained intentionally.",
+    "Public release endpoint truthfully exposes signed=false and windows_validated=false; this aligns with LEIA-ME warning boundaries.",
+    "Backend desktop module docstrings still mention 'Alta Core' in some internal comments (desktop_routes.py / desktop_auth.py); non-functional but branding consistency debt."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10_pulse_release_and_artifacts.py",
+    "/app/test_reports/iteration_10.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "No seed/test fixtures created. Used existing manager credential read-only for login and download validation.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Validated /api/desktop/release => version 0.2.2, filename Alta-Pulse-0.2.2-Setup-x64.exe, size 114903998, sha256 d8277227bdca75fe87e1e9cb9f0e77e6dc26d5e2adaf7536f5f621bc1e2ecb41, signed=false, windows_validated=false, session_sync=false, monitoring_validated=false. Full streamed download matched checksum and Content-Disposition. NSIS 7z test/extract passed; payload includes AltaPulse.exe (PE32+) and app.asar. Legacy manager ZIP response uses Alta-Pulse-Windows.zip and Alta-Pulse-Windows/ paths. UI checks passed for /baixar desktop+mobile overflow, warning copy, installer file hash helper, login branding, and authenticated sidebar/account/devices/settings branding.",
+  "rca of the issue": "RCA status for original user bug remains open. Reproduction steps in Linux cannot execute Windows Smart App Control/reputation policy path. Mitigation validated so far is limited to distribution correctness (hash, bytes, archive integrity, naming consistency). Required next RCA step is machine-specific Windows security event evidence; no bypass/security-disable guidance should be provided."
+}

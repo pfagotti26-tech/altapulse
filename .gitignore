@@ -88,3 +88,5 @@ desktop/node_modules/electron/dist/electron
 desktop/release/Alta-Core-0.2.1-Setup-x64.exe
 desktop/release/Alta-Core-0.2.0-Setup-x64.exe
 desktop/dist/AltaCore-win32-x64/AltaCore.exe
+desktop/release/Alta-Pulse-0.2.2-Setup-x64.exe
+desktop/dist/AltaPulse-win32-x64/AltaPulse.exe

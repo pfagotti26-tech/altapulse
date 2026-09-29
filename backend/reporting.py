@@ -118,4 +118,4 @@ async def export_report(kind: str = Query('summary', pattern='^(summary|sales|re
             if start and a['created_at'] < clean_time(start) or end and a['created_at'] >= clean_time(end): continue
             writer.writerow([csv_safe(a.get(k)) for k in ['actor', 'action', 'target', 'reason', 'created_at']])
     await audit(user, 'Relatório CSV exportado', kind)
-    return Response('\ufeff' + output.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename="alta-core-{kind}.csv"'})
+    return Response('\ufeff' + output.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename="alta-pulse-{kind}.csv"'})

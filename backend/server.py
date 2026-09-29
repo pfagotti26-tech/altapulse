@@ -30,7 +30,7 @@ async def lifespan(app):
     yield
     client.close()
 
-app = FastAPI(title='Alta Core • Gestão de operações', lifespan=lifespan)
+app = FastAPI(title='Alta Pulse • Gestão de operações', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=TRUSTED_ORIGINS, allow_credentials=True,
                    allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type', 'Authorization'])
 
@@ -50,4 +50,4 @@ for router in [auth, people, reporting, stations, desktop, desktop_auth]:
 @app.get('/api/health')
 async def health():
     await db.command('ping')
-    return {'status': 'ok', 'product': 'Alta Core'}
+    return {'status': 'ok', 'product': 'Alta Pulse'}
