@@ -99,7 +99,7 @@ class CreatorBrowser {
   navigate(action) {
     if (!this.view) return;
     if (this.state.status === 'blocked' && ['reload', 'home'].includes(action)) {
-      this.send({ notice: 'A Privacy recusou o acesso. Evite repetir solicitações; consulte o suporte da plataforma.' });
+      this.send({ notice: 'A Privacy recusou esta navegação. Não haverá repetição automática da solicitação.' });
       return;
     }
     const wc = this.view.webContents;

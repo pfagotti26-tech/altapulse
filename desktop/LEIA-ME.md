@@ -3,7 +3,7 @@
 Produto Alta Agency. Nome atualizado: Alta Pulse (anteriormente Alta Core). Navegador real integrado para criadoras autorizadas, com sessões isoladas no computador. Não é transmissão remota nem importação de sessões do Lauth.
 
 ## Aviso de distribuição
-Esta versão 0.2.3 distingue respostas HTTP recusadas de uma página carregada, utiliza o endereço de login oficial mostrado pelo usuário e oferece ações opcionais de suporte/abertura externa. **NÃO é uma correção comprovada dos bloqueios do Windows ou da Privacy e NÃO adiciona assinatura digital.** Não há alteração de identidade do navegador nem contorno de proteções.
+O código em desenvolvimento para 0.2.3 distingue respostas HTTP recusadas de uma página carregada e utiliza o endereço de login público mostrado pelo usuário. Não contém contato, reporte à Privacy ou alternativa de abertura externa. **NÃO é uma correção comprovada dos bloqueios do Windows ou da Privacy e NÃO adiciona assinatura digital.** A distribuição pública continua na versão indicada pelo manifesto; não há nova versão liberada apenas por existir este código em desenvolvimento.
 
 O instalador continua SEM assinatura digital. O Windows, Smart App Control ou antivírus pode bloquear a execução. Não desative proteções, não adicione exclusões e não restaure arquivos em quarentena por orientação deste aplicativo. Se houver bloqueio, pare a tentativa. Assinatura legítima e validação Windows são pendências separadas; não se utiliza certificado autoassinado para contornar controles.
 
@@ -29,13 +29,9 @@ A página pode recusar o navegador integrado mesmo abrindo no Chrome no mesmo co
 
 O aplicativo observa somente o código HTTP dos eventos de navegação da janela principal, sem interceptar rede ou ler o conteúdo das conversas. HTTP403/429 exibe aviso e não é substituído por “Página carregada” ao parar o carregamento. Não há repetição automática da navegação; recarregar/início ficam indisponíveis enquanto a recusa estiver registrada. A página de bloqueio permanece visível.
 
-“Copiar resumo para o suporte” copia somente versão do app/Electron, endereço público de entrada, códigoHTTP e horário observado. O ID de incidente, se houver, pode ser acrescentado manualmente a partir da página. Nenhuma senha, cookie, token, texto de conversa, mídia ou identificação de assinante integra esse resumo. Não enviamos o texto automaticamente nem o salvamos no banco.
+Por solicitação explícita do usuário, não há botão, envio automático, mensagem, relatório ou coleta para suporte da Privacy. As propostas de contato/reporte e de abertura externa foram retiradas antes de qualquer publicação de binário com esses recursos. Nenhum relatório foi enviado.
 
-“Suporte da Privacy” abre a Central de Ajuda oficial no navegador padrão, por solicitação do usuário. “Abrir fora do aplicativo” é uma alternativa opcional após recusa HTTP, com confirmação e revalidação da autorização Alta Pulse. Ela fecha o navegador integrado e libera sua reserva antes de solicitar abertura do endereço público fixo na aplicação padrão do sistema.
-
-**A janela externa NÃO utiliza a sessão isolada da criadora no Alta Pulse, não recebe cookies e não é acompanhada ou autenticada por ele. Confira a conta correta antes de atender.** O sistema apenas pede ao Windows para abrir a URL; não verifica se o site carregou nem identifica qual conta está conectada fora. Isso não reproduz exatamente a experiência integrada e não resolve sua recusa. Nenhum URL arbitrário pode ser enviado pelo renderer para essas ações.
-
-Não há alteração de User-Agent para fingir Chrome, rotação de IP, proxy, ocultação de automação, captura de cookies, acesso à API Privacy, alteração de TLS ou bypass de WAF/CAPTCHA. Caso a recusa persista, solicite à Privacy orientação sobre a forma de acesso permitida.
+Não há alteração de User-Agent para fingir Chrome, rotação de IP, proxy, ocultação de automação, captura de cookies, acesso à API Privacy, alteração de TLS ou bypass de WAF/CAPTCHA. A investigação deve focar a compatibilidade do componente e do fluxo de navegação; não presumir causa específica nem tratar navegador externo como equivalente ao integrado solicitado.
 
 ## Segurança e limites
 - Sandbox e isolamento de contexto ativos; sem Node/preload do aplicativo na Privacy. Nenhum flag de teste desativa essas proteções na distribuição Windows.

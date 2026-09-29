@@ -1,14 +1,12 @@
-const { app, BrowserWindow, ipcMain, session, Menu, dialog, nativeImage, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, dialog, nativeImage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { allowedUrl } = require('./policy.cjs');
 const { CreatorBrowser } = require('./browser.cjs');
-const { createExternalActions } = require('./external-actions.cjs');
 const config = require('./config.json');
 if (!allowedUrl(config.app_url, [config.app_url]) || !allowedUrl(config.privacy_url, config.privacy_origins)) throw new Error('Configuração inválida.');
-if (!config.privacy_support_url || !allowedUrl(config.privacy_support_url, [new URL(config.privacy_support_url).origin])) throw new Error('Configuração de suporte inválida.');
 // Reutiliza a pasta existente sem copiar ou exportar sessões locais.
 const legacyUserData = path.join(app.getPath('appData'), 'Alta Core');
 app.setName('Alta Pulse');
@@ -40,14 +38,13 @@ app.whenReady().then(async () => {
     { label: 'Editar', submenu: [{ role: 'undo', label: 'Desfazer' }, { role: 'redo', label: 'Refazer' }, { type: 'separator' }, { role: 'cut', label: 'Recortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Colar' }, { role: 'selectAll', label: 'Selecionar tudo' }] }
   ]));
   browser = new CreatorBrowser(window, control, config, machineId);
-  const external = createExternalActions({ window, browser, config, shell, dialog, clipboard, electronVersion: process.versions.electron });
   const trusted = event => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !allowedUrl(event.senderFrame.url, [config.app_url])) throw new Error('Origem não autorizada.');
   };
   const handle = (name, fn) => ipcMain.handle(name, async (event, payload) => {
     try { trusted(event); return await fn(payload); } catch (error) { return { error: error.message }; }
   });
-  handle('alta:info', () => ({ version: config.version, machine_id: machineId, platform: process.platform, session_model: 'per_machine', capabilities: { http_status: true, external_browser: true } }));
+  handle('alta:info', () => ({ version: config.version, machine_id: machineId, platform: process.platform, session_model: 'per_machine', capabilities: { http_status: true } }));
   handle('alta:authorize', ticket => browser.authorize(String(ticket)));
   handle('alta:register', () => browser.api('POST', '/desktop/devices/register', { machine_id: machineId, name: os.hostname().slice(0, 80), version: config.version }));
   handle('alta:open', async creatorId => {
@@ -55,9 +52,6 @@ app.whenReady().then(async () => {
     return browser.open(creatorId);
   });
   handle('alta:close', () => browser.close());
-  handle('alta:external-privacy', () => external.privacy());
-  handle('alta:privacy-support', () => external.support());
-  handle('alta:copy-support', () => external.copySupport());
   handle('alta:navigate', action => { if (!['back', 'forward', 'reload', 'home'].includes(action)) throw new Error('Ação inválida.'); return browser.navigate(action); });
   ipcMain.on('alta:layout', (event, rect) => { try { trusted(event); browser.layout(rect); } catch { /* denied */ } });
   window.webContents.on('will-navigate', (event, url) => {

@@ -45,19 +45,4 @@ function watchNavigation(wc, { origins, isCurrent, publish, networkFailure, proc
   wc.on('render-process-gone', () => { if (isCurrent()) processGone(); });
 }
 
-function supportSummary(config, state, electronVersion) {
-  return [
-    'Olá, equipe de suporte da Privacy.',
-    'Solicito análise de compatibilidade do navegador integrado Alta Pulse. A agência informa ter autorização da criadora para operar a conta.',
-    `Aplicativo: Alta Pulse ${config.version} · Electron ${electronVersion}`,
-    `Endereço de entrada configurado: ${config.privacy_url}`,
-    `Resposta HTTP da navegação: ${state.http_status ?? 'não confirmada'}`,
-    `Momento da resposta (UTC): ${state.http_observed_at || 'não registrado'}`,
-    'O acesso utiliza a interface visual do site, sem API Privacy, exportação de cookies ou alteração de identidade do navegador.',
-    'Peço orientação sobre a compatibilidade/forma de acesso permitida. Não houve tentativa de contornar o bloqueio.',
-    'Acrescentar manualmente, se disponível: ID do incidente mostrado na página e resultado da comparação no Chrome/Edge no mesmo computador e rede.',
-    'Não anexar senhas, cookies, tokens, mensagens, mídias ou dados de assinantes.'
-  ].join('\n');
-}
-
-module.exports = { classifyHttpStatus, watchNavigation, supportSummary };
+module.exports = { classifyHttpStatus, watchNavigation };

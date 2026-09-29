@@ -8,9 +8,7 @@ contextBridge.exposeInMainWorld('altaDesktop', Object.freeze({
   register: () => ipcRenderer.invoke('alta:register'),
   open: creatorId => ipcRenderer.invoke('alta:open', String(creatorId)),
   close: () => ipcRenderer.invoke('alta:close'),
-  openExternalPrivacy: () => ipcRenderer.invoke('alta:external-privacy'),
-  openPrivacySupport: () => ipcRenderer.invoke('alta:privacy-support'),
-  copySupportInfo: () => ipcRenderer.invoke('alta:copy-support'),
+  navigationStatusVersion: 1,
   layout: rect => ipcRenderer.send('alta:layout', rect),
   navigate: action => ipcRenderer.invoke('alta:navigate', String(action)),
   onState: callback => {
