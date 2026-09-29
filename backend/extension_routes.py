@@ -10,7 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
-from core import db, now, iso, uid, digest, current_user, lock, settings, audit, ORIGIN
+from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
@@ -130,7 +130,7 @@ async def observations(body: ObservationBatch, user=Depends(extension_user)):
 async def release(): return {'version': VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Extensao-{VERSION}.zip'}
 
 @router.get('/extension/download')
-async def download(user=Depends(current_user)):
+async def download():
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
         for file in SOURCE.rglob('*'):
