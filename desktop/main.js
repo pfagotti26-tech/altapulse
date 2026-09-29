@@ -48,6 +48,13 @@ let local = readJson('local.json', { groups: [], tags: [
   { id: 'roxa', name: 'Outro', color: '#9b6bd6' },
 ], creators: {} });
 const saveLocal = () => writeJson('local.json', local);
+// grupos são identificados pelo nome no servidor; localmente têm id
+function groupIdFor(name) {
+  let g = local.groups.find((x) => x.name === name);
+  if (!g) { g = { id: 'g' + Date.now() + Math.random().toString(36).slice(2, 6), name }; local.groups.push(g); }
+  return g.id;
+}
+function groupName(id) { const g = local.groups.find((x) => x.id === id); return g ? g.name : ''; }
 
 // ---------- token ----------
 function readToken() {
@@ -99,7 +106,16 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
-    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed };
+    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed };
+    // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
+    let changed = false;
+    for (const c of data.creators) {
+      if (c.group === undefined) continue; // painel antigo, sem os campos: fica só local
+      const l = local.creators[c.id] || {};
+      const gid = c.group ? groupIdFor(c.group) : '';
+      if (l.group !== gid || l.tag !== (c.tag || '') || l.notes !== (c.notes || '')) { local.creators[c.id] = { ...l, group: gid, tag: c.tag || '', notes: c.notes || '' }; changed = true; }
+    }
+    if (changed) saveLocal();
   } catch (error) {
     if (!token) state = { ...state, user: null, creators: [] };
     else state = { ...state, warning: error.message };
@@ -191,14 +207,14 @@ const readers = new Map(); // creatorId -> { reader, summary, lastError }
 function readerFor(id) {
   if (!readers.has(id)) {
     const store = readJson(`reader-${id}.json`, null);
-    readers.set(id, { reader: new CreatorReader(id, localSecret(), store), summary: null, lastError: null });
+    readers.set(id, { reader: new CreatorReader(id, localSecret(), store, { fanNames: !!state.fan_names_allowed }), summary: null, lastError: null });
   }
   return readers.get(id);
 }
 async function readAll() {
   if (!state.user) return;
   for (const [id, view] of views) {
-    const r = readerFor(id);
+    const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
@@ -230,7 +246,7 @@ async function heartbeats() {
     const url = view.webContents.getURL();
     try {
       const r = readers.get(id); const onChat = /\/chat/i.test(url);
-      await api('POST', '/extension/heartbeat', { creator_id: id, page: onChat ? 'chat' : 'other', observation_state: onChat && r && r.summary && !shift.paused ? 'partial' : 'no_data' });
+      await api('POST', '/extension/heartbeat', { creator_id: id, source: 'desktop', page: onChat ? 'chat' : 'other', observation_state: onChat && r && r.summary && !shift.paused ? 'partial' : 'no_data' });
     } catch {}
   }
 }
@@ -283,8 +299,24 @@ ipcMain.handle('profile:calibrate', async (_e, id) => {
 ipcMain.handle('shift:start', async (_e, creatorId) => { await api('POST', '/extension/shifts', { creator_id: creatorId }); return refreshState().then(publicState); });
 ipcMain.handle('shift:action', async (_e, { shiftId, action }) => { await api('POST', `/extension/shifts/${shiftId}/action`, { action }); return refreshState().then(publicState); });
 
-ipcMain.handle('local:setCreator', (_e, { id, patch }) => { local.creators[id] = { ...(local.creators[id] || {}), ...patch }; saveLocal(); pushState(); return local; });
-ipcMain.handle('local:setGroups', (_e, groups) => { local.groups = groups; saveLocal(); pushState(); return local; });
+ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
+  local.creators[id] = { ...(local.creators[id] || {}), ...patch }; saveLocal(); pushState();
+  const meta = {};
+  if ('group' in patch) meta.group = groupName(patch.group);
+  if ('tag' in patch) meta.tag = patch.tag || '';
+  if ('notes' in patch) meta.notes = patch.notes || '';
+  if (Object.keys(meta).length && token) {
+    try { await api('PATCH', `/extension/creators/${id}/meta`, meta); }
+    catch (error) { if (sidebar) sidebar.webContents.send('toast', /404|Not Found/i.test(error.message) ? 'Salvo só neste computador (painel ainda sem sincronização).' : `Salvo aqui, mas o painel recusou: ${error.message}`); }
+  }
+  return local;
+});
+ipcMain.handle('local:setGroups', async (_e, groups) => {
+  const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });
+  local.groups = groups; saveLocal(); pushState();
+  for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (l.group === g.id && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { group: g.name }); } catch {} }
+  return local;
+});
 ipcMain.handle('local:setTags', (_e, tags) => { local.tags = tags; saveLocal(); pushState(); return local; });
 
 ipcMain.handle('config:setOrigin', (_e, origin) => {

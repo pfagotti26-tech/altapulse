@@ -28,7 +28,7 @@ Os eventos vão para o painel só quando o turno da criadora é do usuário loga
 
 ## O que ainda não faz
 
-- Grupos, etiquetas e anotações ficam no computador (`%APPDATA%\alta-pulse-desktop\local.json`); sincronização entre máquinas é fase 3.
+- Grupos, etiquetas e anotações são salvos no painel (campos da criadora) quando o painel tem a versão com `/api/extension/creators/{id}/meta`; em painel antigo ficam só no computador (`%APPDATA%\alta-pulse-desktop\local.json`).
 - Instalador assinado (fase 3).
 
 Nada de senha, cookie ou conteúdo da Privacy sai do computador. O app só envia ao painel: login do próprio Alta Pulse, turno e "aba aberta / no chat".

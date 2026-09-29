@@ -5,7 +5,8 @@
 // - venda = aumento do total gasto do fã na lista de conversas (cobre PPV, mimo e assinatura
 //   vista pelo chat); a etiqueta 'ainda não pago' da mensagem não é usada para não contar em dobro; o instante é o da observação quando a leitura
 //   estava contínua (< 2 min entre leituras); senão fica "desconhecida" e sem atribuição.
-// - nomes de fãs viram HMAC com segredo local; nada de texto de mensagem.
+// - o assinante vai sempre como hash (HMAC com segredo local) e, só com a opção 'guardar nome do
+//   assinante' ligada no painel, também com o nome de exibição; nada de texto de mensagem.
 'use strict';
 const crypto = require('crypto');
 
@@ -44,12 +45,14 @@ function listAt(when, now) {
 function isoLocal(d) { return d.toISOString(); }
 
 class CreatorReader {
-  constructor(creatorId, secret, store) {
-    this.creatorId = creatorId; this.secret = secret;
+  constructor(creatorId, secret, store, options = {}) {
+    this.creatorId = creatorId; this.secret = secret; this.options = options; // { fanNames: bool }
     this.s = store || { rooms: {}, sent: {}, lastObservedAt: null };
   }
   ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, ...parts].join('|')).digest('hex'); }
   roomKey(name) { return this.ref('room', name); }
+  // identificação do assinante: hash sempre; nome só com a opção da agência ligada
+  fan(name) { return name ? { fan_ref: this.roomKey(name), ...(this.options.fanNames ? { fan_name: name.slice(0, 80) } : {}) } : {}; }
 
   // devolve { events: [], summary: {} } e atualiza o estado interno
   process(data, now = new Date()) {
@@ -74,7 +77,7 @@ class CreatorReader {
           const known = continuous && prev.at && (observedAt - prev.at) < CONTINUOUS_MS;
           events.push({ creator_id: this.creatorId, event_ref: this.ref('sale', key, String(r.spent.cents)), kind: 'sale',
             amount_cents: delta, sale_origin: 'chat', sale_status: known ? 'confirmed' : 'unknown',
-            confirmed_at: known ? isoLocal(now) : null });
+            confirmed_at: known ? isoLocal(now) : null, ...this.fan(r.name) });
         }
         this.s.rooms[key] = { cents: r.spent.cents, approx: false, at: observedAt };
       } else if (r.spent) this.s.rooms[key] = { cents: r.spent.cents, approx: true, at: observedAt };
@@ -90,7 +93,7 @@ class CreatorReader {
         else if (start) {
           const ref = this.ref('wait', open.cid, isoLocal(start));
           if (this.s.sent[ref] !== 'response') {
-            events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'response', started_at: isoLocal(start), responded_at: isoLocal(t < start ? start : t), sequence_complete: true });
+            events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'response', started_at: isoLocal(start), responded_at: isoLocal(t < start ? start : t), sequence_complete: true, ...this.fan(open.name) });
             this.s.sent[ref] = 'response';
           }
           start = null;
@@ -99,7 +102,7 @@ class CreatorReader {
       if (start) {
         const ref = this.ref('wait', open.cid, isoLocal(start));
         if (!this.s.sent[ref]) {
-          events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'pending', started_at: isoLocal(start), sequence_complete: true });
+          events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'pending', started_at: isoLocal(start), sequence_complete: true, ...this.fan(open.name) });
           this.s.sent[ref] = 'pending';
         }
       }

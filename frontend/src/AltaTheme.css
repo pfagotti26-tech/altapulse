@@ -207,3 +207,7 @@ tbody tr:hover { background: #fdfbfc; }
   .auth-form-section h2 { font-size: 24px; }
   .auth-footer { padding: 20px 7%; font-size: 9px; }
 }
+/* grupo e etiqueta da criadora (vindos do app desktop) */
+.creator-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+.meta-chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--muted-text); border: 1px solid var(--line); }
+.meta-chip.tag { background: var(--alta-soft); color: var(--accent-foreground, #8f1a2f); border-color: #f0c9d1; }

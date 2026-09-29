@@ -26,7 +26,7 @@ async def create_creator(body: Creator, user=Depends(manager)):
 @router.patch('/creators/{creator_id}')
 async def edit_creator(creator_id: str, body: Creator, user=Depends(manager)):
     old = await creator_access(creator_id, user)
-    await db.creators.update_one({'id': creator_id}, {'$set': body.model_dump()})
+    await db.creators.update_one({'id': creator_id}, {'$set': body.model_dump(exclude_unset=True)})
     await audit(user, 'Cadastro atualizado', old['name'])
     return {'ok': True}
 @router.delete('/creators/{creator_id}')

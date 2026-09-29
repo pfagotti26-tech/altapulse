@@ -107,6 +107,8 @@ async def ingest(body: Observation, source: dict):
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True}, {'_id': 0})
     if shift and shift['paused']: raise HTTPException(409, 'Turno pausado.')
     row = body.model_dump(mode='json')
+    # nome do assinante só é guardado com a opção explícita da agência em Configurações
+    if not (await settings()).get('fan_names_allowed'): row['fan_name'] = None
     for key in ['started_at', 'responded_at', 'confirmed_at']:
         if getattr(body, key):
             from core import clean_time

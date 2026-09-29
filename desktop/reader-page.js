@@ -42,7 +42,7 @@ module.exports = String.raw`(() => {
       const np = el.querySelector('.vac-text-not-paid');
       msgs.push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null });
     }
-    open = { cid, msgs, skeleton: !!qs('.skeleton-messages') };
+    open = { cid, msgs, name: txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name')), skeleton: !!qs('.skeleton-messages') };
   }
   return { page: location.pathname.startsWith('/chat') ? 'chat' : 'other', rooms, open, loading: !!qs('.skeleton-messages'), roots: roots.length };
 })()`;
