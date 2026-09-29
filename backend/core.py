@@ -30,6 +30,10 @@ async def current_user(request: Request):
     session = await db.sessions.find_one({'token_hash': digest(token), 'expires_at': {'$gt': now()}}, {'_id': 0})
     user = await db.users.find_one({'id': session['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0}) if session else None
     if not user: raise HTTPException(401, 'Sessão expirada. Entre novamente.')
+    if session.get('auth_version', 0) != user.get('auth_version', 0):
+        raise HTTPException(401, 'Sua senha foi alterada. Entre novamente.')
+    if user.get('must_change_password') and request.url.path not in {'/api/auth/me', '/api/auth/password', '/api/auth/logout'}:
+        raise HTTPException(403, 'Defina sua senha pessoal antes de acessar o painel.')
     return user
 async def manager(user=Depends(current_user)):
     if user['role'] != 'manager': raise HTTPException(403, 'Acesso exclusivo do gestor.')

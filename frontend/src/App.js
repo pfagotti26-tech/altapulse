@@ -15,6 +15,7 @@ import Reports from './pages/Reports';
 import DownloadDesktop from './pages/DownloadDesktop';
 import BrowserWorkspace from './pages/BrowserWorkspace';
 import DesktopDevices from './pages/DesktopDevices';
+import Account, { PasswordSetup } from './pages/Account';
 import './App.css';
 import './AltaTheme.css';
 import './Desktop.css';
@@ -39,7 +40,7 @@ export default function App() {
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (!user || !isDesktop) { setDesktopDevice(null); return; }
+    if (!user || user.must_change_password || !isDesktop) { setDesktopDevice(null); return; }
     let active = true;
     let running = false;
     const register = async () => {
@@ -61,16 +62,16 @@ export default function App() {
     register(); const id = setInterval(register, 15000);
     return () => { active = false; clearInterval(id); };
   }, [user, isDesktop]);
-  useEffect(() => { if (!user) return; refresh().catch(() => {});
+  useEffect(() => { if (!user || user.must_change_password) return; refresh().catch(() => {});
     const timer = setInterval(() => refresh().catch(() => {}), 15000); return () => clearInterval(timer);
   }, [user, refresh]);
   const login = async () => { const r = await api.get('/auth/me'); setUser(r.data.user); setConfig(r.data.settings); };
   const logout = async () => { if (isDesktop) await window.altaDesktop.close(); await api.post('/auth/logout'); setUser(null); setCreators([]); };
   if (loading) return <div className="app-loading" data-testid="app-loading"><Brand/><i/></div>;
   if (connectionError) return <div className="app-loading" data-testid="connection-error"><h2>Não foi possível conectar</h2><button data-testid="retry-connection" onClick={load}>Tentar novamente</button></div>;
-  return <Context.Provider value={{ user, config, setConfig, creators, station, refresh, logout, isDesktop, desktopDevice }}><BrowserRouter><Routes>
+  return <Context.Provider value={{ user, config, setConfig, creators, station, refresh, logout, isDesktop, desktopDevice, refreshIdentity: login }}><BrowserRouter><Routes>
     <Route path="/baixar" element={<DownloadDesktop/>}/>
-    <Route path="*" element={!user ? <Auth setup={setup} onLogin={login}/> : <Shell><Routes>
+    <Route path="*" element={!user ? <Auth setup={setup} onLogin={login}/> : user.must_change_password ? <PasswordSetup/> : <Shell><Routes>
       <Route path="/" element={<Creators/>}/>
       <Route path="/operacao" element={user.role === 'manager' ? <Operation/> : <Navigate to="/"/>}/>
       <Route path="/vendas" element={user.role === 'manager' ? <Sales/> : <Navigate to="/"/>}/>
@@ -80,6 +81,7 @@ export default function App() {
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/navegador/:creatorId" element={<BrowserWorkspace/>}/>
       <Route path="/computadores" element={<DesktopDevices/>}/>
+      <Route path="/minha-conta" element={<Account/>}/>
       <Route path="*" element={<Navigate to="/"/>}/>
     </Routes></Shell>}/></Routes><Toaster position="bottom-right" richColors theme="light"/>
   </BrowserRouter></Context.Provider>;

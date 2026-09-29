@@ -14,6 +14,7 @@ class UserOut(Public):
     active: bool
     creator_ids: list[str]
     created_at: str
+    must_change_password: bool = False
 
 class ShiftOut(Public):
     id: str

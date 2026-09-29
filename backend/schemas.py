@@ -14,6 +14,26 @@ class Operator(Login):
     name: str = Field(min_length=2, max_length=70)
     role: Literal['manager', 'chatter'] = 'chatter'
     creator_ids: list[str] = Field(default_factory=list, max_length=100)
+    temporary_password: bool = False
+
+class PasswordChange(Strict):
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+    confirm_password: str = Field(min_length=10, max_length=128)
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=False)
+
+    @field_validator('new_password')
+    @classmethod
+    def strong_password(cls, value):
+        if value != value.strip(): raise ValueError('Não use espaços no início ou no fim da senha.')
+        if not any(c.isalpha() for c in value) or not any(c.isdigit() for c in value):
+            raise ValueError('Use pelo menos uma letra e um número.')
+        return value
+
+    @model_validator(mode='after')
+    def same_confirmation(self):
+        if self.new_password != self.confirm_password: raise ValueError('A confirmação da nova senha não confere.')
+        return self
 class OperatorUpdate(Strict):
     creator_ids: list[str] = Field(max_length=100)
     active: bool = True

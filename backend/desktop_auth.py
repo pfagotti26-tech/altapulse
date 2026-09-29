@@ -35,6 +35,8 @@ async def exchange_ticket(body: ExchangeIn):
     session = await db.sessions.find_one({'token_hash': ticket['session_hash'], 'user_id': ticket['user_id'], 'expires_at': {'$gt': now()}}, {'_id': 0})
     user = await db.users.find_one({'id': ticket['user_id'], 'active': True}, {'_id': 0})
     if not session or not user: raise HTTPException(401, 'Sua sessão Alta Core terminou. Entre novamente.')
+    if user.get('must_change_password') or session.get('auth_version', 0) != user.get('auth_version', 0):
+        raise HTTPException(401, 'Atualize sua senha pessoal e entre novamente.')
     token = secrets.token_urlsafe(48)
     await db.desktop_tokens.insert_one({'token_hash': digest(token), 'user_id': user['id'], 'machine_id': body.machine_id,
         'session_hash': ticket['session_hash'], 'expires_at': session['expires_at']})
@@ -49,6 +51,8 @@ async def native_user(request: Request):
     session = await db.sessions.find_one({'token_hash': token['session_hash'], 'user_id': token['user_id'], 'expires_at': {'$gt': now()}}, {'_id': 0})
     user = await db.users.find_one({'id': token['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0})
     if not session or not user: raise HTTPException(401, 'Sua sessão Alta Core terminou. Entre novamente.')
+    if user.get('must_change_password') or session.get('auth_version', 0) != user.get('auth_version', 0):
+        raise HTTPException(401, 'Atualize sua senha pessoal e entre novamente.')
     request.state.desktop_session_hash = token['session_hash']
     request.state.desktop_machine_id = token['machine_id']
     return user

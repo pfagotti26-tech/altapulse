@@ -50,8 +50,8 @@ async def users(user=Depends(manager)):
 async def create_user(body: Operator, user=Depends(manager)):
     if len(set(body.creator_ids)) != await db.creators.count_documents({'id': {'$in': body.creator_ids}}):
         raise HTTPException(422, 'Há perfis inexistentes.')
-    row = {**body.model_dump(exclude={'password'}), 'email': str(body.email).lower(), 'id': uid(), 'active': True,
-        'password_hash': hash_password(body.password), 'created_at': iso()}
+    row = {**body.model_dump(exclude={'password', 'temporary_password'}), 'email': str(body.email).lower(), 'id': uid(), 'active': True,
+        'password_hash': hash_password(body.password), 'created_at': iso(), 'must_change_password': body.temporary_password, 'auth_version': 0}
     try: await db.users.insert_one(row.copy())
     except DuplicateKeyError: raise HTTPException(409, 'Este e-mail já está cadastrado.')
     await audit(user, 'Integrante cadastrado', row['name'])

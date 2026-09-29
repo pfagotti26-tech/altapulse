@@ -60,6 +60,18 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Limpeza final remove gestor temporário e fixtures sintéticas, mantendo índices e workspace pronto para primeiro cadastro. Credenciais temporárias não devem ser usadas pelo usuário.
 
 ## Backlog priorizado / próximos passos
+### Acessos nominativos e troca de senha — 2026-09-29
+- Usuário decidiu explicitamente **não alterar a distribuição/downloads por enquanto**. Não separar instaladores gestor/chatter, não restringir novo link, não implementar multiagências nesta alteração.
+- Pedido: link para instalar nos notebooks dele e de Fernanda, acessos gestores para `pfagotti26@gmail.com` e `fernanda.fagotti1@gmail.com`, com senhas provisórias substituíveis no próprio sistema.
+- Criadas duas contas reais ativas de gestor: Admin Alta (nome pessoal não informado) e Fernanda. Senhas provisórias aleatórias distintas guardadas somente em `/root/alta-manager-onboarding.env` (600), fora de repositório/instalador; armazenadas no banco somente por scrypt. Não enviados e-mails automáticos.
+- Ambas começam com `must_change_password=true`. Primeiro login abre a criação da senha pessoal, com senha atual/provisória, nova senha e confirmação. Restrições também no servidor: antes da troca só auth/me, auth/password e logout são permitidos; não há bypass por URL ou por token nativo.
+- Nova página `/minha-conta`, acessível pelo nome no menu lateral com texto “Minha conta · Alterar senha”, para gestor ou chatter. Troca exige senha atual e nova diferente, mínimo10 caracteres com letras/números; campos mostrar/ocultar, validação de confirmação e mensagens claras.
+- `POST /api/auth/password` rotaciona a sessão atual, invalida outras sessões/tokens/tickets/reservas nativas somente do mesmo usuário e grava auditoria sem senhas/hashes. `auth_version` impede uso de sessões/tokens antigos inclusive em concorrência com login. Limite5 tentativas de senha atual incorreta em15 minutos.
+- Não implementado esqueci senha, recuperação por e-mail ou consulta/admin visualizando senhas. A mudança não altera credenciais Privacy.
+- QA em `/app/test_reports/iteration_8.json`: **7/7 testes aprovados**, fluxos web/mobile e proteção de sessões. Contas reais testadas apenas com login/me/logout; **senhas provisórias e flags de primeiro acesso preservadas** para a entrega. Trocas exercitadas somente em fixtures próprias.
+- Instalador0.2.1 e SHA-256 permanecem inalterados (`71f3612df4fae7f0d08805e5805948369792cb4ca5c7bb50eb90e172f64c487a`). Download público atual: `/api/desktop/download/windows` e página `/baixar`. Não afirmar que downloads gestor/chatter já foram separados.
+- Conta de teste compartilhada existente e criadora real Mel Martins preservadas. Recomenda-se futuramente desativar acesso compartilhado após os gestores confirmarem seus acessos pessoais; não foi desativado sem solicitação.
+
 ### Aplicativo desktop e distribuição — 2026-09-29
 - Pedido do usuário: aplicativo instalado para ele e a sócia Fernanda, criadoras na lateral e navegador dentro do sistema como no Lauth, com botão de instalação fácil para chatters no próprio site Alta Core.
 - Referência https://lauth-lp.framer.website/ analisada; anuncia perfis isolados, grupos e permissões de equipe, mas não documenta o mecanismo de sessão. Não foram reproduzidos recursos anti-detect, proxies, camuflagem ou garantias de evitar bloqueios.
