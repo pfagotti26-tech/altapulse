@@ -36,7 +36,6 @@ class CreatorOut(Public):
     review: dict[str, Any] | None = None
     shift: ShiftOut | None = None
     browser: dict[str, Any] | None = None
-    desktop_access: dict[str, Any] | None = None
 
 class SettingsOut(Public):
     id: str = 'main'

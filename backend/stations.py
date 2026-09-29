@@ -98,7 +98,9 @@ async def ack(command_id: str, body: Ack, station=Depends(agent_auth)):
     return {'ok': True}
 @router.post('/agent/observations')
 async def observations(body: Observation, station=Depends(agent_auth)):
-    if not (await settings())['storage_allowed']: raise HTTPException(409, 'Armazenamento de métricas desabilitado.')
+    return await ingest(body, {'station_id': station['id']})
+async def ingest(body: Observation, source: dict):
+    if not (await settings())['storage_allowed']: raise HTTPException(409, 'Armazenamento de métricas desabilitado. Ative em Configurações.')
     creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0})
     if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
     if creator.get('review'): raise HTTPException(409, 'Observação pausada durante revisão.')
@@ -120,7 +122,7 @@ async def observations(body: Observation, station=Depends(agent_auth)):
             if old['kind'] == 'response' and body.kind == 'pending': return {'ok': True, 'deduplicated': True}
             if old['kind'] == 'sale' and old['sale_status'] in ['refunded', 'cancelled'] and body.sale_status == 'confirmed': return {'ok': True, 'deduplicated': True}
         await db.events.update_one({'creator_id': body.creator_id, 'event_ref': body.event_ref},
-            {'$set': {**row, 'station_id': station['id'], 'observed_at': iso()}, '$setOnInsert': {'id': uid(), 'expires_at': await expiration()}}, upsert=True)
+            {'$set': {**row, **source, 'observed_at': iso()}, '$setOnInsert': {'id': uid(), 'expires_at': await expiration()}}, upsert=True)
     return {'ok': True}
 @router.get('/station/download')
 async def download_agent(user=Depends(manager)):

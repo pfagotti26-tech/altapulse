@@ -1,0 +1,142 @@
+"""Extensão Chrome Alta Pulse: login por token, estado, turnos e observações do DOM visível.
+
+Nenhuma credencial, cookie ou conteúdo da Privacy chega a este servidor; somente hashes,
+horários, valores e situações de venda observados pela extensão no Chrome do operador.
+"""
+import io, json, os, re, secrets, zipfile
+from pathlib import Path
+from datetime import timedelta
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
+from pydantic import Field
+from core import db, now, iso, uid, digest, current_user, lock, settings, audit, ORIGIN
+from schemas import Strict, Login, ShiftStart, ShiftAction, Observation
+from responses import Public, UserOut, ShiftOut, CreatorOut
+from auth_routes import verify_password
+from people import start_shift, change_shift
+from stations import ingest
+
+router = APIRouter()
+SOURCE = Path(__file__).parent.parent / 'extension'
+VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
+TOKEN_DAYS = 30
+
+class ExtensionLogin(Login):
+    device_name: str = Field(default='Chrome', min_length=1, max_length=80)
+
+class HeartbeatIn(Strict):
+    creator_id: str
+    page: Literal['chat', 'other'] = 'other'
+    observation_state: Literal['no_data', 'partial', 'paused', 'validation_required', 'interrupted'] = 'partial'
+
+class ObservationBatch(Strict):
+    events: list[Observation] = Field(max_length=200)
+
+class TokenOut(Public):
+    token: str
+    expires_at: str
+    user: UserOut
+
+class StateOut(Public):
+    user: UserOut
+    creators: list[CreatorOut]
+    storage_allowed: bool
+    sla_minutes: int
+    version: str
+    latest_version: str
+
+async def extension_user(request: Request):
+    authorization = request.headers.get('authorization', '')
+    if not authorization.startswith('Bearer '): raise HTTPException(401, 'Entre na extensão com seu acesso Alta Pulse.')
+    token = await db.extension_tokens.find_one({'token_hash': digest(authorization[7:]), 'expires_at': {'$gt': now()}}, {'_id': 0})
+    if not token: raise HTTPException(401, 'A sessão da extensão expirou. Entre novamente.')
+    user = await db.users.find_one({'id': token['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0})
+    if not user: raise HTTPException(401, 'Este acesso foi desativado.')
+    if token.get('auth_version', 0) != user.get('auth_version', 0): raise HTTPException(401, 'Sua senha foi alterada. Entre novamente na extensão.')
+    if user.get('must_change_password'): raise HTTPException(403, 'Defina sua senha pessoal no painel Alta Pulse antes de usar a extensão.')
+    await db.extension_tokens.update_one({'token_hash': token['token_hash']}, {'$set': {'last_seen': iso()}})
+    request.state.extension_token_hash = token['token_hash']
+    return user
+
+@router.post('/extension/login', response_model=TokenOut)
+async def login(body: ExtensionLogin, request: Request):
+    key = digest('extension:' + str(body.email).lower() + ':' + (request.client.host if request.client else 'unknown'))
+    attempt = await db.login_limits.find_one({'id': key})
+    threshold = (now() - timedelta(minutes=15)).isoformat()
+    if attempt and attempt['count'] >= 10 and attempt['last_at'] > threshold: raise HTTPException(429, 'Muitas tentativas. Aguarde 15 minutos.')
+    user = await db.users.find_one({'email': str(body.email).lower(), 'active': True}, {'_id': 0})
+    if not user or not verify_password(body.password, user['password_hash']):
+        count = (attempt['count'] if attempt and attempt['last_at'] > threshold else 0) + 1
+        await db.login_limits.update_one({'id': key}, {'$set': {'count': count, 'last_at': iso()}}, upsert=True)
+        raise HTTPException(401, 'E-mail ou senha incorretos.')
+    await db.login_limits.delete_one({'id': key})
+    if user.get('must_change_password'): raise HTTPException(403, 'Defina sua senha pessoal no painel Alta Pulse antes de usar a extensão.')
+    token = secrets.token_urlsafe(48); expires = now() + timedelta(days=TOKEN_DAYS)
+    await db.extension_tokens.insert_one({'token_hash': digest(token), 'user_id': user['id'], 'auth_version': user.get('auth_version', 0),
+        'device_name': body.device_name, 'created_at': iso(), 'last_seen': iso(), 'expires_at': expires})
+    await audit(user, 'Extensão Chrome conectada', body.device_name)
+    return {'token': token, 'expires_at': expires.isoformat(), 'user': user}
+
+@router.post('/extension/logout')
+async def logout(request: Request, user=Depends(extension_user)):
+    await db.extension_tokens.delete_one({'token_hash': request.state.extension_token_hash})
+    await db.browsers.update_many({'operator_id': user['id'], 'source': 'extension'}, {'$set': {'state': 'closed'}})
+    return {'ok': True}
+
+async def creators_for(user):
+    from people import creators
+    return await creators(user)
+
+@router.get('/extension/state', response_model=StateOut)
+async def state(user=Depends(extension_user)):
+    config = await settings()
+    return {'user': user, 'creators': await creators_for(user), 'storage_allowed': config['storage_allowed'], 'sla_minutes': config['sla_minutes'], 'version': VERSION, 'latest_version': VERSION}
+
+@router.post('/extension/shifts', status_code=201, response_model=ShiftOut)
+async def extension_start_shift(body: ShiftStart, user=Depends(extension_user)):
+    return await start_shift(body, user)
+
+@router.post('/extension/shifts/{shift_id}/action')
+async def extension_shift_action(shift_id: str, body: ShiftAction, user=Depends(extension_user)):
+    async with lock:
+        return await change_shift(shift_id, body, user)
+
+@router.post('/extension/heartbeat')
+async def heartbeat(body: HeartbeatIn, user=Depends(extension_user)):
+    from core import creator_access
+    creator = await creator_access(body.creator_id, user)
+    shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True}, {'_id': 0, 'expires_at': 0})
+    paused = not shift or shift.get('paused', False) or bool(creator.get('review'))
+    state = 'paused' if paused else body.observation_state if body.page == 'chat' else 'no_data'
+    await db.browsers.update_one({'creator_id': body.creator_id}, {'$set': {'creator_id': body.creator_id, 'state': 'open', 'observation_state': state,
+        'last_seen': iso(), 'source': 'extension', 'operator_id': user['id'], 'operator_name': user['name'], 'page': body.page}}, upsert=True)
+    return {'ok': True, 'paused': paused, 'review': bool(creator.get('review')), 'shift': shift, 'storage_allowed': (await settings())['storage_allowed']}
+
+@router.post('/extension/observations')
+async def observations(body: ObservationBatch, user=Depends(extension_user)):
+    results = []
+    for event in body.events:
+        if user['role'] != 'manager' and event.creator_id not in user['creator_ids']:
+            results.append({'event_ref': event.event_ref, 'ok': False, 'detail': 'Criadora não autorizada.'}); continue
+        try:
+            outcome = await ingest(event, {'source': 'extension', 'operator_id': user['id']})
+            results.append({'event_ref': event.event_ref, **outcome})
+        except HTTPException as error:
+            results.append({'event_ref': event.event_ref, 'ok': False, 'status': error.status_code, 'detail': error.detail})
+    return {'results': results, 'accepted': sum(r['ok'] for r in results)}
+
+@router.get('/extension/release')
+async def release(): return {'version': VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Extensao-{VERSION}.zip'}
+
+@router.get('/extension/download')
+async def download(user=Depends(current_user)):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
+        for file in SOURCE.rglob('*'):
+            if not file.is_file() or '__pycache__' in file.parts: continue
+            name = str(file.relative_to(SOURCE))
+            if file.suffix in ['.json', '.js', '.html', '.css', '.md']:
+                package.writestr(name, file.read_text(encoding='utf-8').replace('__API_ORIGIN__', ORIGIN))
+            else: package.write(file, name)
+    return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="Alta-Pulse-Extensao-{VERSION}.zip"'})

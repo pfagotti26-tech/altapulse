@@ -1,8 +1,0 @@
-{
-  "version": "0.2.2",
-  "app_url": "https://privacy-agent-hub.preview.emergentagent.com",
-  "privacy_url": "https://privacy.com.br",
-  "privacy_origins": [
-    "https://privacy.com.br"
-  ]
-}

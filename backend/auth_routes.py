@@ -66,17 +66,12 @@ async def change_password(body: PasswordChange, response: Response, user=Depends
             'password_changed_at': iso(), 'auth_version': stored.get('auth_version', 0) + 1}
         await db.users.update_one({'id': user['id']}, {'$set': update})
         await db.sessions.delete_many({'user_id': user['id']})
-        await db.desktop_tokens.delete_many({'user_id': user['id']})
-        await db.desktop_tickets.delete_many({'user_id': user['id']})
-        await db.desktop_leases.delete_many({'operator_id': user['id']})
+        await db.extension_tokens.delete_many({'user_id': user['id']})
         await db.login_limits.delete_one({'id': key})
         await audit(user, 'Senha do próprio acesso atualizada', user['id'])
         return await session_response({**stored, **update}, response)
 @router.post('/auth/logout')
 async def logout(request: Request, response: Response):
-    await db.desktop_leases.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
-    await db.desktop_tokens.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
-    await db.desktop_tickets.delete_many({'session_hash': digest(request.cookies.get('vertice_session', ''))})
     await db.sessions.delete_many({'token_hash': digest(request.cookies.get('vertice_session', ''))})
     response.delete_cookie('vertice_session', path='/api')
     return {'ok': True}

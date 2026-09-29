@@ -13,7 +13,7 @@ const PasswordField = ({ id, label, value, onChange, autoComplete = 'new-passwor
 };
 
 export default function Account({ forced = false }) {
-  const { user, refreshIdentity, isDesktop } = useApp();
+  const { user, refreshIdentity } = useApp();
   const [current, setCurrent] = useState(''), [password, setPassword] = useState(''), [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false);
   const lengthOk = password.length >= 10, combinationOk = /\p{L}/u.test(password) && /\d/.test(password), matches = Boolean(confirm) && password === confirm;
@@ -24,7 +24,6 @@ export default function Account({ forced = false }) {
     if (password === current) { setError('Escolha uma senha diferente da atual.'); return; }
     setBusy(true);
     try {
-      if (isDesktop) await window.altaDesktop.close();
       await api.post('/auth/password', { current_password: current, new_password: password, confirm_password: confirm });
       setCurrent(''); setPassword(''); setConfirm(''); setSaved(true);
       await refreshIdentity(); toast.success('Sua senha foi atualizada. Os outros acessos foram encerrados.');

@@ -12,8 +12,6 @@ async def creators(user=Depends(current_user)):
     query = {} if user['role'] == 'manager' else {'id': {'$in': user['creator_ids']}}
     rows = await db.creators.find(query, {'_id': 0}).sort('created_at', 1).to_list(1000)
     for row in rows:
-        lease = await db.desktop_leases.find_one({'creator_id': row['id'], 'expires_at': {'$gt': now()}}, {'_id': 0, 'operator_id': 1, 'device_id': 1, 'mode': 1})
-        row['desktop_access'] = lease
         row['shift'] = await db.shifts.find_one({'creator_id': row['id'], 'active': True}, {'_id': 0, 'expires_at': 0})
         row['browser'] = await db.browsers.find_one({'creator_id': row['id']}, {'_id': 0})
         if row['browser'] and row['browser'].get('last_seen', '') < (now() - timedelta(seconds=30)).isoformat():
@@ -34,10 +32,9 @@ async def edit_creator(creator_id: str, body: Creator, user=Depends(manager)):
 @router.delete('/creators/{creator_id}')
 async def remove_creator(creator_id: str, body: Reason, user=Depends(manager)):
     row = await creator_access(creator_id, user)
-    if await db.desktop_leases.find_one({'creator_id': creator_id, 'expires_at': {'$gt': now()}}): raise HTTPException(409, 'Feche o navegador integrado antes de excluir o perfil.')
     if await db.shifts.find_one({'creator_id': creator_id, 'active': True}): raise HTTPException(409, 'Encerre o turno antes de excluir.')
     browser = await db.browsers.find_one({'creator_id': creator_id})
-    if browser and browser['state'] != 'closed': raise HTTPException(409, 'Feche o perfil local antes de excluir.')
+    if browser and browser['state'] == 'open' and browser.get('last_seen', '') > (now() - timedelta(seconds=30)).isoformat(): raise HTTPException(409, 'Feche a aba da Privacy com a extensão ativa antes de excluir.')
     for collection in ['creators', 'events', 'reviews', 'shifts', 'browsers']:
         await db[collection].delete_many({'id': creator_id} if collection == 'creators' else {'creator_id': creator_id})
     await db.users.update_many({}, {'$pull': {'creator_ids': creator_id}})
@@ -64,7 +61,9 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager))
     if await db.shifts.find_one({'operator_id': user_id, 'active': True}): raise HTTPException(409, 'Encerre os turnos deste integrante primeiro.')
     if await db.creators.count_documents({'id': {'$in': body.creator_ids}}) != len(set(body.creator_ids)): raise HTTPException(422, 'Perfis inválidos.')
     await db.users.update_one({'id': user_id}, {'$set': body.model_dump()})
-    if not body.active: await db.sessions.delete_many({'user_id': user_id})
+    if not body.active:
+        await db.sessions.delete_many({'user_id': user_id})
+        await db.extension_tokens.delete_many({'user_id': user_id})
     await audit(user, 'Permissões atualizadas', target['name'], body.model_dump())
     return {'ok': True}
 @router.get('/shifts', response_model=list[ShiftOut])
@@ -74,9 +73,6 @@ async def shifts(user=Depends(current_user)):
 async def start_shift(body: ShiftStart, user=Depends(current_user)):
     creator = await creator_access(body.creator_id, user)
     async with lock:
-        lease = await db.desktop_leases.find_one({'creator_id': body.creator_id, 'expires_at': {'$gt': now()}})
-        if lease and lease['operator_id'] != user['id']:
-            raise HTTPException(409, 'Outro responsável está com o navegador aberto. Aguarde o encerramento.')
         if creator.get('review'): raise HTTPException(409, 'Encerre a revisão antes de iniciar um turno.')
         row = {'id': uid(), 'creator_id': creator['id'], 'creator_name': creator['name'], 'operator_id': user['id'],
             'operator_name': user['name'], 'started_at': iso(), 'ended_at': None, 'active': True, 'paused': False}

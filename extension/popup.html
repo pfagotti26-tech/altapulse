@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alta Pulse</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="pulse-header">
+      <div class="pulse-brand">
+        <span class="pulse-mark"></span>
+        <div><strong>Alta Pulse</strong><small>Monitor de chatters</small></div>
+      </div>
+      <button id="logout" class="ghost-btn" hidden title="Sair">Sair</button>
+    </header>
+
+    <!-- LOGIN -->
+    <section id="login-view" class="view" hidden>
+      <h1>Entre com seu acesso</h1>
+      <p class="muted">Use o mesmo e-mail e senha do painel Alta Pulse.</p>
+      <form id="login-form">
+        <label>E-mail<input id="email" type="email" placeholder="voce@agencia.com.br" autocomplete="username" required /></label>
+        <label>Senha<input id="password" type="password" placeholder="Sua senha" autocomplete="current-password" required /></label>
+        <p id="login-error" class="error" hidden></p>
+        <button id="login-submit" class="primary-btn" type="submit">Entrar</button>
+      </form>
+      <p class="foot muted">Este acesso é independente da sua conta Privacy. Nunca pedimos a senha das criadoras.</p>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="dash-view" class="view" hidden>
+      <div class="signed-in">
+        <div class="avatar" id="user-avatar"></div>
+        <div><strong id="user-name"></strong><small id="user-role"></small></div>
+        <span id="page-badge" class="badge">—</span>
+      </div>
+
+      <div class="field">
+        <label for="active-creator">Criadora que você está atendendo</label>
+        <select id="active-creator"></select>
+      </div>
+
+      <div id="active-panel" class="active-panel" hidden>
+        <div class="panel-row">
+          <span id="shift-state" class="badge">Sem turno</span>
+          <span id="shift-operator" class="muted"></span>
+        </div>
+        <div class="panel-actions" id="shift-actions"></div>
+      </div>
+
+      <a id="open-privacy" class="link-btn" href="https://privacy.com.br/auth?route=sign-in" target="_blank">Abrir a Privacy no Chrome ↗</a>
+
+      <div class="creators-block">
+        <div class="block-head"><span>Suas criadoras</span><span id="creator-count" class="count">0</span></div>
+        <ul id="creator-list"></ul>
+      </div>
+
+      <p class="foot muted">Presença e turnos são registrados no painel. Tempo de resposta e vendas aparecem quando o mapeamento das telas for validado. Nenhum conteúdo de conversa é enviado.</p>
+    </section>
+
+    <div id="loading" class="view center"><span class="spinner"></span></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

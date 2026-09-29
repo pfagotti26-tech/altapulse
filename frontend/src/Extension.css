@@ -1,0 +1,55 @@
+/* Página de instalação da extensão e blocos relacionados */
+.ext-page { min-height: 100vh; background: #fafafa; display: flex; flex-direction: column; }
+.ext-header { display: flex; align-items: center; justify-content: space-between; padding: 26px 46px; border-bottom: 1px solid var(--line); background: #fff; }
+.ext-back { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #7c847e; }
+.ext-back:hover { color: var(--red, #C41E3A); }
+.ext-main { flex: 1; max-width: 1040px; width: 100%; margin: 0 auto; padding: 54px 46px 40px; }
+
+.ext-hero { text-align: left; max-width: 720px; }
+.ext-hero .eyebrow { color: #b5566a; }
+.ext-hero h1 { font-size: 46px; line-height: 1.08; font-weight: 800; letter-spacing: -1px; margin: 6px 0 20px; color: #16161a; }
+.ext-hero h1 span { color: #C41E3A; }
+.ext-hero p { font-size: 14px; line-height: 1.8; color: #6f766f; max-width: 620px; }
+.ext-cta { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-top: 30px; }
+.ext-download-btn { display: inline-flex; align-items: center; gap: 9px; background: #C41E3A; color: #fff; border: none; border-radius: 10px; padding: 14px 22px; font-size: 13.5px; font-weight: 650; cursor: pointer; transition: background .15s, transform .1s; box-shadow: 0 6px 18px rgba(196,30,58,.22); }
+.ext-download-btn:hover { background: #9d1730; }
+.ext-download-btn:active { transform: scale(.99); }
+.ext-trust { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: #8a908a; }
+
+.ext-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; margin: 56px 0; }
+.ext-steps > div { border: 1px solid var(--line); border-radius: 12px; padding: 24px 20px; background: #fff; position: relative; }
+.ext-step-num { position: absolute; top: 18px; right: 20px; font-family: 'Manrope', sans-serif; font-size: 26px; font-weight: 300; color: #eadfe2; }
+.ext-steps svg { color: #C41E3A; margin-bottom: 16px; }
+.ext-steps h2 { font-size: 14px; font-weight: 700; color: #2b2b30; margin-bottom: 9px; }
+.ext-steps p { font-size: 11.5px; line-height: 1.75; color: #82887f; }
+.ext-steps strong { color: #55555c; font-weight: 600; }
+
+.ext-boundaries { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; border-top: 1px solid var(--line); padding-top: 40px; }
+.ext-boundaries > div { display: flex; gap: 14px; }
+.ext-boundaries svg { color: #98826a; flex-shrink: 0; margin-top: 2px; }
+.ext-boundaries h2 { font-size: 13px; font-weight: 700; color: #3a3a40; margin-bottom: 8px; }
+.ext-boundaries p { font-size: 11px; line-height: 1.8; color: #8a908a; }
+.ext-boundaries strong { color: #5a5a60; }
+
+.ext-footer { border-top: 1px solid var(--line); padding: 22px 46px; display: flex; justify-content: space-between; gap: 20px; font-size: 10px; color: #a5a5aa; background: #fff; }
+
+.auth-desktop-download { margin-top: 22px; }
+.auth-desktop-download a { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #e79fae; }
+.auth-desktop-download a:hover { color: #fff; }
+
+/* Links da aba de configurações */
+.desktop-settings-links { display: flex; flex-direction: column; gap: 11px; margin-bottom: 16px; }
+.desktop-settings-links a, .settings-link-btn { display: flex; align-items: center; gap: 15px; border: 1px solid var(--line); border-radius: 9px; padding: 15px 16px; background: #fff; width: 100%; text-align: left; cursor: pointer; transition: border-color .15s; color: inherit; }
+.desktop-settings-links a:hover, .settings-link-btn:hover { border-color: #d6b2ba; }
+.desktop-settings-links svg:first-child, .settings-link-btn svg:first-child { color: #C41E3A; flex-shrink: 0; }
+.desktop-settings-links span, .settings-link-btn span { flex: 1; min-width: 0; }
+.desktop-settings-links strong, .settings-link-btn strong { display: block; font-size: 12.5px; color: #2f2f35; }
+.desktop-settings-links small, .settings-link-btn small { display: block; font-size: 10.5px; color: #8b918a; margin-top: 4px; }
+.desktop-settings-links > *:last-child svg, .settings-link-btn > svg:last-child { color: #b6bbb5; }
+
+@media (max-width: 900px) {
+  .ext-main { padding: 34px 22px; }
+  .ext-hero h1 { font-size: 34px; }
+  .ext-steps, .ext-boundaries { grid-template-columns: 1fr; }
+  .ext-header, .ext-footer { padding-left: 22px; padding-right: 22px; }
+}

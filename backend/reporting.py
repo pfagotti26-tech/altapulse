@@ -2,7 +2,7 @@ import csv, io
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from core import db, now, iso, uid, manager, settings, audit, creator_access, lock, expiration, clean_time
+from core import db, now, iso, uid, manager, current_user, settings, audit, creator_access, lock, expiration, clean_time
 from schemas import SettingsUpdate, ReviewStart, Review, Reason, SaleAssignment
 from metrics import report_data
 from responses import SettingsOut, AuditOut, ReviewOut, MetricsOut
@@ -48,7 +48,10 @@ async def delete_data(body: Reason, creator_id: str = '', user=Depends(manager))
     await audit(user, 'Métricas e avaliações excluídas', creator_id or 'Todas as criadoras', reason=body.reason)
     return {'ok': True}
 @router.get('/metrics', response_model=MetricsOut)
-async def metrics(creator_id: str = '', operator_id: str = '', start: datetime | None = None, end: datetime | None = None, user=Depends(manager)):
+async def metrics(creator_id: str = '', operator_id: str = '', start: datetime | None = None, end: datetime | None = None, user=Depends(current_user)):
+    if user['role'] != 'manager':
+        if not creator_id or creator_id not in user['creator_ids']: raise HTTPException(403, 'Escolha uma criadora autorizada para você.')
+        operator_id = user['id']
     return await report_data(creator_id, operator_id, clean_time(start) if start else None, clean_time(end) if end else None)
 @router.get('/audit', response_model=list[AuditOut])
 async def audit_log(user=Depends(manager)):
@@ -63,7 +66,7 @@ async def start_review(creator_id: str, body: ReviewStart, user=Depends(manager)
         browser = await db.browsers.find_one({'creator_id': creator_id, 'state': 'open'}, {'_id': 0})
         from datetime import timedelta
         if not browser or browser['last_seen'] < (now() - timedelta(seconds=30)).isoformat():
-            raise HTTPException(409, 'Abra o perfil na estação conectada antes da revisão.')
+            raise HTTPException(409, 'Abra o perfil na Privacy com a extensão Alta Pulse ativa antes da revisão.')
         review = {'id': uid(), 'manager_id': user['id'], 'operator_id': shift['operator_id'], 'operator_name': shift['operator_name'],
             'shift_id': shift['id'], 'started_at': iso(), 'period_start': shift['started_at'], 'period_end': iso()}
         await db.creators.update_one({'id': creator_id}, {'$set': {'review': review}})
