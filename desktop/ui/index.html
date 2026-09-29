@@ -10,8 +10,8 @@
 
 <!-- tela de login -->
 <section id="login" class="screen hidden">
-  <div class="brand"><span>alta</span> <b>pulse</b></div>
-  <p class="muted">Entre com o mesmo acesso do painel Alta Pulse.</p>
+  <img class="logo" src="brand/alta-pulse-white.png" alt="Alta Pulse" width="155">
+  <p class="muted lead">Entre com o mesmo acesso do painel Alta Pulse.</p>
   <form id="login-form" autocomplete="off">
     <label>E-mail <input id="login-email" type="email" required></label>
     <label>Senha <input id="login-password" type="password" required></label>
@@ -28,7 +28,7 @@
 <!-- lateral principal -->
 <section id="main" class="screen hidden">
   <header>
-    <div class="brand small"><span>alta</span> <b>pulse</b></div>
+    <img class="logo small" src="brand/alta-pulse-white.png" alt="Alta Pulse" width="112">
     <div class="tools">
       <button id="btn-refresh" class="icon" title="Atualizar">&#8635;</button>
       <button id="btn-menu" class="icon" title="Opções">&#8942;</button>
@@ -53,7 +53,7 @@
   <footer>
     <button id="btn-new-group" class="ghost wide">+ Novo grupo</button>
     <div class="me">
-      <div><b id="me-name"></b><br><span id="me-role" class="muted"></span></div>
+      <div class="who"><div class="uavatar" id="me-avatar"></div><div><b id="me-name"></b><br><span id="me-role" class="muted"></span></div></div>
       <button id="btn-logout" class="ghost">Sair</button>
     </div>
   </footer>

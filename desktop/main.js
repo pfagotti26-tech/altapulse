@@ -7,6 +7,10 @@
 const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const CALIBRATION_SCRIPT = require('./calibration.js');
+const READER_SCRIPT = require('./reader-page.js');
+const { CreatorReader } = require('./reader.js');
+const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------
 // O Electron é um Chromium. Por padrão ele acrescenta "AppName/x Electron/y" ao user-agent e o
@@ -20,6 +24,7 @@ const DEFAULT_ORIGIN = 'https://altapulse.com.br';
 const PRIVACY_HOME = 'https://privacy.com.br/';
 const SIDEBAR_WIDTH = 300;
 const HEARTBEAT_MS = 15000;
+const READ_MS = 10000;
 const STATE_REFRESH_MS = 20000;
 
 const dataDir = () => app.getPath('userData');
@@ -57,9 +62,20 @@ function writeToken(token) {
   fs.writeFileSync(filePath('token.bin'), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : Buffer.from(token, 'utf8'));
 }
 
+// segredo local para os hashes de referência (nunca sai do computador)
+function localSecret() {
+  try { const raw = fs.readFileSync(filePath('secret.bin')); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8'); }
+  catch {
+    const secret = crypto.randomBytes(32).toString('hex');
+    fs.mkdirSync(dataDir(), { recursive: true });
+    fs.writeFileSync(filePath('secret.bin'), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(secret) : Buffer.from(secret, 'utf8'));
+    return secret;
+  }
+}
+
 // ---------- API do painel (chamada só pelo processo principal, nunca pela página da Privacy) ----------
-let token = readToken();
-let state = { user: null, creators: [], sla_minutes: 5, version: null };
+let token = null; // lido só depois do app ficar pronto (safeStorage depende disso no Windows)
+let state = { user: null, creators: [], sla_minutes: 5, version: null, storage_allowed: false };
 
 async function api(method, route, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -83,7 +99,7 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
-    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version };
+    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed };
   } catch (error) {
     if (!token) state = { ...state, user: null, creators: [] };
     else state = { ...state, warning: error.message };
@@ -106,6 +122,7 @@ function publicState() {
     open: [...views.keys()],
     active: activeId,
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
+    readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
   };
 }
 
@@ -169,6 +186,38 @@ async function clearProfileData(creatorId, what) {
   if (view) view.webContents.loadURL(PRIVACY_HOME, { userAgent: UA });
 }
 
+// ---------- leitor (fase 2) ----------
+const readers = new Map(); // creatorId -> { reader, summary, lastError }
+function readerFor(id) {
+  if (!readers.has(id)) {
+    const store = readJson(`reader-${id}.json`, null);
+    readers.set(id, { reader: new CreatorReader(id, localSecret(), store), summary: null, lastError: null });
+  }
+  return readers.get(id);
+}
+async function readAll() {
+  if (!state.user) return;
+  for (const [id, view] of views) {
+    const r = readerFor(id);
+    let data;
+    try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
+    if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
+    const { events, summary } = r.reader.process(data, new Date());
+    r.summary = summary;
+    writeJson(`reader-${id}.json`, r.reader.s);
+    const creator = state.creators.find((c) => c.id === id);
+    const shift = creator && creator.shift;
+    const mine = shift && shift.operator_id === state.user.id && !shift.paused;
+    if (!events.length) continue;
+    if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; continue; }
+    try {
+      const out = await api('POST', '/extension/observations', { events: events.slice(0, 200) });
+      r.summary.accepted = out.accepted; r.lastError = null;
+    } catch (error) { r.lastError = error.message; r.summary.error = error.message; }
+  }
+  pushState();
+}
+
 // ---------- presença (heartbeat) ----------
 // Só para criadoras abertas aqui cujo turno ativo é do usuário logado. Nada da página é lido:
 // vai apenas "aba aberta", "está no chat ou não" e "sem leitura de dados" (leitor chega na fase 2).
@@ -180,7 +229,8 @@ async function heartbeats() {
     if (!shift || shift.operator_id !== state.user.id) continue;
     const url = view.webContents.getURL();
     try {
-      await api('POST', '/extension/heartbeat', { creator_id: id, page: /\/chat/i.test(url) ? 'chat' : 'other', observation_state: 'no_data' });
+      const r = readers.get(id); const onChat = /\/chat/i.test(url);
+      await api('POST', '/extension/heartbeat', { creator_id: id, page: onChat ? 'chat' : 'other', observation_state: onChat && r && r.summary && !shift.paused ? 'partial' : 'no_data' });
     } catch {}
   }
 }
@@ -212,6 +262,24 @@ ipcMain.handle('profile:back', (_e, id) => { const v = views.get(id); if (v && v
 ipcMain.handle('profile:clear', async (_e, { id, what }) => { await clearProfileData(id, what); return true; });
 ipcMain.handle('profile:hideAll', () => { activeId = null; layout(); pushState(); return publicState(); });
 
+// Calibração (fase 2): envia ao painel só o esqueleto da tela aberta (tags, classes, horários),
+// com nomes e textos mascarados, para escrever a leitura de tempo de resposta e vendas.
+ipcMain.handle('profile:calibrate', async (_e, id) => {
+  const view = views.get(id);
+  if (!view) throw new Error('Abra a criadora primeiro.');
+  const url = view.webContents.getURL();
+  if (!/privacy\.com\.br/i.test(url)) throw new Error('Abra uma conversa da Privacy antes de capturar.');
+  const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
+  if (!outline || outline.length < 200) throw new Error('A tela ainda não carregou. Espere aparecerem as mensagens e tente de novo.');
+  // cópia local (mesmo conteúdo mascarado) para análise sem depender do banco do painel
+  const dir = path.join(__dirname, 'calibracoes'); fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
+  fs.writeFileSync(file, `<!-- ${url} -->\n${outline}`);
+  let sent = true;
+  try { await api('POST', '/extension/calibration', { platform: 'privacy', url_path: new URL(url).pathname.slice(0, 300), outline }); } catch { sent = false; }
+  return { ok: true, size: outline.length, file, sent };
+});
+
 ipcMain.handle('shift:start', async (_e, creatorId) => { await api('POST', '/extension/shifts', { creator_id: creatorId }); return refreshState().then(publicState); });
 ipcMain.handle('shift:action', async (_e, { shiftId, action }) => { await api('POST', `/extension/shifts/${shiftId}/action`, { action }); return refreshState().then(publicState); });
 
@@ -228,7 +296,7 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion(), electron: process
 
 // ---------- ciclo de vida ----------
 app.whenReady().then(async () => {
-  win = new BaseWindow({ width: 1440, height: 900, minWidth: 1000, minHeight: 600, title: 'Alta Pulse', backgroundColor: '#1d1f22' });
+  win = new BaseWindow({ width: 1440, height: 900, minWidth: 1000, minHeight: 600, title: 'Alta Pulse', backgroundColor: '#111113', icon: path.join(__dirname, 'ui', 'brand', 'favicon.ico') });
   win.setMenuBarVisibility(false);
   sidebar = new WebContentsView({
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
@@ -238,9 +306,11 @@ app.whenReady().then(async () => {
   win.on('resize', layout);
   layout();
 
+  token = readToken();
   await refreshState();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(heartbeats, HEARTBEAT_MS);
+  setInterval(readAll, READ_MS);
 });
 
 app.on('window-all-closed', () => app.quit());

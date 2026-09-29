@@ -35,8 +35,10 @@ function apply(state) {
   $('origin').value = S.origin || '';
   if (!logged) return;
   $('me-name').textContent = S.user.name;
+  $('me-avatar').textContent = initials(S.user.name);
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
-  $('warning').textContent = S.warning || ''; $('warning').classList.toggle('hidden', !S.warning);
+  const warn = S.warning || (S.open.length && !S.storage_allowed ? 'Métricas desligadas no painel: ative "armazenamento" em Configurações para registrar tempo de resposta e vendas.' : '');
+  $('warning').textContent = warn; $('warning').classList.toggle('hidden', !warn);
   renderList();
 }
 
@@ -79,11 +81,17 @@ function renderList() {
 
 function card(c) {
   const st = statusOf(c); const tag = tagOf(c.id);
+  const rd = S.readers && S.readers[c.id];
+  let queue = '';
+  if (rd && rd.page === 'chat') {
+    if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue ${late ? 'late' : ''}">${rd.waiting} esperando${wt}</div>`; }
+    else queue = '<div class="queue ok">fila zerada</div>';
+  }
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div></div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${queue}</div>
     ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => { if (e.target.closest('.cmenu')) return; openCreator(c); });
@@ -122,6 +130,7 @@ function creatorMenu(c, anchor) {
   items.push(['Mover para grupo', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
   items.push('-');
+  if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
   items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);
   items.push(['Sair da conta da Privacy (limpar cookies)', async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); }, 'danger']);
   if (isOpen) items.push(['Fechar perfil', () => run(() => window.pulse.closeProfile(c.id))]);
@@ -137,6 +146,14 @@ function place(m, anchor) {
   const r = anchor.getBoundingClientRect(); m.classList.remove('hidden');
   const top = Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8);
   m.style.top = `${Math.max(8, top)}px`; m.style.left = `${Math.min(r.left, window.innerWidth - m.offsetWidth - 8)}px`;
+}
+
+async function calibrate(c) {
+  const ok = await dialog({ title: 'Capturar estrutura da tela', body: `<p>Com uma <b>conversa aberta</b> na Privacy de ${esc(c.name)} (espere as mensagens carregarem), o app envia ao painel só o esqueleto da tela: caixas, classes e horários.</p><p>Nomes de fãs e o texto das mensagens <b>não</b> são enviados.</p>`, okText: 'Capturar' });
+  if (!ok) return;
+  toast('Capturando...');
+  const r = await run(() => window.pulse.calibrate(c.id));
+  if (r && r.ok) toast(r.sent ? '✓ Estrutura enviada ao painel e salva localmente.' : '✓ Estrutura salva localmente (painel indisponível).', 6000);
 }
 
 // ---------- diálogos ----------

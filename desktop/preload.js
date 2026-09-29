@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('pulse', {
   backProfile: (id) => ipcRenderer.invoke('profile:back', id),
   clearProfile: (id, what) => ipcRenderer.invoke('profile:clear', { id, what }),
   hideAll: () => ipcRenderer.invoke('profile:hideAll'),
+  calibrate: (id) => ipcRenderer.invoke('profile:calibrate', id),
 
   startShift: (creatorId) => ipcRenderer.invoke('shift:start', creatorId),
   shiftAction: (shiftId, action) => ipcRenderer.invoke('shift:action', { shiftId, action }),
