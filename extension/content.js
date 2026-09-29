@@ -13,12 +13,12 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) notify(); });
 
   // Palavras de sistema (não pessoais) mantidas para eu reconhecer vendas/eventos.
-  const KEEP = /(r\$|\bcompr|desbloque|gorjeta|\bpago|pagou|\bppv\b|assinat|presente|enviou|\bvisto|entregue|digitando|online|agora|ontem|hoje|há\s|\bmin\b|\bh\b)/i;
+  const KEEP = /(r\$|\bcompr|desbloque|gorjeta|\bpago|pagou|\bppv\b|assinat|presente|enviou|\bvisto|visto por|entregue|digitando|online|agora|ontem|hoje|\bset\b|há\s|\bmin|\bhora)/i;
   const TIME = /^\s*\d{1,2}:\d{2}(\s?[ap]\.?m\.?)?\s*$/i;
   const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG", "PATH", "IMG", "VIDEO", "SOURCE", "CANVAS"]);
 
   function serialize(node, depth) {
-    if (depth > 22) return "";
+    if (depth > 40) return "";
     if (node.nodeType === 3) {
       const t = node.textContent.trim();
       if (!t) return "";
@@ -32,7 +32,9 @@
     const data = [...node.attributes].filter(a => a.name.startsWith("data-")).map(a => `${a.name}="${(a.value || "").slice(0, 30)}"`).join(" ");
     const role = node.getAttribute("role");
     let inner = "";
+    if (node.shadowRoot) { inner += "«#shadow»"; for (const ch of node.shadowRoot.childNodes) inner += serialize(ch, depth + 1); }
     for (const ch of node.childNodes) inner += serialize(ch, depth + 1);
+    if (tag === "iframe") { try { const d = node.contentDocument; if (d && d.body) inner += "«#iframe»" + serialize(d.body, depth + 1); } catch (e) { inner += "«#iframe:cross»"; } }
     const attrs = [cls ? `class="${cls}"` : "", data, role ? `role="${role}"` : ""].filter(Boolean).join(" ");
     return `<${tag}${attrs ? " " + attrs : ""}>${inner}</${tag}>`;
   }
