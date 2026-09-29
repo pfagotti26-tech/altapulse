@@ -92,3 +92,9 @@ desktop/release/Alta-Pulse-0.2.2-Setup-x64.exe
 desktop/dist/AltaPulse-win32-x64/AltaPulse.exe
 desktop/pilot/release/Alta-Pulse-Chrome-Pilot-0.3.0-Setup-x64.exe
 desktop/pilot/dist/AltaPulseChromePilot-win32-x64/AltaPulseChromePilot.exe
+.env
+.env.*
+*.env
+credentials.json
+*.key
+.credentials
