@@ -1,11 +1,13 @@
 const { WebContentsView, session } = require('electron');
 const { allowedUrl, profilePartition, boundsFor } = require('./policy.cjs');
+const { watchNavigation } = require('./navigation.cjs');
+const configuredSessions = new WeakSet();
 
 class CreatorBrowser {
   constructor(window, controlSession, config, machineId) {
     this.window = window; this.controlSession = controlSession; this.config = config; this.machineId = machineId;
     this.view = null; this.lease = null; this.timer = null; this.rect = null;
-    this.state = { status: 'closed', creator_id: null, can_back: false, can_forward: false };
+    this.state = { status: 'closed', creator_id: null, can_back: false, can_forward: false, http_status: null, http_observed_at: null };
     this.busy = false;
     this.generation = 0;
     this.authToken = null;
@@ -47,7 +49,10 @@ class CreatorBrowser {
       const ses = session.fromPartition(profilePartition(this.machineId, creatorId));
       ses.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
       ses.setPermissionCheckHandler(() => false);
-      ses.on('will-download', event => event.preventDefault());
+      if (!configuredSessions.has(ses)) {
+        ses.on('will-download', event => event.preventDefault());
+        configuredSessions.add(ses);
+      }
       this.view = new WebContentsView({ webPreferences: { session: ses, sandbox: true, contextIsolation: true,
         nodeIntegration: false, webSecurity: true, devTools: false, webviewTag: false, navigateOnDragDrop: false } });
       const wc = this.view.webContents;
@@ -56,20 +61,16 @@ class CreatorBrowser {
       wc.on('will-navigate', guard);
       wc.on('will-redirect', guard);
       wc.setWindowOpenHandler(() => { this.send({ notice: 'A página tentou abrir outra janela. Pop-ups não são liberados nesta versão.' }); return { action: 'deny' }; });
-      wc.on('did-start-loading', () => this.send({ status: 'loading' }));
-      const update = () => {
-        if (!this.view || wc.isDestroyed()) return;
-        this.send({ status: 'open', can_back: wc.navigationHistory.canGoBack(), can_forward: wc.navigationHistory.canGoForward() });
-      };
-      wc.on('did-stop-loading', update);
-      wc.on('did-navigate-in-page', update);
-      wc.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
-        if (mainFrame && code !== -3) { this.detach(); this.send({ status: 'error', message: 'A página não carregou. Verifique a conexão ou tente novamente. Não há contorno de bloqueios.' }); }
+      watchNavigation(wc, {
+        origins: this.config.privacy_origins,
+        isCurrent: () => this.view?.webContents === wc && !wc.isDestroyed(),
+        publish: state => this.send(state),
+        networkFailure: () => this.detach(),
+        processGone: () => { this.close().catch(() => {}); this.send({ status: 'error', message: 'O navegador foi interrompido. Abra o perfil novamente.' }); }
       });
-      wc.on('render-process-gone', () => { this.close().catch(() => {}); this.send({ status: 'error', message: 'O navegador foi interrompido. Abra o perfil novamente.' }); });
       this.window.contentView.addChildView(this.view);
       this.applyBounds();
-      this.send({ status: 'loading', creator_id: creatorId, creator_name: this.lease.creator_name, mode: this.lease.mode, message: '', notice: '' });
+      this.send({ status: 'loading', creator_id: creatorId, creator_name: this.lease.creator_name, mode: this.lease.mode, message: '', notice: '', http_status: null, http_observed_at: null });
       this.timer = setInterval(() => this.heartbeat(), 10000);
       wc.loadURL(this.config.privacy_url).catch(() => {});
       return { ok: true, mode: this.lease.mode };
@@ -97,6 +98,10 @@ class CreatorBrowser {
   }
   navigate(action) {
     if (!this.view) return;
+    if (this.state.status === 'blocked' && ['reload', 'home'].includes(action)) {
+      this.send({ notice: 'A Privacy recusou o acesso. Evite repetir solicitações; consulte o suporte da plataforma.' });
+      return;
+    }
     const wc = this.view.webContents;
     if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
     else if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
@@ -112,7 +117,7 @@ class CreatorBrowser {
       const view = this.view; this.detach(); this.view = null;
       if (!view.webContents.isDestroyed()) view.webContents.close();
     }
-    this.send({ status: 'closed', creator_id: null, can_back: false, can_forward: false, notice: '' });
+    this.send({ status: 'closed', creator_id: null, can_back: false, can_forward: false, notice: '', message: '', http_status: null, http_observed_at: null });
     if (lease) await this.api('DELETE', `/desktop/leases/${lease.id}`).catch(() => {});
   }
 }

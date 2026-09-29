@@ -12,15 +12,16 @@ const frontend = dotenv.parse(fs.readFileSync(path.join(root, '../frontend/.env'
 const stage = path.join(root, 'staging'), release = path.join(root, 'release');
 fs.mkdirSync(stage, { recursive: true }); fs.mkdirSync(release, { recursive: true });
 const version = env.ALTA_DESKTOP_VERSION;
-if (!version || !frontend.REACT_APP_BACKEND_URL || !env.PRIVACY_URL) throw new Error('Configuração de release incompleta.');
+if (!version || !frontend.REACT_APP_BACKEND_URL || !env.PRIVACY_LOGIN_URL || !env.PRIVACY_SUPPORT_URL) throw new Error('Configuração de release incompleta.');
 const electronVersion = JSON.parse(fs.readFileSync(path.join(root, 'node_modules/electron/package.json'))).version;
-for (const file of ['main.cjs', 'preload.cjs', 'browser.cjs', 'policy.cjs', 'LEIA-ME.md']) fs.copyFileSync(path.join(root, file), path.join(stage, file));
+for (const file of ['main.cjs', 'preload.cjs', 'browser.cjs', 'policy.cjs', 'navigation.cjs', 'external-actions.cjs', 'LEIA-ME.md']) fs.copyFileSync(path.join(root, file), path.join(stage, file));
 fs.mkdirSync(path.join(stage, 'brand'), { recursive: true });
 fs.copyFileSync(path.join(root, '../frontend/public/brand/favicon.png'), path.join(stage, 'brand/favicon.png'));
 // Metadata gerada somente no estágio de empacotamento; não altera o package.json do projeto.
 fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({ name: 'alta-pulse-desktop', productName: 'Alta Pulse', version, main: 'main.cjs', author: 'Alta Agency', license: 'UNLICENSED', description: 'Alta Pulse — navegador de perfis locais autorizados' }, null, 2));
 fs.writeFileSync(path.join(stage, 'config.json'), JSON.stringify({ version, app_url: frontend.REACT_APP_BACKEND_URL,
-  privacy_url: env.PRIVACY_URL, privacy_origins: [new URL(env.PRIVACY_URL).origin] }, null, 2));
+  privacy_url: env.PRIVACY_LOGIN_URL, privacy_support_url: env.PRIVACY_SUPPORT_URL,
+  privacy_origins: [new URL(env.PRIVACY_LOGIN_URL).origin] }, null, 2));
 await packager({ dir: stage, name: 'AltaPulse', platform: 'win32', arch: 'x64', electronVersion,
   out: path.join(root, 'dist'), overwrite: true, asar: true, prune: false,
   executableName: 'AltaPulse', appVersion: version, buildVersion: version,
