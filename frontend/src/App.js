@@ -16,6 +16,7 @@ import DownloadDesktop from './pages/DownloadDesktop';
 import BrowserWorkspace from './pages/BrowserWorkspace';
 import DesktopDevices from './pages/DesktopDevices';
 import Account, { PasswordSetup } from './pages/Account';
+import ChromePilot from './pages/ChromePilot';
 import './App.css';
 import './AltaTheme.css';
 import './Desktop.css';
@@ -82,6 +83,7 @@ export default function App() {
       <Route path="/navegador/:creatorId" element={<BrowserWorkspace/>}/>
       <Route path="/computadores" element={<DesktopDevices/>}/>
       <Route path="/minha-conta" element={<Account/>}/>
+      <Route path="/piloto-chrome" element={user.role === 'manager' ? <ChromePilot/> : <Navigate to="/"/>}/>
       <Route path="*" element={<Navigate to="/"/>}/>
     </Routes></Shell>}/></Routes><Toaster position="bottom-right" richColors theme="light"/>
   </BrowserRouter></Context.Provider>;

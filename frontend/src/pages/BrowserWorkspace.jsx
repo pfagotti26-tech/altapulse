@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Monitor, ArrowLeft, ArrowRight, RotateCw, House, LockKeyhole, Play, X, CircleAlert } from 'lucide-react';
+import { Monitor, ArrowLeft, ArrowRight, RotateCw, House, LockKeyhole, Play, X, CircleAlert, MousePointer2 } from 'lucide-react';
 import { useApp } from '../App';
 import { api, errorText, initials } from '../lib/api';
 import { Button, Badge, Empty, Notice } from '../components/Common';
 import { DesktopDownload } from '../components/DesktopDownload';
 import { BrowserAccessNotice } from '../components/BrowserAccessNotice';
+import './ChromePilot.css';
 
 export default function BrowserWorkspace() {
   const { creatorId } = useParams(); const { creators, user, isDesktop, desktopDevice, refresh } = useApp();
@@ -13,6 +14,7 @@ export default function BrowserWorkspace() {
   const [state, setState] = useState({ status: 'closed' }), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const ready = desktopDevice?.status === 'approved', profileAvailable = Boolean(creator);
   const diagnostics = Boolean(window.altaDesktop?.navigationStatusVersion);
+  const isPilot = window.altaDesktop?.engine === 'chrome-pilot';
   const canOpen = user.role === 'manager' || creator?.shift?.operator_id === user.id && !creator.shift.paused;
   const open = useCallback(async () => {
     if (!isDesktop) return;
@@ -42,13 +44,14 @@ export default function BrowserWorkspace() {
     const scheduled = setTimeout(open, 0); return () => clearTimeout(scheduled);
   }, [ready, canOpen, creatorId, isDesktop, open, profileAvailable]);
   const start = async () => { setBusy(true); try { if (!creator.shift) await api.post('/shifts', { creator_id: creatorId }); else await api.post(`/shifts/${creator.shift.id}/action`, { action: 'resume' }); await refresh(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); } };
-  const labels = { open: diagnostics ? 'Página carregada' : 'Janela aberta · acesso não verificado', blocked: `Acesso recusado (${state.http_status})`, http_error: `Erro HTTP ${state.http_status}`, loading: 'Carregando', unconfirmed: 'Resposta não confirmada', closed: 'Navegador fechado', error: 'Falha de carregamento' };
+  const labels = { open: diagnostics ? 'Página carregada' : 'Janela aberta · acesso não verificado', blocked: `Acesso recusado (${state.http_status})`, http_error: `Erro HTTP ${state.http_status}`, loading: 'Carregando', chrome_starting: 'Iniciando Chrome real', chrome_embedded: 'Chrome encaixado · site não verificado', unconfirmed: 'Resposta não confirmada', closed: 'Navegador fechado', error: 'Falha de carregamento' };
   const unavailable = ['closed', 'blocked'].includes(state.status);
   if (!creator) return <Empty id="browser-profile-not-found" icon={LockKeyhole} title="Perfil não disponível" description="Escolha uma criadora autorizada na barra lateral."/>;
   return <section className="browser-workspace"><div className="browser-profile-heading"><div className={`avatar ${creator.color}`}>{initials(creator.name)}</div><div><h1 data-testid="browser-creator-name">{creator.name}</h1><p data-testid="browser-creator-caption">Privacy · Sessão exclusiva deste computador</p></div><Badge testId="browser-runtime-state" tone={['blocked', 'http_error', 'error'].includes(state.status) ? 'red' : state.status === 'open' && diagnostics ? 'green' : 'neutral'}>{!isDesktop ? 'Aplicativo necessário' : labels[state.status] || 'Resposta não confirmada'}</Badge></div>
-    {isDesktop && !diagnostics && <Notice id="native-update-required" tone="amber">Nesta versão, “janela aberta” não confirma que a Privacy liberou o acesso. Se a página mostrar uma recusa, o atendimento integrado não está disponível.</Notice>}
+    {isDesktop && !diagnostics && !isPilot && <Notice id="native-update-required" tone="amber">Nesta versão, “janela aberta” não confirma que a Privacy liberou o acesso. Se a página mostrar uma recusa, o atendimento integrado não está disponível.</Notice>}
+    {isPilot && <Notice id="chrome-pilot-experimental" tone="amber">Piloto com Chrome real e perfil novo separado. O encaixe não confirma que a Privacy aceitou o acesso. Navegação e login são manuais; nenhum conteúdo ou relatório é coletado. Pop-ups podem abrir fora desta área.</Notice>}
     <BrowserAccessNotice state={state}/>
-    <div className="native-browser-toolbar"><div className="browser-nav-controls">{[['back', ArrowLeft, 'Voltar', !state.can_back], ['forward', ArrowRight, 'Avançar', !state.can_forward], ['reload', RotateCw, 'Recarregar', unavailable || state.status === 'loading'], ['home', House, 'Entrada da Privacy', unavailable]].map(([action, Icon, label, disabled]) => <button key={action} data-testid={`browser-${action}`} title={label} aria-label={label} className="icon-btn" disabled={!isDesktop || disabled} onClick={() => window.altaDesktop.navigate(action)}><Icon size={16}/></button>)}</div><div className="browser-address" data-testid="browser-address"><LockKeyhole size={13}/><span>Privacy · Navegador local</span></div><button data-testid="close-native-browser" title="Fechar navegador" aria-label="Fechar navegador" className="icon-btn" disabled={!isDesktop || state.status === 'closed'} onClick={() => window.altaDesktop.close()}><X size={17}/></button></div>
+    <div className="native-browser-toolbar">{isPilot ? <button className="pilot-focus-button" data-testid="focus-pilot-chrome" disabled={state.status !== 'chrome_embedded'} onClick={() => window.altaDesktop.navigate('focus')}><MousePointer2 size={14}/>Focar Chrome</button> : <div className="browser-nav-controls">{[['back', ArrowLeft, 'Voltar', !state.can_back], ['forward', ArrowRight, 'Avançar', !state.can_forward], ['reload', RotateCw, 'Recarregar', unavailable || state.status === 'loading'], ['home', House, 'Entrada da Privacy', unavailable]].map(([action, Icon, label, disabled]) => <button key={action} data-testid={`browser-${action}`} title={label} aria-label={label} className="icon-btn" disabled={!isDesktop || disabled} onClick={() => window.altaDesktop.navigate(action)}><Icon size={16}/></button>)}</div>}<div className="browser-address" data-testid="browser-address"><LockKeyhole size={13}/><span>{isPilot ? 'Chrome real · Perfil isolado do piloto' : 'Privacy · Navegador local'}</span></div><button data-testid="close-native-browser" title="Fechar navegador" aria-label="Fechar navegador" className="icon-btn" disabled={!isDesktop || state.status === 'closed'} onClick={() => window.altaDesktop.close()}><X size={17}/></button></div>
     <div className="native-browser-viewport" ref={viewport} data-testid="native-browser-viewport">
       {!isDesktop ? <Empty id="browser-install-required" icon={Monitor} title="O atendimento acontece no aplicativo Alta Pulse." description="O aplicativo instalado mantém os perfis locais. A Privacy pode recusar o acesso integrado; instalar não garante a liberação do site."><DesktopDownload id="browser-download-desktop"/><Link data-testid="browser-install-details" className="text-link" to="/baixar">Ver instalação e requisitos<ArrowRight size={14}/></Link></Empty>
       : !ready ? <Empty id="browser-device-pending" icon={LockKeyhole} title={desktopDevice?.status === 'revoked' ? 'Computador sem autorização' : 'Aguardando autorização do computador'} description="Um gestor precisa aprovar este computador em Computadores. As permissões de criadoras também são verificadas."/>

@@ -1,3 +1,4 @@
 file=1:5.44-3
+g++-mingw-w64-x86-64-posix=12.2.0-14+deb12u1+25.2+b1
 nsis=3.08-3+deb12u1
 p7zip-full=16.02+really26.02+dfsg-0+deb12u1

@@ -1,0 +1,9 @@
+{
+  "name": "alta-pulse-chrome-pilot",
+  "productName": "Alta Pulse Chrome Pilot",
+  "version": "0.3.0",
+  "main": "main.cjs",
+  "author": "Alta Agency",
+  "license": "UNLICENSED",
+  "description": "Piloto experimental de janela Chrome real integrada"
+}

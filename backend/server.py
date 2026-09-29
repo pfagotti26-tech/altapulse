@@ -10,6 +10,7 @@ from reporting import router as reporting
 from stations import router as stations
 from desktop_routes import router as desktop
 from desktop_auth import router as desktop_auth
+from pilot_routes import router as pilot
 
 @asynccontextmanager
 async def lifespan(app):
@@ -44,7 +45,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, desktop, desktop_auth]:
+for router in [auth, people, reporting, stations, desktop, desktop_auth, pilot]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')
