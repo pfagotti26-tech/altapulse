@@ -129,6 +129,17 @@ async def observations(body: ObservationBatch, user=Depends(extension_user)):
 @router.get('/extension/release')
 async def release(): return {'version': VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Extensao-{VERSION}.zip'}
 
+class CalibrationIn(Strict):
+    platform: str = Field(default='privacy', max_length=40)
+    url_path: str = Field(default='', max_length=300)
+    outline: str = Field(max_length=200000)
+
+@router.post('/extension/calibration')
+async def calibration(body: CalibrationIn, user=Depends(extension_user)):
+    await db.calibrations.insert_one({'id': uid(), 'user_id': user['id'], 'user_name': user['name'], 'platform': body.platform,
+        'url_path': body.url_path, 'outline': body.outline, 'captured_at': iso()})
+    return {'ok': True}
+
 @router.get('/extension/download')
 async def download():
     output = io.BytesIO()

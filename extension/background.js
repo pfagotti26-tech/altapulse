@@ -52,6 +52,17 @@ async function heartbeat() {
   await call("/extension/heartbeat", "POST", { creator_id: activeCreatorId, page, observation_state: page === "chat" ? "validation_required" : "no_data" });
 }
 
+async function calibrate() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab || !/privacy\.com\.br/.test(tab.url || "")) return { error: "Abra uma conversa da Privacy na aba ativa e tente de novo." };
+  let outline;
+  try { const r = await chrome.tabs.sendMessage(tab.id, { type: "calibrateChat" }); outline = r && r.outline; }
+  catch (e) { return { error: "Recarregue a página da Privacy (F5) e tente novamente." }; }
+  if (!outline) return { error: "Nada foi capturado nesta tela." };
+  const path = (() => { try { return new URL(tab.url).pathname; } catch (e) { return ""; } })();
+  return await call("/extension/calibration", "POST", { platform: "privacy", url_path: path, outline });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
     switch (msg.type) {
@@ -60,6 +71,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       case "startShift": return reply(await call("/extension/shifts", "POST", { creator_id: msg.creatorId }));
       case "shiftAction": return reply(await call(`/extension/shifts/${msg.shiftId}/action`, "POST", { action: msg.action }));
       case "setActiveCreator": await store.set({ activeCreatorId: msg.creatorId }); await heartbeat(); return reply({ ok: true });
+      case "calibrate": return reply(await calibrate());
       case "logout": await call("/extension/logout", "POST"); await store.clear(); return reply({ ok: true });
       case "session": { const s = await store.get(["token", "user", "expires_at", "activeCreatorId"]); return reply(s); }
       case "pageChanged": await heartbeat(); return reply({ ok: true });

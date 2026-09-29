@@ -83,3 +83,9 @@ select { cursor: pointer; }
 
 .spinner { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--red); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.calibrate-box { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; margin: 4px 0 14px; background: #fafafa; }
+.calibrate-btn { width: 100%; background: #16161a; color: #fff; border: none; border-radius: 8px; padding: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+.calibrate-btn:hover { opacity: .9; }
+.calibrate-btn:disabled { opacity: .6; cursor: default; }
+.calibrate-status { font-size: 10.5px; line-height: 1.45; margin-top: 8px; }
+

@@ -33,6 +33,15 @@ $("login-form").addEventListener("submit", async (e) => {
 
 $("logout").addEventListener("click", async () => { await send({ type: "logout" }); show("login-view"); $("logout").hidden = true; });
 
+$("calibrate-btn").addEventListener("click", async () => {
+  const btn = $("calibrate-btn"); const status = $("calibrate-status");
+  btn.disabled = true; btn.textContent = "Capturando…";
+  const res = await send({ type: "calibrate" });
+  btn.disabled = false; btn.textContent = "Capturar estrutura da tela (calibração)";
+  if (res?.error) { status.textContent = "⚠ " + res.error; status.style.color = "#c0392b"; }
+  else { status.textContent = "✓ Estrutura enviada! Já pode me avisar no chat que enviou."; status.style.color = "#1e874b"; }
+});
+
 $("active-creator").addEventListener("change", async (e) => {
   state.activeCreatorId = e.target.value || null;
   await send({ type: "setActiveCreator", creatorId: state.activeCreatorId });
@@ -46,6 +55,7 @@ function renderDash() {
   $("user-avatar").textContent = initials(state.user.name);
   $("user-name").textContent = state.user.name;
   $("user-role").textContent = state.user.role === "manager" ? "Gestor" : "Chatter";
+  $("calibrate-box").hidden = state.user.role !== "manager";
   const sel = $("active-creator");
   sel.innerHTML = '<option value="">Selecione uma criadora…</option>' +
     state.creators.map(c => `<option value="${c.id}" ${c.id === state.activeCreatorId ? "selected" : ""}>${c.name}</option>`).join("");
