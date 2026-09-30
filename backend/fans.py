@@ -8,7 +8,7 @@ import re
 from typing import Optional
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException
-from core import db, now, iso, manager, settings, clean_time
+from core import db, now, iso, uid, manager, settings, clean_time, audit
 from schemas import Strict
 
 router = APIRouter()
@@ -88,6 +88,12 @@ async def fans(creator_id: str = None, days: int = 90, user=Depends(manager)):
         f.update({'sub_status': sub.get('status'), 'sub_active': sub.get('active'), 'sub_price_cents': sub.get('price_cents'), 'sub_duration': sub.get('duration'), 'sub_first_seen': sub.get('first_seen_at')})
     out = [f for f in fans.values() if f['purchases'] or f['offers_sent'] or f.get('sub_status')]
     today = now()
+    by_creator = {}
+    for f in out: by_creator.setdefault(f['creator_id'], {})[f['fan_ref']] = f['total_cents']
+    tier_map = {cid: tiers_for(t) for cid, t in by_creator.items()}
+    notes_count = {}
+    async for n in db.fan_notes.find({'creator_id': creator_id} if creator_id else {}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1}):
+        k = (n['creator_id'], n['fan_ref']); notes_count[k] = notes_count.get(k, 0) + 1
     for f in out:
         last = datetime.fromisoformat(f['last_at']) if f['last_at'] else None
         f['days_since_last'] = (today - last).days if last else None
@@ -97,11 +103,149 @@ async def fans(creator_id: str = None, days: int = 90, user=Depends(manager)):
                         'sem_compra' if f.get('sub_active') else 'inativo' if f.get('sub_active') is False else 'so_ofertas')
         # assinatura inativa de quem já comprou: risco de perder o fã
         f['churn_risk'] = f.get('sub_active') is False and f['purchases'] > 0
+        f['tier'] = tier_map.get(f['creator_id'], {}).get(f['fan_ref'])
+        sub = {'active': f.get('sub_active'), 'first_seen_at': f.get('sub_first_seen')} if f.get('sub_status') else None
+        f['tags'] = state_tags(f['tier'], f['days_since_last'], f['purchases'], sub, today)
+        f['notes_count'] = notes_count.get((f['creator_id'], f['fan_ref']), 0)
         f['ticket_cents'] = round(f['total_cents'] / f['purchases']) if f['purchases'] else None
     out.sort(key=lambda f: -f['total_cents'])
     segments = {}
     for f in out: segments[f['segment']] = segments.get(f['segment'], 0) + 1
     segments['risco'] = sum(1 for f in out if f.get('churn_risk'))
+    segments['baleia'] = sum(1 for f in out if f.get('tier') == 'baleia')
+    segments['spender'] = sum(1 for f in out if f.get('tier') == 'spender')
+    for tag in ['esfriando', 'dormente', 'novo_sem_compra']: segments[tag] = sum(1 for f in out if tag in f.get('tags', []))
     segments['assinantes_ativos'] = sum(1 for f in out if f.get('sub_active'))
     return {'fans': out[:2000], 'count': len(out), 'segments': segments, 'fan_names_allowed': bool(config.get('fan_names_allowed')), 'days': days,
         'total_cents': sum(f['total_cents'] for f in out)}
+
+
+# ---------- faixas relativas por criadora (padrão de mercado: top 5% baleias, próximos 15% spenders) ----------
+import math
+def tiers_for(totals):
+    """totals: {fan_ref: cents} de uma criadora → {fan_ref: 'baleia'|'spender'|'comum'}"""
+    ranked = sorted([k for k, v in totals.items() if v > 0], key=lambda k: -totals[k])
+    n = len(ranked); whales = max(1, math.ceil(n * 0.05)) if n else 0; spenders = math.ceil(n * 0.20) if n else 0
+    return {k: ('baleia' if i < whales else 'spender' if i < max(spenders, whales) else 'comum') for i, k in enumerate(ranked)}
+
+def state_tags(tier, days_since, purchases, sub, today):
+    tags = []
+    if tier in ['baleia', 'spender'] and days_since is not None and 10 <= days_since < 30: tags.append('esfriando')
+    if purchases and days_since is not None and days_since >= 30: tags.append('dormente')
+    if not purchases and sub and sub.get('active') and sub.get('first_seen_at') and (today - datetime.fromisoformat(sub['first_seen_at'])).days <= 3: tags.append('novo_sem_compra')
+    if sub and sub.get('active') is False and purchases: tags.append('assinatura_inativa')
+    return tags
+
+HOURS = [(0, 6, 'de madrugada'), (6, 12, 'de manhã'), (12, 18, 'à tarde'), (18, 24, 'à noite')]
+def money_br(c): return 'R$ ' + f"{c/100:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+async def fan_card(creator_id, fan_ref, user_id=None):
+    today = now(); since = (today - timedelta(days=90)).isoformat()
+    sales = await db.events.find({'creator_id': creator_id, 'kind': 'sale', 'expires_at': {'$gt': today}, 'fan_ref': {'$ne': None}, 'sale_status': {'$nin': ['refunded', 'cancelled']}},
+        {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'amount_cents': 1, 'confirmed_at': 1, 'sale_origin': 1}).to_list(50000)
+    totals = {}
+    for s in sales:
+        if (s.get('confirmed_at') or '') >= since: totals[s['fan_ref']] = totals.get(s['fan_ref'], 0) + s['amount_cents']
+    mine = sorted([s for s in sales if s['fan_ref'] == fan_ref], key=lambda s: s.get('confirmed_at') or '', reverse=True)
+    sub = await db.subscribers.find_one({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0})
+    offers = await db.events.find({'creator_id': creator_id, 'kind': 'offer', 'fan_ref': fan_ref, 'offer_status': 'sent', 'expires_at': {'$gt': today}}, {'_id': 0, 'amount_cents': 1, 'offered_at': 1}).sort('offered_at', -1).to_list(5)
+    notes = await db.fan_notes.find({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0}).sort('created_at', -1).to_list(30)
+    task = await db.fan_tasks.find_one({'creator_id': creator_id, 'fan_ref': fan_ref, 'status': 'open', **({'assigned_to': user_id} if user_id else {})}, {'_id': 0})
+    total = sum(s['amount_cents'] for s in mine); n = len(mine)
+    last = mine[0].get('confirmed_at') if mine else None
+    days_since = (today - datetime.fromisoformat(last)).days if last else None
+    tier = tiers_for(totals).get(fan_ref, 'comum' if n else None)
+    tags = state_tags(tier, days_since, n, sub, today)
+    amounts = sorted(s['amount_cents'] for s in mine)
+    low = amounts[len(amounts) // 4] if amounts else None; high = amounts[(len(amounts) * 3) // 4] if amounts else None
+    hours = {}
+    for s in mine:
+        if s.get('confirmed_at'):
+            h = datetime.fromisoformat(s['confirmed_at']).astimezone(BR).hour
+            label = next(l for a, b, l in HOURS if a <= h < b); hours[label] = hours.get(label, 0) + 1
+    habit = max(hours, key=hours.get) if hours and max(hours.values()) >= max(2, n // 2) else None
+    # sugestão em uma frase, pelo estado do fã
+    tips = []
+    if offers: tips.append(f"tem oferta de {money_br(offers[0]['amount_cents'])} ainda não paga: retome com leveza antes de mandar outra")
+    if 'novo_sem_compra' in tags: tips.append('assinou há poucos dias e ainda não comprou: é a melhor janela para a primeira oferta')
+    elif 'esfriando' in tags: tips.append(f"está {days_since} dias sem comprar: boa hora para uma oferta exclusiva")
+    elif 'dormente' in tags: tips.append('sumiu há mais de 30 dias: puxe conversa antes de oferecer')
+    elif tier == 'baleia': tips.append('é um dos maiores compradores desta criadora: atenção prioritária')
+    if n >= 2 and low is not None: tips.append(f"costuma comprar entre {money_br(low)} e {money_br(high)}" + (f", geralmente {habit}" if habit else ''))
+    elif n == 1: tips.append(f"comprou uma vez ({money_br(mine[0]['amount_cents'])})")
+    return {'found': bool(n or sub or notes), 'fan_ref': fan_ref, 'fan_name': next((s.get('fan_name') for s in mine if s.get('fan_name')), None) or (sub or {}).get('fan_name'),
+        'total_cents': total, 'purchases': n, 'ticket_cents': round(total / n) if n else None, 'last_at': last, 'days_since_last': days_since,
+        'recent': [{'at': s.get('confirmed_at'), 'origin': s.get('sale_origin'), 'amount_cents': s['amount_cents']} for s in mine[:5]],
+        'tier': tier, 'tags': tags, 'suggestion': ('. '.join(t[0].upper() + t[1:] for t in tips) + '.') if tips else None,
+        'subscription': {k: sub.get(k) for k in ['status', 'active', 'price_cents', 'duration']} if sub else None,
+        'pending_offers': offers, 'notes': notes, 'task': task}
+
+# ---------- anotações do fã (equipe) e listas de trabalho ----------
+class NoteIn(Strict):
+    creator_id: str
+    fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    text: str = Field(min_length=1, max_length=300)
+class TasksIn(Strict):
+    creator_id: str
+    fan_refs: list[str] = Field(min_length=1, max_length=200)
+    assigned_to: str
+    reason: str = Field(default='', max_length=80)
+
+async def can_see(user, creator_id):
+    if user['role'] != 'manager' and creator_id not in user.get('creator_ids', []): raise HTTPException(403, 'Criadora não autorizada.')
+
+async def add_note(body: NoteIn, user):
+    await can_see(user, body.creator_id)
+    row = {'id': uid(), 'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': body.text.strip(), 'author_id': user['id'], 'author_name': user['name'], 'created_at': iso(), 'expires_at': now() + timedelta(days=400)}
+    await db.fan_notes.insert_one(dict(row)); row.pop('expires_at'); return row
+
+async def delete_note(note_id, user):
+    note = await db.fan_notes.find_one({'id': note_id}, {'_id': 0})
+    if not note: raise HTTPException(404, 'Anotação não encontrada.')
+    if user['role'] != 'manager' and note['author_id'] != user['id']: raise HTTPException(403, 'Só quem escreveu (ou um gestor) pode apagar.')
+    await db.fan_notes.delete_one({'id': note_id}); return {'ok': True}
+
+async def tasks_with_result(query):
+    rows = await db.fan_tasks.find(query, {'_id': 0}).sort('created_at', -1).to_list(2000)
+    for t in rows:
+        t['converted_cents'] = 0
+        if t.get('contacted_at'):
+            until = (datetime.fromisoformat(t['contacted_at']) + timedelta(days=3)).isoformat()
+            async for s in db.events.find({'creator_id': t['creator_id'], 'fan_ref': t['fan_ref'], 'kind': 'sale', 'sale_status': {'$nin': ['refunded', 'cancelled']},
+                    'confirmed_at': {'$gte': t['contacted_at'], '$lte': until}}, {'_id': 0, 'amount_cents': 1}):
+                t['converted_cents'] += s['amount_cents']
+    return rows
+
+@router.get('/fans/card')
+async def panel_fan_card(creator_id: str, fan_ref: str, user=Depends(manager)): return await fan_card(creator_id, fan_ref)
+@router.post('/fans/notes')
+async def panel_add_note(body: NoteIn, user=Depends(manager)): return await add_note(body, user)
+@router.delete('/fans/notes/{note_id}')
+async def panel_delete_note(note_id: str, user=Depends(manager)): return await delete_note(note_id, user)
+
+@router.post('/fan-tasks')
+async def create_tasks(body: TasksIn, user=Depends(manager)):
+    target = await db.users.find_one({'id': body.assigned_to, 'active': True}, {'_id': 0, 'id': 1, 'name': 1, 'role': 1, 'creator_ids': 1})
+    if not target: raise HTTPException(404, 'Chatter não encontrado.')
+    if target['role'] != 'manager' and body.creator_id not in target.get('creator_ids', []): raise HTTPException(409, f"{target['name']} não tem acesso a esta criadora. Libere em Equipe e turnos.")
+    creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1})
+    names = {}
+    async for s in db.events.find({'creator_id': body.creator_id, 'fan_ref': {'$in': body.fan_refs}, 'fan_name': {'$ne': None}}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1}): names[s['fan_ref']] = s['fan_name']
+    async for s in db.subscribers.find({'creator_id': body.creator_id, 'fan_ref': {'$in': body.fan_refs}, 'fan_name': {'$ne': None}}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1}): names.setdefault(s['fan_ref'], s['fan_name'])
+    created = 0
+    for ref in dict.fromkeys(body.fan_refs):
+        if await db.fan_tasks.find_one({'creator_id': body.creator_id, 'fan_ref': ref, 'status': 'open'}): continue
+        await db.fan_tasks.insert_one({'id': uid(), 'creator_id': body.creator_id, 'creator_name': creator['name'] if creator else '?', 'fan_ref': ref, 'fan_name': names.get(ref),
+            'reason': body.reason, 'assigned_to': target['id'], 'assigned_name': target['name'], 'assigned_by': user['name'], 'status': 'open',
+            'created_at': iso(), 'contacted_at': None, 'expires_at': now() + timedelta(days=90)})
+        created += 1
+    await audit(user, 'Lista de fãs atribuída', f"{created} fãs → {target['name']}")
+    return {'ok': True, 'created': created}
+
+@router.get('/fan-tasks')
+async def list_tasks(days: int = 14, user=Depends(manager)):
+    return await tasks_with_result({'created_at': {'$gte': (now() - timedelta(days=max(1, min(days, 90)))).isoformat()}})
+
+@router.delete('/fan-tasks/{task_id}')
+async def delete_task(task_id: str, user=Depends(manager)):
+    await db.fan_tasks.delete_one({'id': task_id}); return {'ok': True}

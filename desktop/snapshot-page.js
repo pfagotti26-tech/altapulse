@@ -22,8 +22,16 @@ function script(action) {
     const leaves = qsa('*').filter((e) => e.children.length === 0 && txt(e));
     const leaf = (label, scope) => leaves.find((e) => norm(txt(e)) === norm(label) && (!scope || scope.contains(e)));
     const valueAfter = (el) => { if (!el) return ''; let n = el.nextElementSibling; if (n) return txt(n); const p = el.parentElement; n = p && p.nextElementSibling; return txt(n); };
-    const cardOf = (title) => { const t = leaf(title); if (!t) return null; let c = t; for (let i = 0; i < 3 && c.parentElement; i++) c = c.parentElement; return c; };
-    const pick = (title, label) => { const c = cardOf(title); return c ? valueAfter(leaf(label, c)) : ''; };
+    // o título do cartão é procurado só no conteúdo (a aba "Assinantes" do topo tem o mesmo texto) e o
+    // cartão é o menor ancestral do título que contém o rótulo: "Hoje" de Nacionais ≠ "Hoje" de Internacionais
+    const main = qs('.mp-content') || document.body;
+    const titleLeaf = (title) => leaves.find((e) => norm(txt(e)) === norm(title) && main.contains(e) && !e.closest('button'));
+    const pick = (title, label) => {
+      const t = titleLeaf(title); if (!t) return '';
+      let c = t.parentElement;
+      for (let i = 0; i < 4 && c; i++, c = c.parentElement) { const l = leaf(label, c); if (l && l !== t) return valueAfter(l); }
+      return '';
+    };
     const out = { readAt: new Date().toISOString(), period: txt(qs('.date-range-text')) };
     out.sales_today_cents = money(pick('Vendas nacionais', 'Hoje')); out.sales_month_cents = money(pick('Vendas nacionais', 'No mês')); out.sales_total_cents = money(pick('Vendas nacionais', 'Total faturamento histórico'));
     out.intl_today_cents = money(pick('Vendas internacionais', 'Hoje')); out.intl_month_cents = money(pick('Vendas internacionais', 'No mês')); out.intl_total_cents = money(pick('Vendas internacionais', 'Total faturamento histórico'));

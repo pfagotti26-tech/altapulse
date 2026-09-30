@@ -1,7 +1,7 @@
 import secrets, hashlib
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from schemas import Login, Setup, PasswordChange
+from schemas import Login, Setup, PasswordChange, AvatarIn
 from responses import UserOut, MeOut
 from core import db, now, iso, uid, digest, current_user, lock, settings, audit
 
@@ -43,6 +43,15 @@ async def login(body: Login, request: Request, response: Response):
     return await session_response(user, response)
 @router.get('/auth/me', response_model=MeOut)
 async def me(user=Depends(current_user)): return {'user': user, 'settings': await settings()}
+
+# foto de perfil (cada usuário, a própria): imagem pequena já reduzida no navegador/app, guardada como data URL
+async def set_avatar(user, image):
+    await db.users.update_one({'id': user['id']}, {'$set': {'avatar': image}})
+    return {**{k: v for k, v in user.items() if k not in ['_id', 'password_hash']}, 'avatar': image}
+@router.put('/auth/avatar', response_model=UserOut)
+async def put_avatar(body: AvatarIn, user=Depends(current_user)): return await set_avatar(user, body.image)
+@router.delete('/auth/avatar', response_model=UserOut)
+async def delete_avatar(user=Depends(current_user)): return await set_avatar(user, None)
 
 @router.post('/auth/password', response_model=UserOut)
 async def change_password(body: PasswordChange, response: Response, user=Depends(current_user)):

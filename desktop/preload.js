@@ -29,7 +29,15 @@ contextBridge.exposeInMainWorld('pulse', {
   setOrigin: (origin) => ipcRenderer.invoke('config:setOrigin', origin),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
   appInfo: () => ipcRenderer.invoke('app:info'),
+  setAvatar: (image) => ipcRenderer.invoke('me:avatar', image),
 
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
+  onFan: (fn) => ipcRenderer.on('fan', (_e, f) => fn(f)),
+  fanCollapse: (collapsed) => ipcRenderer.invoke('fan:collapse', collapsed),
+  fanRefresh: () => ipcRenderer.invoke('fan:refresh'),
+  fanNoteAdd: (text) => ipcRenderer.invoke('fan:note:add', text),
+  fanNoteDel: (id) => ipcRenderer.invoke('fan:note:del', id),
+  fanContacted: (taskId) => ipcRenderer.invoke('fan:contacted', taskId),
+  taskOpen: (taskId) => ipcRenderer.invoke('task:open', taskId),
   onToast: (fn) => ipcRenderer.on('toast', (_e, m) => fn(m)),
 });
