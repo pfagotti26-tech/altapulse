@@ -1,6 +1,6 @@
 """Contratos públicos: documentos internos e credenciais nunca integram a resposta."""
 from datetime import datetime
-from typing import Literal, Any
+from typing import Literal, Optional, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 class Public(BaseModel):
@@ -15,6 +15,7 @@ class UserOut(Public):
     creator_ids: list[str]
     created_at: str
     must_change_password: bool = False
+    avatar: Optional[str] = None
 
 class ShiftOut(Public):
     id: str
@@ -26,6 +27,7 @@ class ShiftOut(Public):
     ended_at: str | None = None
     active: bool
     paused: bool
+    operator_avatar: Optional[str] = None
 
 class CreatorOut(Public):
     id: str

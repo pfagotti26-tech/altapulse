@@ -232,6 +232,14 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Instalador 1.2.0 em `backend/desktop_dist` (partes de 60 MB); quem tem a 1.1.0 atualiza sozinho pelo electron-updater.
 - Diagnóstico: menu da criadora → "Capturar Meu Privacy → Assinantes (calibração)" grava o esqueleto mascarado em `desktop/calibracoes/` (ou no perfil do app, se instalado).
 
+### Lote 3 — cartão do fã, listas de trabalho e correções — 2026-09-30
+- Cartão do fã no app (painel de 290 px à direita da Privacy, recolhível): gasto do fã com a criadora, ticket, última compra, faixa (baleia/spender), estado (esfriando, dormente, novo sem compra, assinatura inativa), sugestão em uma frase, ofertas não pagas, últimas compras e anotações da equipe (Enter salva). Atualiza ~1 s após trocar de conversa. Nunca mostra faturamento da criadora. API: GET /extension/fan, POST/DELETE /extension/fan/notes.
+- Listas de trabalho: gestor seleciona fãs em Assinantes e envia para um chatter (POST /fan-tasks); chatter vê "Minha lista" na lateral, abre a conversa (cid guardado localmente em fa-conversas.json) e marca "contatado"; painel mede compra em até 3 dias após o contato.
+- Assinantes: faixas relativas por criadora (top 5% baleias, próximos 15% spenders), filtros com contagem (vazios desabilitados), anotações por fã.
+- Chave única de referência de fãs/vendas (db.secrets fan_hash_key; primeiro gestor com app ≥1.3 cadastra a chave local dele) + dedupe no servidor de vendas do extrato iguais vindas de outro computador.
+- Histórico do extrato: "ver mais" até a lista parar de crescer (backfillV 2) — antes marcava como feito mesmo com a página vazia e ficava só a 1ª página (20 linhas).
+- Também: foto de perfil (painel e app), período personalizado e filtros na tabela de Vendas, Desempenho em cartões, leitura da Visão geral corrigida (assinantes e internacional). Instalador 1.3.0.
+
 ### P0 — dependências para monitoramento real
 1. Usuário criar gestor e cadastrar perfis/operadores; instalar componente na estação Windows autorizada.
 2. Validar abertura/isolamento/login manual na Privacy no computador real, sem transmitir credenciais.

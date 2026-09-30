@@ -243,3 +243,36 @@ tbody tr:hover { background: #fdfbfc; }
 .page-heading select{height:36px;border:1px solid var(--line);border-radius:5px;padding:0 10px;font-size:11px;background:#fff}
 
 .page-heading select, .heading-actions select{height:36px;border:1px solid var(--line);border-radius:5px;padding:0 10px;font-size:11px;background:#fff;max-width:220px}
+
+/* foto de perfil */
+.avatar{overflow:hidden}.avatar-img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+.tiny-avatar{width:20px;height:20px;font-size:8px;flex-shrink:0}.operator-with-photo{display:flex!important;align-items:center;gap:6px}
+.account-photo{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:6px}.account-photo-avatar{width:96px;height:96px;font-size:28px;background:#f6e3e7;color:#ae344b;border:4px solid #fff;box-shadow:0 2px 10px #28151c1a}
+.account-photo-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.photo-btn{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:6px 11px;border-radius:5px;background:#c41e3a;color:#fff;border:0;cursor:pointer}.photo-btn.ghost{background:transparent;color:#8a7782;border:1px solid #e7dfe4}.photo-btn:hover{filter:brightness(1.05)}
+
+/* período personalizado e filtros da tabela de vendas */
+.date-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.date-range label{display:flex;align-items:center;gap:6px;font-size:11px;color:#7b6b74}.date-range input{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 8px;font-size:11px;color:#5c4c55;background:#fff}
+.sales-table-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.sales-table-filters select{min-width:170px;height:35px;font-size:11px}.table-search{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 11px;font-size:11px;min-width:200px;background:#fff}.sales-table-filters .body-muted{font-size:10px}
+
+/* Desempenho em cartões (cabe em qualquer largura) */
+.perf-toolbar{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}.perf-toolbar select{height:35px;font-size:11px;min-width:220px}
+.perf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}
+.perf-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.perf-card header{display:flex;align-items:center;gap:10px}.perf-card header strong{display:block;font-size:14px}.perf-card header span:not(.avatar){font-size:10px;color:#998a93}
+.perf-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px}.perf-kpis>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.perf-kpis span{font-size:9.5px;color:#9a8b94}.perf-kpis strong{font-size:14px;font-variant-numeric:tabular-nums;color:#3f3339;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.perf-kpis small{font-size:9px;color:#b0976c}.perf-kpis .status-badge{font-size:8.5px;padding:2px 5px}
+.green-text{color:#2f7a4c!important}.perf-alerts{display:flex;flex-direction:column;gap:3px}
+.perf-chart>span{font-size:9.5px;color:#9a8b94;display:block;margin-bottom:4px}.perf-chart .bars{height:46px;gap:2px}.perf-chart .bars span{flex:1;width:auto;min-width:2px}
+@media(max-width:760px){.perf-grid{grid-template-columns:1fr}.perf-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Assinantes: faixas, seleção, listas e cartão do fã */
+.fans-stats{grid-template-columns:repeat(5,minmax(0,1fr))}@media(max-width:1100px){.fans-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.status-badge.gold{background:#fbf2dc;color:#a77a12}
+.tag-stack{display:flex;flex-wrap:wrap;gap:4px}
+.filter-tabs>button:disabled{opacity:.4;cursor:default}
+.assign-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff6f7;border:1px solid #f0d4da;border-radius:6px;padding:10px 14px;margin:0 0 12px}.assign-bar select{height:34px;min-width:220px;font-size:11px}
+.note-count{position:absolute;top:-2px;right:-4px;background:#c41e3a;color:#fff;border-radius:8px;font-size:8px;padding:0 4px;line-height:13px}
+.fan-card-panel{display:flex;flex-direction:column;gap:10px}.fan-card-panel h3{font-size:13px;margin-top:6px}
+.fan-card-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.fan-card-kpis div{background:#f7f3f5;border-radius:6px;padding:10px}.fan-card-kpis span{display:block;font-size:10px;color:#8a7782}.fan-card-kpis strong{font-size:16px}
+.fan-note{position:relative;background:#faf8f9;border:1px solid #efe7eb;border-radius:6px;padding:9px 34px 9px 11px}.fan-note p{font-size:12px}.fan-note small{font-size:10px;color:#9a8b94}.fan-note .icon-btn{position:absolute;right:4px;top:4px}
+.fan-note-form{display:flex;gap:8px}.fan-note-form input{flex:1;height:36px;border:1px solid #e2dce0;border-radius:5px;padding:0 10px;font-size:12px}

@@ -74,7 +74,10 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .me { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 8px; }
 .me .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.me .uavatar { width: 30px; height: 30px; border-radius: 50%; background: #35222a; color: #f6b1bf; display: grid; place-items: center; font-weight: 700; font-size: 11px; flex: none; }
+.me .uavatar { width: 30px; height: 30px; border-radius: 50%; background: #35222a; color: #f6b1bf; display: grid; place-items: center; font-weight: 700; font-size: 11px; flex: none; cursor: pointer; overflow: hidden; }
+.me .uavatar img { width: 100%; height: 100%; object-fit: cover; }
+.me .uavatar:hover { outline: 2px solid #e53935; }
+.op-photo { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; vertical-align: -3px; margin-right: 4px; }
 
 .popover { position: fixed; z-index: 20; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: flex; flex-direction: column; }
 .popover button { background: transparent; text-align: left; padding: 7px 10px; border-radius: 6px; }
@@ -124,3 +127,13 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .shift-btn.end:hover{background:rgba(229,57,53,.25);border-color:#e53935}
 .shift-btn.pause{flex:0 0 auto;background:transparent;color:#bbb;border:1px solid rgba(255,255,255,.15)}
 .shift-btn.pause:hover{color:#fff}
+
+.photo-choice{display:flex;flex-direction:column;align-items:center;gap:10px}.photo-choice img{width:96px;height:96px;border-radius:50%;object-fit:cover}.photo-choice button{width:100%}
+
+/* lista de trabalho do chatter */
+.work { display: block; width: calc(100% - 16px); margin: 6px 8px; text-align: left; background: #2a1418; border: 1px solid #5a2630; border-radius: 8px; padding: 8px 10px; color: #ececf1; cursor: pointer; }
+.work b { color: #ff8a80; font-size: 12px; } .work small { display: block; color: #9a9aa6; font-size: 10.5px; margin-top: 2px; }
+.work:hover { border-color: #e53935; }
+.task-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.task { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.04); border-radius: 8px; padding: 8px; }
+.task > div { flex: 1; min-width: 0; } .task small { display: block; color: #9a9aa6; font-size: 10.5px; }
