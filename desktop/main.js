@@ -477,7 +477,7 @@ async function readExtratoNow(id, opts = {}) {
             x.reader.s.subsAt = Date.now(); x.summary.subscribers = out.saved;
           } else x.summary.subsError = 'lista de assinantes vazia';
         } else x.summary.subsError = 'sem aba Assinantes';
-      } catch (error) { x.summary.subsError = error.message.slice(0, 120); }
+      } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
     }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
