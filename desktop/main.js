@@ -375,10 +375,16 @@ function scheduleExtrato(id, ms) {
 }
 async function loadStats(view) {
   await new Promise((resolve) => {
-    const done = () => { view.webContents.removeListener('did-finish-load', done); view.webContents.removeListener('did-fail-load', done); resolve(); };
+    let timer = null;
+    const done = () => {
+      clearTimeout(timer);
+      const wc = view.webContents; // a aba pode já ter sido fechada quando o timeout dispara
+      if (wc && !wc.isDestroyed()) { wc.removeListener('did-finish-load', done); wc.removeListener('did-fail-load', done); }
+      resolve();
+    };
     view.webContents.once('did-finish-load', done); view.webContents.once('did-fail-load', done);
     view.webContents.loadURL(STATS_URL, { userAgent: UA });
-    setTimeout(done, 25000);
+    timer = setTimeout(done, 25000);
   });
   await sleep(4000); // SPA termina de montar
 }
