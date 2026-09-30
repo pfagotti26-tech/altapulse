@@ -186,7 +186,7 @@ function creatorMenu(c, anchor) {
   items.push(['Mover para grupo', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
   items.push('-');
-  if (isOpen) items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
+  if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
   if (isOpen && S.user.role === 'manager') items.push(['Mostrar/esconder aba do extrato (diagnóstico)', () => window.pulse.toggleExtrato(c.id)]);
   if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
   items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);

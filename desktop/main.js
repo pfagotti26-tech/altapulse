@@ -194,7 +194,25 @@ function layout() {
 
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
 
-function openProfile(creatorId, platform = 'privacy') {
+// ---------- abas abertas sobrevivem ao reinício ----------
+function saveOpenTabs() {
+  writeJson('abas-abertas.json', { tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])), activeTab: Object.fromEntries(activeTab), active: activeId });
+}
+let restored = false;
+function restoreOpenTabs() {
+  if (restored || !state.user) return; restored = true;
+  const saved = readJson('abas-abertas.json', null); if (!saved || !saved.tabs) return;
+  const known = new Set((state.creators || []).map((c) => c.id));
+  for (const [id, platforms] of Object.entries(saved.tabs)) {
+    if (!known.has(id)) continue;
+    for (const platform of platforms) openProfile(id, platform, { quiet: true });
+    if (saved.activeTab && saved.activeTab[id]) activeTab.set(id, saved.activeTab[id]);
+  }
+  activeId = saved.active && tabs.has(saved.active) ? saved.active : null;
+  layout(); pushState();
+}
+
+function openProfile(creatorId, platform = 'privacy', opts = {}) {
   if (!PLATFORMS[platform]) platform = 'privacy';
   const t = tabsOf(creatorId);
   if (t.has(platform)) { activeId = creatorId; activeTab.set(creatorId, platform); layout(); pushState(); return; }
@@ -223,7 +241,7 @@ function openProfile(creatorId, platform = 'privacy') {
   activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
   view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
-  pushState();
+  if (!opts.quiet) { pushState(); saveOpenTabs(); }
   if (platform === 'privacy') scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
 }
 
@@ -237,7 +255,7 @@ function closeTab(creatorId, platform) {
   if (activeTab.get(creatorId) === platform) activeTab.set(creatorId, [...t.keys()][0] || null);
   if (!t.size) { tabs.delete(creatorId); activeTab.delete(creatorId); if (activeId === creatorId) activeId = [...tabs.keys()].at(-1) || null; }
   layout();
-  pushState();
+  pushState(); saveOpenTabs();
 }
 function closeProfile(creatorId) {
   for (const platform of [...(tabs.get(creatorId) || new Map()).keys()]) closeTab(creatorId, platform);
@@ -344,13 +362,29 @@ async function loadStats(view) {
   });
   await sleep(4000); // SPA termina de montar
 }
-async function readExtrato(id) {
+// Leituras em fila, uma por vez: duas abas ocultas com os mesmos limites se cobrem, e a de baixo vira
+// "hidden" para o Chromium. A aba em leitura é trazida ao topo da camada oculta (ainda sob as criadoras).
+let extratoChain = Promise.resolve();
+function readExtrato(id, opts = {}) {
+  const p = extratoChain.then(() => readExtratoNow(id, opts)).catch(() => {});
+  extratoChain = p; return p;
+}
+function raiseStatsView(view) {
+  const n = [...extratos.values()].filter((x) => x.view && !x.view.webContents.isDestroyed()).length;
+  win.contentView.removeChildView(view); win.contentView.addChildView(view, Math.max(0, n - 1));
+  view.setBounds(hiddenBounds());
+}
+async function hasPrivacySession(id) {
+  try { const cookies = await session.fromPartition(partitionFor(id)).cookies.get({ url: 'https://privacy.com.br' }); return cookies.length > 0; } catch { return false; }
+}
+async function readExtratoNow(id, opts = {}) {
   const x = extratoFor(id);
-  if (!views.has(id) || !state.user || x.busy) return;
+  if (!state.user || x.busy) return;
+  if (!views.has(id) && !opts.background) return;
   x.busy = true;
   try {
     x.reader.options.fanNames = !!state.fan_names_allowed;
-    const view = statsView(id);
+    const view = statsView(id); raiseStatsView(view);
     const run = (action) => view.webContents.executeJavaScript(EXTRATO.script(action), true);
     if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
     let info = await run('tab');
@@ -402,9 +436,23 @@ async function readExtrato(id) {
   } finally {
     x.busy = false; pushState();
     if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
+    else if (!x.shown) closeStatsView(id); // leitura de fundo: libera a memória até a próxima rodada
   }
 }
-ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id); return publicState(); });
+// Vigia (gestor): a cada 10 min lê o extrato de TODAS as criadoras com sessão da Privacy salva neste
+// computador, mesmo sem aba aberta. Assim nenhuma venda fica sem registro quando ninguém está atendendo.
+let vigiaTimer = null;
+async function vigia() {
+  if (!state.user || state.user.role !== 'manager') return;
+  for (const c of state.creators || []) {
+    if (views.has(c.id)) continue; // aberta: já tem a própria rotina
+    if (!(await hasPrivacySession(c.id))) continue;
+    await readExtrato(c.id, { background: true });
+  }
+}
+function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
+function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
+ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); return publicState(); });
 // diagnóstico: mostra/esconde a aba oculta do extrato no lugar da aba da criadora
 ipcMain.handle('extrato:toggle', (_e, id) => {
   const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;
@@ -437,12 +485,16 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   const data = await api('POST', '/extension/login', { email, password, device_name: `Alta Pulse desktop (${require('os').hostname()})` });
   token = data.token; writeToken(token);
   await refreshState();
+  restoreOpenTabs(); startVigia();
   return publicState();
 });
 ipcMain.handle('auth:logout', async () => {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
+  const keep = readJson('abas-abertas.json', null);
   for (const id of [...tabs.keys()]) closeProfile(id);
+  if (keep) writeJson('abas-abertas.json', keep); // ao entrar de novo, volta como estava
+  restored = false; stopVigia();
   state = { user: null, creators: [], sla_minutes: 5, version: null };
   pushState();
   return publicState();
@@ -465,7 +517,7 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
 });
-ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); } return publicState(); });
+ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); } return publicState(); });
 ipcMain.handle('profile:closeTab', (_e, id, platform) => { closeTab(id, platform); return publicState(); });
 ipcMain.handle('profile:close', (_e, id) => { closeProfile(id); return publicState(); });
 ipcMain.handle('profile:reload', (_e, id) => { const v = currentView(id); if (v) v.webContents.reload(); return true; });
@@ -537,6 +589,7 @@ app.whenReady().then(async () => {
 
   token = readToken();
   await refreshState();
+  restoreOpenTabs(); startVigia();
   setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(heartbeats, HEARTBEAT_MS);
