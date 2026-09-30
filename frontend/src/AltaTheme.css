@@ -217,7 +217,7 @@ tbody tr:hover { background: #fdfbfc; }
 @media(max-width:1000px){.two-col{grid-template-columns:1fr}}
 
 /* Cofre de acessos (bloco F) */
-.vault{display:flex;flex-direction:column;gap:14px;min-width:min(760px,80vw)}.vault .section-heading h2{display:flex;align-items:center;gap:7px}.vault-form{border:1px solid var(--line);border-radius:6px;padding:16px;background:#fafbf9}.vault-secret{display:inline-flex;align-items:center;gap:4px;font-family:monospace}.vault td{padding:12px 14px}
+.vault{display:flex;flex-direction:column;gap:14px;min-width:0;max-width:100%}.app-modal-wide{max-width:min(860px,calc(100vw - 32px))!important}.vault .table-scroll{overflow-x:auto}.vault .section-heading{flex-wrap:wrap;gap:10px}.vault .section-heading h2{display:flex;align-items:center;gap:7px}.vault-form{border:1px solid var(--line);border-radius:6px;padding:16px;background:#fafbf9}.vault-secret{display:inline-flex;align-items:center;gap:4px;font-family:monospace}.vault td{padding:12px 14px}
 
 /* Perfis da equipe na barra lateral (não tinha estilo: os textos se sobrepunham) */
 .creator-sidebar{margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line);min-height:0;display:flex;flex-direction:column;flex:0 1 auto;overflow:hidden}
