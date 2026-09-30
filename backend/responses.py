@@ -47,6 +47,7 @@ class SettingsOut(Public):
     retention_days: int
     storage_allowed: bool
     fan_names_allowed: bool = False
+    quality_ai_allowed: bool = False
 
 class MeOut(Public):
     user: UserOut

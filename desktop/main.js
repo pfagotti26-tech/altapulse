@@ -9,9 +9,11 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-const { CreatorReader } = require('./reader.js');
+const { CreatorReader, parseDateLabel } = require('./reader.js');
+const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
+const SUBS = require('./subscribers-page.js');
 const { ExtratoReader } = require('./extrato.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
@@ -33,6 +35,8 @@ const STATE_REFRESH_MS = 20000;
 const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
+const SUBS_MS = 6 * 60 * 60 * 1000;     // bloco D: lista de assinantes a cada 6 h
+const SAMPLE_MS = 30 * 60 * 1000;       // bloco E: no máximo uma amostra por conversa a cada 30 min
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
 // A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
 // Privacy monta o layout de celular (sem abas); recortada a uma faixa, a lista de transações não é
@@ -50,6 +54,8 @@ function hiddenBounds() {
 }
 
 const dataDir = () => app.getPath('userData');
+// calibrações: junto do código quando rodando da pasta (fácil de achar); no perfil do usuário quando instalado (asar é só leitura)
+const calibDir = () => (app.isPackaged ? path.join(dataDir(), 'calibracoes') : path.join(__dirname, 'calibracoes'));
 const filePath = (name) => path.join(dataDir(), name);
 
 function readJson(name, fallback) {
@@ -133,7 +139,7 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
-    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed };
+    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
     try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
@@ -194,7 +200,25 @@ function layout() {
 
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
 
-function openProfile(creatorId, platform = 'privacy') {
+// ---------- abas abertas sobrevivem ao reinício ----------
+function saveOpenTabs() {
+  writeJson('abas-abertas.json', { tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])), activeTab: Object.fromEntries(activeTab), active: activeId });
+}
+let restored = false;
+function restoreOpenTabs() {
+  if (restored || !state.user) return; restored = true;
+  const saved = readJson('abas-abertas.json', null); if (!saved || !saved.tabs) return;
+  const known = new Set((state.creators || []).map((c) => c.id));
+  for (const [id, platforms] of Object.entries(saved.tabs)) {
+    if (!known.has(id)) continue;
+    for (const platform of platforms) openProfile(id, platform, { quiet: true });
+    if (saved.activeTab && saved.activeTab[id]) activeTab.set(id, saved.activeTab[id]);
+  }
+  activeId = saved.active && tabs.has(saved.active) ? saved.active : null;
+  layout(); pushState();
+}
+
+function openProfile(creatorId, platform = 'privacy', opts = {}) {
   if (!PLATFORMS[platform]) platform = 'privacy';
   const t = tabsOf(creatorId);
   if (t.has(platform)) { activeId = creatorId; activeTab.set(creatorId, platform); layout(); pushState(); return; }
@@ -223,7 +247,7 @@ function openProfile(creatorId, platform = 'privacy') {
   activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
   view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
-  pushState();
+  if (!opts.quiet) { pushState(); saveOpenTabs(); }
   if (platform === 'privacy') scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
 }
 
@@ -237,7 +261,7 @@ function closeTab(creatorId, platform) {
   if (activeTab.get(creatorId) === platform) activeTab.set(creatorId, [...t.keys()][0] || null);
   if (!t.size) { tabs.delete(creatorId); activeTab.delete(creatorId); if (activeId === creatorId) activeId = [...tabs.keys()].at(-1) || null; }
   layout();
-  pushState();
+  pushState(); saveOpenTabs();
 }
 function closeProfile(creatorId) {
   for (const platform of [...(tabs.get(creatorId) || new Map()).keys()]) closeTab(creatorId, platform);
@@ -283,6 +307,8 @@ async function readAll() {
     // com o extrato funcionando para esta criadora, a venda inferida pela lista de conversas não é
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
+    // bloco E: amostra anonimizada da conversa aberta, só no turno do próprio usuário e com a opção ligada
+    if (mine && state.storage_allowed && state.quality_ai_allowed && data.open && data.open.cid) sampleConversation(id, view, r, data.open).catch(() => {});
     if (!events.length) continue;
     if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; continue; }
     try {
@@ -291,6 +317,22 @@ async function readAll() {
     } catch (error) { r.lastError = error.message; r.summary.error = error.message; }
   }
   pushState();
+}
+
+// ---------- amostras de conversa (bloco E) ----------
+const samples = new Map(); // creatorId|cid -> { at, count }
+async function sampleConversation(id, view, r, open) {
+  const key = `${id}|${open.cid}`; const last = samples.get(key);
+  const count = (open.msgs || []).length;
+  if (last && (Date.now() - last.at < SAMPLE_MS || last.count === count)) return;
+  samples.set(key, { at: Date.now(), count });
+  const data = await view.webContents.executeJavaScript(SAMPLE_SCRIPT, true);
+  if (!data || !data.msgs || data.msgs.length < 3) return;
+  const now = new Date();
+  const when = (m) => { if (!m.date || !m.time) return null; const d = parseDateLabel(m.date, now); if (!d) return null; const [h, mi] = m.time.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString(); };
+  const fan = r.reader.fan(data.name); if (!fan.fan_ref) return;
+  await api('POST', '/extension/samples', { creator_id: id, fan_ref: fan.fan_ref, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
+  r.summary.sampled = (r.summary.sampled || 0) + 1;
 }
 
 // ---------- extrato (bloco A) ----------
@@ -317,6 +359,7 @@ function statsView(id) {
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   view.webContents.setUserAgent(UA);
   view.webContents.setAudioMuted(true);
+  view.webContents.setBackgroundThrottling(false); // sem isso a aba oculta pode não renderizar a SPA
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // fica por BAIXO das outras abas (índice 0) e com tamanho de tela de desktop: com uma janela minúscula
   // a Privacy montava o layout de celular (sem as abas) e com setVisible(false) não terminava de carregar
@@ -337,20 +380,42 @@ function scheduleExtrato(id, ms) {
 }
 async function loadStats(view) {
   await new Promise((resolve) => {
-    const done = () => { view.webContents.removeListener('did-finish-load', done); view.webContents.removeListener('did-fail-load', done); resolve(); };
+    let timer = null;
+    const done = () => {
+      clearTimeout(timer);
+      const wc = view.webContents; // a aba pode já ter sido fechada quando o timeout dispara
+      if (wc && !wc.isDestroyed()) { wc.removeListener('did-finish-load', done); wc.removeListener('did-fail-load', done); }
+      resolve();
+    };
     view.webContents.once('did-finish-load', done); view.webContents.once('did-fail-load', done);
     view.webContents.loadURL(STATS_URL, { userAgent: UA });
-    setTimeout(done, 25000);
+    timer = setTimeout(done, 25000);
   });
   await sleep(4000); // SPA termina de montar
 }
-async function readExtrato(id) {
+// Leituras em fila, uma por vez: duas abas ocultas com os mesmos limites se cobrem, e a de baixo vira
+// "hidden" para o Chromium. A aba em leitura é trazida ao topo da camada oculta (ainda sob as criadoras).
+let extratoChain = Promise.resolve();
+function readExtrato(id, opts = {}) {
+  const p = extratoChain.then(() => readExtratoNow(id, opts)).catch(() => {});
+  extratoChain = p; return p;
+}
+function raiseStatsView(view) {
+  const n = [...extratos.values()].filter((x) => x.view && !x.view.webContents.isDestroyed()).length;
+  win.contentView.removeChildView(view); win.contentView.addChildView(view, Math.max(0, n - 1));
+  view.setBounds(hiddenBounds());
+}
+async function hasPrivacySession(id) {
+  try { const cookies = await session.fromPartition(partitionFor(id)).cookies.get({ url: 'https://privacy.com.br' }); return cookies.length > 0; } catch { return false; }
+}
+async function readExtratoNow(id, opts = {}) {
   const x = extratoFor(id);
-  if (!views.has(id) || !state.user || x.busy) return;
+  if (!state.user || x.busy) return;
+  if (!views.has(id) && !opts.background) return;
   x.busy = true;
   try {
     x.reader.options.fanNames = !!state.fan_names_allowed;
-    const view = statsView(id);
+    const view = statsView(id); raiseStatsView(view);
     const run = (action) => view.webContents.executeJavaScript(EXTRATO.script(action), true);
     if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
     let info = await run('tab');
@@ -395,6 +460,25 @@ async function readExtrato(id) {
         }
       } catch (error) { x.summary.snapshotError = error.message.slice(0, 120); }
     }
+    // bloco D: lista de assinantes (situação e preço da assinatura) a cada 6 h, na mesma aba oculta
+    if (state.storage_allowed && (!x.reader.s.subsAt || Date.now() - x.reader.s.subsAt > SUBS_MS)) {
+      try {
+        const runS = (a) => view.webContents.executeJavaScript(SUBS.script(a), true);
+        let t = await runS('tab');
+        for (let i = 0; i < 8 && t.hadTab && !t.tabActive; i++) { await sleep(2000); t = await runS('tab'); }
+        if (t.tabActive) {
+          await sleep(3000);
+          let d = await runS('read');
+          for (let i = 0; i < 5 && !d.rows.length; i++) { await sleep(2000); d = await runS('read'); }
+          for (let i = 0; i < 25 && d.hasMore; i++) { await runS('more'); await sleep(1500); d = await runS('read'); }
+          const rows = d.rows.map((r) => ({ ...x.reader.fan(r.name), status: r.status.slice(0, 40), price_cents: r.price_cents, duration: r.duration.slice(0, 40) })).filter((r) => r.fan_ref);
+          if (rows.length) {
+            const out = await api('POST', '/extension/subscribers', { creator_id: id, taken_at: new Date().toISOString(), total_label: (d.count || '').slice(0, 40), revenue_cents: d.revenue_cents, rows: rows.slice(0, 3000) });
+            x.reader.s.subsAt = Date.now(); x.summary.subscribers = out.saved;
+          } else x.summary.subsError = 'lista de assinantes vazia';
+        } else x.summary.subsError = 'sem aba Assinantes';
+      } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
+    }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
     const old = /Extra inputs are not permitted/.test(error.message);
@@ -402,9 +486,41 @@ async function readExtrato(id) {
   } finally {
     x.busy = false; pushState();
     if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
+    else if (!x.shown) closeStatsView(id); // leitura de fundo: libera a memória até a próxima rodada
   }
 }
-ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id); return publicState(); });
+// Vigia (gestor): a cada 10 min lê o extrato de TODAS as criadoras com sessão da Privacy salva neste
+// computador, mesmo sem aba aberta. Assim nenhuma venda fica sem registro quando ninguém está atendendo.
+let vigiaTimer = null;
+async function vigia() {
+  if (!state.user || state.user.role !== 'manager') return;
+  for (const c of state.creators || []) {
+    if (views.has(c.id)) continue; // aberta: já tem a própria rotina
+    if (!(await hasPrivacySession(c.id))) continue;
+    await readExtrato(c.id, { background: true });
+  }
+}
+function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
+function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
+ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); return publicState(); });
+// diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
+ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
+  const x = extratoFor(id); const view = statsView(id); raiseStatsView(view);
+  if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
+  const tabScript = `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+    let b = null; for (const r of roots) { b = r.querySelector('.seg-btn[data-tour="tour-${tour}"]'); if (b) break; }
+    if (!b) return { found: false, tabs: roots.flatMap((r) => [...r.querySelectorAll('.seg-btn')]).map((x) => x.getAttribute('data-tour')) };
+    const active = b.classList.contains('active'); if (!active) b.click(); return { found: true, active }; })()`;
+  let clicked = null; // como no extrato: a SPA só aceita o clique depois de montar; insiste até a aba ficar ativa
+  for (let i = 0; i < 12; i++) { clicked = await view.webContents.executeJavaScript(tabScript, true); if (clicked && clicked.active) break; await sleep(2500); }
+  await sleep(4000);
+  const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
+  const dir = calibDir(); fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `stats-${tour}-${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
+  fs.writeFileSync(file, `<!-- ${view.webContents.getURL()} clicked=${JSON.stringify(clicked)} -->\n${outline}`);
+  if (!views.has(id) && !x.shown) closeStatsView(id);
+  return { ok: true, file, clicked, size: outline.length };
+});
 // diagnóstico: mostra/esconde a aba oculta do extrato no lugar da aba da criadora
 ipcMain.handle('extrato:toggle', (_e, id) => {
   const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;
@@ -437,12 +553,16 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   const data = await api('POST', '/extension/login', { email, password, device_name: `Alta Pulse desktop (${require('os').hostname()})` });
   token = data.token; writeToken(token);
   await refreshState();
+  restoreOpenTabs(); startVigia();
   return publicState();
 });
 ipcMain.handle('auth:logout', async () => {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
+  const keep = readJson('abas-abertas.json', null);
   for (const id of [...tabs.keys()]) closeProfile(id);
+  if (keep) writeJson('abas-abertas.json', keep); // ao entrar de novo, volta como estava
+  restored = false; stopVigia();
   state = { user: null, creators: [], sla_minutes: 5, version: null };
   pushState();
   return publicState();
@@ -465,7 +585,7 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
 });
-ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); } return publicState(); });
+ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); } return publicState(); });
 ipcMain.handle('profile:closeTab', (_e, id, platform) => { closeTab(id, platform); return publicState(); });
 ipcMain.handle('profile:close', (_e, id) => { closeProfile(id); return publicState(); });
 ipcMain.handle('profile:reload', (_e, id) => { const v = currentView(id); if (v) v.webContents.reload(); return true; });
@@ -483,7 +603,7 @@ ipcMain.handle('profile:calibrate', async (_e, id) => {
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
   if (!outline || outline.length < 200) throw new Error('A tela ainda não carregou. Espere aparecerem as mensagens e tente de novo.');
   // cópia local (mesmo conteúdo mascarado) para análise sem depender do banco do painel
-  const dir = path.join(dataDir(), 'calibracoes'); fs.mkdirSync(dir, { recursive: true }); // fora do pacote (asar é só leitura)
+  const dir = calibDir(); fs.mkdirSync(dir, { recursive: true }); // fora do pacote (asar é só leitura)
   const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
   fs.writeFileSync(file, `<!-- ${url} -->\n${outline}`);
   let sent = true;
@@ -537,6 +657,7 @@ app.whenReady().then(async () => {
 
   token = readToken();
   await refreshState();
+  restoreOpenTabs(); startVigia();
   setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(heartbeats, HEARTBEAT_MS);
