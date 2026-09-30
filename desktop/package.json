@@ -64,9 +64,9 @@
       "deleteAppDataOnUninstall": false
     },
     "publish": {
-      "provider": "github",
-      "owner": "pfagotti26-tech",
-      "repo": "altapulse"
+      "provider": "generic",
+      "url": "https://altapulse.com.br/api/desktop/updates",
+      "channel": "latest"
     },
     "npmRebuild": false,
     "nodeGypRebuild": false
