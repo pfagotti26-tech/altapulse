@@ -1,14 +1,74 @@
 {
   "name": "alta-pulse-desktop",
   "productName": "Alta Pulse",
-  "version": "1.0.0-fase1",
+  "version": "1.1.0",
   "private": true,
   "description": "Alta Pulse desktop: perfis isolados por criadora, turnos e presença, com o painel altapulse.com.br",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "44.5.0"
+    "electron": "44.5.0",
+    "electron-builder": "^25.1.8",
+    "resedit": "^2.0.3"
+  },
+  "author": "Alta Agency",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pfagotti26-tech/altapulse.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "br.com.altapulse.desktop",
+    "productName": "Alta Pulse",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*",
+      "!calibracoes/**",
+      "!iniciar.log",
+      "!dist/**",
+      "!build/**",
+      "!*.bundle"
+    ],
+    "afterPack": "build/afterPack.js",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "AltaPulse-Setup-${version}.exe",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "Alta Pulse",
+      "artifactName": "AltaPulse-Setup-${version}.exe",
+      "uninstallDisplayName": "Alta Pulse",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "pfagotti26-tech",
+      "repo": "altapulse"
+    },
+    "npmRebuild": false,
+    "nodeGypRebuild": false
   }
 }

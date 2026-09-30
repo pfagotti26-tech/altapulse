@@ -23,15 +23,20 @@ function script(action) {
     if (ACTION === 'tab') { if (tab && !tabActive) tab.click(); return { onStats, hadTab: !!tab, tabActive, loggedOut: /login|entrar/i.test(location.pathname), ready: document.readyState, roots: roots.length }; }
     const more = qs('.ver-mais-btn');
     if (ACTION === 'more') { if (more) more.click(); return { clicked: !!more }; }
-    // situação pela forma do ícone: check (concluído), relógio (a receber), x/seta (estorno/cancelado)
+    // situação: o ícone vem dentro de <span title="Concluído"> (validado 30/09); por segurança também
+    // pela cor/forma do ícone (check verde = concluído, relógio = a receber, x/seta = estorno)
     const statusOf = (cell) => {
-      const svg = cell && cell.querySelector('svg'); if (!svg) return { status: 'unknown', raw: txt(cell).slice(0, 20) };
-      const html = svg.outerHTML.toLowerCase(); const cls = (svg.getAttribute('class') || '').toLowerCase();
-      const has = (re) => re.test(html) || re.test(cls);
-      if (has(/clock|relogio|relógio/) || (html.includes('<circle') && html.includes('<polyline'))) return { status: 'pending', raw: cls || 'circle+polyline' };
-      if (has(/refund|estorno|rotate|undo|x-circle|circle-x|lucide-x\b|ban\b/) || (html.includes('<circle') && (html.match(/<line/g) || []).length >= 2)) return { status: 'refunded', raw: cls || 'circle+lines' };
-      if (has(/check|concluid/) || html.includes('<polyline') || /m20 6|9 17/.test(html)) return { status: 'confirmed', raw: cls || 'polyline' };
-      return { status: 'unknown', raw: (cls || html.replace(/<[^>]+>/g, ' ').trim()).slice(0, 40) };
+      if (!cell) return { status: 'unknown', raw: '' };
+      const titled = cell.querySelector('[title]'); const title = ((titled && titled.getAttribute('title')) || cell.getAttribute('title') || '').trim();
+      const t = title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (/conclu|pago|aprovad|confirm/.test(t)) return { status: 'confirmed', raw: title };
+      if (/receber|pendente|process|aguard|analise/.test(t)) return { status: 'pending', raw: title };
+      if (/estorn|cancel|recus|negad|chargeback|reembols/.test(t)) return { status: 'refunded', raw: title };
+      const svg = cell.querySelector('svg'); const html = svg ? svg.outerHTML.toLowerCase() : '';
+      if (/mp-green|m2\.5 7l3 3\.5|20 6 9 17/.test(html)) return { status: 'confirmed', raw: title || 'green' };
+      if (html.includes('<circle') && html.includes('<polyline')) return { status: 'pending', raw: title || 'clock' };
+      if (/mp-red|<line/.test(html) && html.includes('<circle')) return { status: 'refunded', raw: title || 'x' };
+      return { status: 'unknown', raw: (title || html.replace(/<[^>]+>/g, ' ').trim()).slice(0, 40) };
     };
     const rows = qsa('.ext-tx-list .tx-card-shell').map((card) => {
       const cells = [...card.querySelectorAll('.tx-grid .tx-cell')];
@@ -43,7 +48,7 @@ function script(action) {
     }).filter((r) => r.when && r.gross != null);
     const period = txt(qs('.date-range-text'));
     return { onStats, tabActive, rows, hasMore: !!more, period, loggedOut: /login|entrar/i.test(location.pathname),
-      dbg: { vis: document.visibilityState, lists: qsa('.ext-tx-list').length, shells: qsa('.tx-card-shell').length, skel: qsa('.skeleton-content').length, w: innerWidth, h: innerHeight, sy: scrollY } };
+      dbg: { vis: document.visibilityState, lists: qsa('.ext-tx-list').length, shells: qsa('.tx-card-shell').length, skel: qsa('.skeleton-content').length, w: innerWidth, h: innerHeight, sy: scrollY, st: rows.slice(0, 3).map((r) => r.status + ':' + r.statusRaw).join(' | '), svg: ((qs('.tx-status-cell') || {}).innerHTML || '').replace(/\s+/g, ' ').slice(0, 260) } };
   })()`;
 }
 

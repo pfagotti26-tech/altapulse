@@ -22,7 +22,7 @@ SOURCE = Path(__file__).parent.parent / 'extension'
 VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
 DESKTOP = Path(__file__).parent.parent / 'desktop'
 DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
-DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json'}
+DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json', 'iniciar.log'}
 TOKEN_DAYS = 30
 
 class ExtensionLogin(Login):
@@ -143,8 +143,40 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
     if 'group' in patch or 'tag' in patch: await audit(user, 'Organização da criadora alterada', creator['name'], {k: v for k, v in patch.items() if k != 'notes'})
     return {'ok': True, **patch}
 
+# Instalador Windows (.exe) publicado nas releases do GitHub do projeto (electron-builder + electron-updater).
+GITHUB_REPO = os.environ.get('DESKTOP_GITHUB_REPO', 'pfagotti26-tech/altapulse')
+_installer_cache = {'at': None, 'data': None}
+async def installer_info():
+    """Última release do GitHub com o AltaPulse-Setup-*.exe; cache de 10 min; None se indisponível."""
+    from datetime import datetime
+    if _installer_cache['at'] and (now() - _installer_cache['at']) < timedelta(minutes=10): return _installer_cache['data']
+    data = None
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest', headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'alta-pulse-panel'})
+        if r.status_code == 200:
+            rel = r.json()
+            asset = next((a for a in rel.get('assets', []) if a['name'].startswith('AltaPulse-Setup') and a['name'].endswith('.exe')), None)
+            if asset: data = {'version': (rel.get('tag_name') or '').lstrip('v'), 'url': asset['browser_download_url'], 'filename': asset['name'], 'size': asset.get('size'), 'published_at': rel.get('published_at')}
+    except Exception: data = None
+    _installer_cache.update({'at': now(), 'data': data})
+    return data
+
 @router.get('/desktop/release')
-async def desktop_release(): return {'version': DESKTOP_VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip', 'available': DESKTOP_VERSION is not None}
+async def desktop_release():
+    installer = await installer_info()
+    return {'version': (installer or {}).get('version') or DESKTOP_VERSION, 'api_origin': ORIGIN, 'available': DESKTOP_VERSION is not None,
+        'installer': installer, 'filename': (installer or {}).get('filename') or f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip',
+        'zip_version': DESKTOP_VERSION, 'zip_filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip'}
+
+@router.get('/desktop/installer')
+async def desktop_installer():
+    """Redireciona para o instalador .exe mais recente (release do GitHub)."""
+    from fastapi.responses import RedirectResponse
+    installer = await installer_info()
+    if not installer: raise HTTPException(404, 'Instalador ainda não publicado. Use o pacote .zip.')
+    return RedirectResponse(installer['url'], status_code=302)
 
 @router.get('/desktop/download')
 async def desktop_download():
