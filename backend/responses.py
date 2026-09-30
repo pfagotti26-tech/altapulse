@@ -79,6 +79,7 @@ class MetricsOut(Public):
     responses: list[dict[str, Any]]
     pending: list[dict[str, Any]]
     sales: list[dict[str, Any]]
+    offers: list[dict[str, Any]] = []
     summary: dict[str, Any]
 
 class CommandOut(Public):

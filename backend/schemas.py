@@ -81,7 +81,7 @@ class Review(Strict):
 class Observation(Strict):
     creator_id: str
     event_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
-    kind: Literal['pending', 'response', 'sale']
+    kind: Literal['pending', 'response', 'sale', 'offer']
     started_at: Optional[datetime] = None
     responded_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
@@ -93,12 +93,15 @@ class Observation(Strict):
     sale_source: Optional[Literal['list', 'extrato']] = None
     payment_method: Optional[str] = Field(default=None, max_length=30)
     commission_cents: Optional[int] = Field(default=None, ge=0, le=100000000)
+    # bloco C: oferta de mídia paga enviada no chat (etiqueta 'R$ X ainda não pago' / 'pago')
+    offered_at: Optional[datetime] = None
+    offer_status: Optional[Literal['sent', 'paid', 'expired']] = None
     fan_ref: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     fan_name: Optional[str] = Field(default=None, max_length=80)
     @model_validator(mode='after')
     def valid_event(self):
         from datetime import timezone, timedelta
-        for timestamp in [self.started_at, self.responded_at, self.confirmed_at]:
+        for timestamp in [self.started_at, self.responded_at, self.confirmed_at, self.offered_at]:
             if timestamp and (timestamp.tzinfo is None or timestamp > datetime.now(timezone.utc) + timedelta(minutes=2)):
                 raise ValueError('Horário inválido ou sem fuso.')
         if self.kind in ['pending', 'response'] and not self.started_at:
@@ -107,4 +110,6 @@ class Observation(Strict):
             raise ValueError('Sequência de resposta inválida.')
         if self.kind == 'sale' and (self.amount_cents is None or self.sale_status is None or self.sale_origin is None):
             raise ValueError('Informe valor, origem e situação observados.')
+        if self.kind == 'offer' and (self.amount_cents is None or self.offer_status is None or self.offered_at is None):
+            raise ValueError('A oferta precisa de valor, situação e instante.')
         return self

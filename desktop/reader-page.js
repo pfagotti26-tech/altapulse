@@ -40,7 +40,10 @@ module.exports = String.raw`(() => {
       const m = txt(el.querySelector('.vac-text-timestamp')).match(/(\d{1,2}):(\d{2})/);
       if (!m) continue;
       const np = el.querySelector('.vac-text-not-paid');
-      msgs.push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null });
+      // oferta de mídia paga (bloco C): etiqueta "R$ X ainda não pago" (enviada) ou "R$ X pago" (paga)
+      const paidEl = [...el.querySelectorAll('.vac-text-timestamp span')].find((x) => /R\$/.test(txt(x)) && /pago|paid/i.test(txt(x)) && !/n[aã]o pago|not-paid/i.test(txt(x) + ' ' + x.className));
+      const offer = np ? { cents: (money(txt(np)) || {}).cents, paid: false } : paidEl ? { cents: (money(txt(paidEl)) || {}).cents, paid: true } : null;
+      msgs.push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null, offer: offer && offer.cents ? offer : null });
     }
     open = { cid, msgs, name: txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name')), skeleton: !!qs('.skeleton-messages') };
   }

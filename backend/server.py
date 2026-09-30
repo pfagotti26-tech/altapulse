@@ -11,6 +11,7 @@ from stations import router as stations
 from extension_routes import router as extension
 from vault import router as vault
 from performance import router as performance
+from fans import router as fans
 
 @asynccontextmanager
 async def lifespan(app):
@@ -43,7 +44,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')

@@ -103,3 +103,24 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .plat{border:1px solid #333;background:#1c1c20;color:#eee;border-radius:6px;padding:10px;cursor:pointer;text-align:left;font-size:13px}
 .plat:hover{border-color:#C41E3A}
 .plat-ok{float:right;opacity:.9}
+
+/* abas por plataforma (chips no card da criadora) */
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;line-height:1;padding:4px 6px;border-radius:10px;background:rgba(255,255,255,.08);color:#cfcfcf;cursor:pointer;border:1px solid transparent;position:relative}
+.chip:hover{background:rgba(255,255,255,.14)}
+.chip.on{background:#e53935;color:#fff}
+.chip.login::before{content:'';width:7px;height:7px;border-radius:50%;background:#ff5252;box-shadow:0 0 0 2px rgba(255,82,82,.25)}
+.chip.on.login::before{background:#fff}
+.chip.add{padding:4px 7px;font-weight:700;opacity:.7}
+.chip-x{font-weight:700;opacity:.55;padding:0 2px;margin-left:2px}
+.chip-x:hover{opacity:1}
+
+/* botão de turno no card */
+.shift-row{display:flex;gap:6px;margin-top:6px}
+.shift-btn{flex:1;border:0;border-radius:6px;padding:6px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.shift-btn.start{background:#e53935;color:#fff}
+.shift-btn.start:hover{background:#c62828}
+.shift-btn.end{background:rgba(255,255,255,.1);color:#f5f5f5;border:1px solid rgba(255,255,255,.2)}
+.shift-btn.end:hover{background:rgba(229,57,53,.25);border-color:#e53935}
+.shift-btn.pause{flex:0 0 auto;background:transparent;color:#bbb;border:1px solid rgba(255,255,255,.15)}
+.shift-btn.pause:hover{color:#fff}
