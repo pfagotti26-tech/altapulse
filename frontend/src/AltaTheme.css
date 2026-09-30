@@ -253,3 +253,14 @@ tbody tr:hover { background: #fdfbfc; }
 /* período personalizado e filtros da tabela de vendas */
 .date-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.date-range label{display:flex;align-items:center;gap:6px;font-size:11px;color:#7b6b74}.date-range input{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 8px;font-size:11px;color:#5c4c55;background:#fff}
 .sales-table-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.sales-table-filters select{min-width:170px;height:35px;font-size:11px}.table-search{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 11px;font-size:11px;min-width:200px;background:#fff}.sales-table-filters .body-muted{font-size:10px}
+
+/* Desempenho em cartões (cabe em qualquer largura) */
+.perf-toolbar{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}.perf-toolbar select{height:35px;font-size:11px;min-width:220px}
+.perf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}
+.perf-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.perf-card header{display:flex;align-items:center;gap:10px}.perf-card header strong{display:block;font-size:14px}.perf-card header span:not(.avatar){font-size:10px;color:#998a93}
+.perf-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px}.perf-kpis>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.perf-kpis span{font-size:9.5px;color:#9a8b94}.perf-kpis strong{font-size:14px;font-variant-numeric:tabular-nums;color:#3f3339;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.perf-kpis small{font-size:9px;color:#b0976c}.perf-kpis .status-badge{font-size:8.5px;padding:2px 5px}
+.green-text{color:#2f7a4c!important}.perf-alerts{display:flex;flex-direction:column;gap:3px}
+.perf-chart>span{font-size:9.5px;color:#9a8b94;display:block;margin-bottom:4px}.perf-chart .bars{height:46px;gap:2px}.perf-chart .bars span{flex:1;width:auto;min-width:2px}
+@media(max-width:760px){.perf-grid{grid-template-columns:1fr}.perf-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
