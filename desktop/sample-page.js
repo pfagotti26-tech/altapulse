@@ -8,10 +8,10 @@ module.exports = String.raw`(() => {
     for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1);
   })(document, 0);
   const qs = (sel) => { for (const r of roots) { const e = r.querySelector(sel); if (e) return e; } return null; };
-  const cid = new URLSearchParams(location.search).get('cid');
+  const name = txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name'));
+  const cid = new URLSearchParams(location.search).get('cid') || (location.pathname.match(/\/chat\/([^/?#]+)/) || [])[1] || (name ? 'n:' + name : null);
   const cont = qs('.vac-messages-container');
   if (!cid || !cont || qs('.skeleton-messages')) return null;
-  const name = txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name'));
   const mask = (s) => s
     .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[e-mail]')
     .replace(/https?:\/\/\S+|www\.\S+/gi, '[link]')

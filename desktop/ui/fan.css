@@ -38,3 +38,10 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .collapsed span { writing-mode: vertical-rl; transform: rotate(180deg); color: var(--mut); letter-spacing: .1em; font-size: 11px; }
 .collapsed:hover span { color: #fff; }
 .loading { color: var(--mut); font-size: 11px; }
+.collapsed.has-fan span { color: #ff8a80; }
+.collapsed.has-fan::after { content: ''; position: absolute; top: 14px; width: 7px; height: 7px; border-radius: 50%; background: #e53935; }
+.collapsed { position: relative; }
+.wait { background: #2a1418; border: 1px solid #5a2630; border-radius: 8px; padding: 7px 9px; color: #f0cf7a; }
+.wait.late { color: #ff8a80; }
+.resp { color: var(--mut); font-size: 11px; line-height: 1.5; }
+.resp b { color: var(--txt); font-weight: 600; }

@@ -1,7 +1,7 @@
 {
   "name": "alta-pulse-desktop",
   "productName": "Alta Pulse",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "private": true,
   "description": "Alta Pulse desktop: perfis isolados por criadora, turnos e presença, com o painel altapulse.com.br",
   "main": "main.js",

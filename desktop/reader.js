@@ -62,13 +62,15 @@ class CreatorReader {
     this.s.lastObservedAt = observedAt;
 
     // ---- fila (só local) + vendas por total gasto na lista ----
-    let waiting = 0, oldest = null;
+    let waiting = 0, oldest = null, recent = 0;
     for (const r of data.rooms || []) {
       const key = this.roomKey(r.name);
       if (!r.ours) {
         waiting += 1;
         const t = listAt(r.when, now);
         if (t && (!oldest || t < oldest)) oldest = t;
+        // balão vermelho: só conversas em que o fã falou por último nas últimas 24 h
+        if (t && now - t < 864e5) recent += 1;
       }
       if (r.spent && !r.spent.approx) {
         const prev = this.s.rooms[key];
@@ -120,8 +122,8 @@ class CreatorReader {
     // limpeza: refs com mais de 30 dias
     const keys = Object.keys(this.s.sent); if (keys.length > 5000) for (const k of keys.slice(0, keys.length - 4000)) delete this.s.sent[k];
 
-    return { events, summary: { waiting, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
+    return { events, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
   }
 }
 
-module.exports = { CreatorReader, parseDateLabel };
+module.exports = { CreatorReader, parseDateLabel, at };

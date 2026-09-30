@@ -257,3 +257,9 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Operação distribuída em várias estações, permissões por equipe e relatórios individuais.
 - Supervisão avançada. IA somente mediante escopo/autorização próprios; nenhuma integração de IA existe nesta versão.
 - Não sincronizar cookies ou sessões prontas entre máquinas e manter a proibição de API Privacy em todas as fases.
+
+## Lote 4 (30/09) — desktop 1.3.2
+- Leitura das conversas corrigida: conversa sem separador de data usa o dia da lista; scripts das abas com limite de tempo; evento não aceito volta a ficar pendente (ofertas e esperas não se perdem).
+- Cartão do fã: status da assinatura pelo aviso da Privacy ("não é seu assinante"); assinatura ativa tem prioridade quando o fã tem várias linhas; "Esperando sua resposta há X" ao vivo; tempo de resposta a este fã (seu, equipe, última) — GET /extension/fan traz `response`.
+- Balão vermelho de conversas sem resposta nas últimas 24 h: em cada criadora da lateral e total no topo (só app).
+- Operação (painel): tabela "Tempo de resposta por chatter" (`summary.response_by_operator`).
