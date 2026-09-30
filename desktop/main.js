@@ -424,7 +424,7 @@ ipcMain.handle('profile:calibrate', async (_e, id) => {
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
   if (!outline || outline.length < 200) throw new Error('A tela ainda não carregou. Espere aparecerem as mensagens e tente de novo.');
   // cópia local (mesmo conteúdo mascarado) para análise sem depender do banco do painel
-  const dir = path.join(__dirname, 'calibracoes'); fs.mkdirSync(dir, { recursive: true });
+  const dir = path.join(dataDir(), 'calibracoes'); fs.mkdirSync(dir, { recursive: true }); // fora do pacote (asar é só leitura)
   const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
   fs.writeFileSync(file, `<!-- ${url} -->\n${outline}`);
   let sent = true;
@@ -476,9 +476,24 @@ app.whenReady().then(async () => {
 
   token = readToken();
   await refreshState();
+  setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(heartbeats, HEARTBEAT_MS);
   setInterval(readAll, READ_MS);
 });
 
 app.on('window-all-closed', () => app.quit());
+
+// ---------- atualização automática (instalador) ----------
+// O app instalado pelo AltaPulse-Setup.exe busca versões novas nas releases do GitHub do projeto
+// (electron-updater). Baixa em silêncio e instala ao fechar o app; a lateral avisa quando está pronta.
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+  autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
+  autoUpdater.on('error', () => {});
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 20000); setInterval(check, 6 * 60 * 60 * 1000);
+}
