@@ -568,6 +568,10 @@ ipcMain.handle('auth:logout', async () => {
   return publicState();
 });
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
+ipcMain.handle('me:avatar', async (_e, image) => {
+  if (image) await api('PUT', '/extension/avatar', { image }); else await api('DELETE', '/extension/avatar');
+  await refreshState(); return publicState();
+});
 ipcMain.handle('state:snapshot', () => publicState());
 
 ipcMain.handle('profile:open', (_e, id, platform) => { openProfile(id, platform || 'privacy'); return publicState(); });

@@ -115,3 +115,6 @@ class Observation(Strict):
         if self.kind == 'offer' and (self.amount_cents is None or self.offer_status is None or self.offered_at is None):
             raise ValueError('A oferta precisa de valor, situação e instante.')
         return self
+class AvatarIn(Strict):
+    # data URL de imagem já reduzida (256 px); limite de ~90 KB
+    image: str = Field(min_length=100, max_length=120000, pattern=r'^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$')

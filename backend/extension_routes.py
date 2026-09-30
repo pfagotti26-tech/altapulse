@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
 from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
-from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta
+from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta, AvatarIn
 from performance import SnapshotIn
 from quality_ai import SampleIn
 from fans import SubscribersIn, save_subscribers
@@ -229,6 +229,15 @@ async def extension_credential_use(credential_id: str, request: Request, user=De
     return await extension_use(credential_id, user, (token or {}).get('device_name'))
 
 # ---------- retrato da criadora (bloco B) ----------
+@router.put('/extension/avatar')
+async def extension_avatar(body: AvatarIn, user=Depends(extension_user)):
+    from auth_routes import set_avatar
+    out = await set_avatar(user, body.image); return {'ok': True, 'avatar': out['avatar']}
+@router.delete('/extension/avatar')
+async def extension_avatar_delete(user=Depends(extension_user)):
+    from auth_routes import set_avatar
+    await set_avatar(user, None); return {'ok': True}
+
 @router.post('/extension/samples')
 async def extension_sample(body: SampleIn, user=Depends(extension_user)):
     from quality_ai import save_sample

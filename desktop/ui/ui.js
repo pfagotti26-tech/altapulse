@@ -27,6 +27,33 @@ function dialog({ title, body, okText = 'OK', onOk, hideOk = false }) {
 }
 
 // ---------- estado ----------
+// foto de perfil: imagem (data URL) ou iniciais
+function setAvatar(el, src, name) {
+  el.textContent = '';
+  if (src && /^data:image\//.test(src)) { const img = document.createElement('img'); img.src = src; img.alt = ''; el.appendChild(img); }
+  else el.textContent = initials(name || '?');
+}
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type)) return reject(new Error('Escolha uma imagem (JPG, PNG ou WebP).'));
+    const r = new FileReader(); r.onerror = () => reject(new Error('Não consegui ler a imagem.'));
+    r.onload = () => { const img = new Image(); img.onerror = () => reject(new Error('Imagem inválida.')); img.onload = () => {
+      const side = Math.min(img.width, img.height), c = document.createElement('canvas'); c.width = c.height = 256;
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+      let q = 0.85, out = c.toDataURL('image/jpeg', q); while (out.length > 110000 && q > 0.4) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+      resolve(out); }; img.src = r.result; };
+    r.readAsDataURL(file);
+  });
+}
+async function photoMenu() {
+  const has = S.user && S.user.avatar;
+  if (!has) return $('me-photo').click();
+  const p = dialog({ title: 'Sua foto', body: `<div class="photo-choice"><img src="${esc(S.user.avatar)}" alt=""><button class="primary" id="ph-change">Trocar foto</button><button class="ghost" id="ph-remove">Remover foto</button></div>`, hideOk: true });
+  $('ph-change').onclick = () => { $('dialog-cancel').onclick(); $('me-photo').click(); };
+  $('ph-remove').onclick = () => { $('dialog-cancel').onclick(); run(() => window.pulse.setAvatar(null), 'Foto removida.'); };
+  await p;
+}
+
 function apply(state) {
   S = state;
   const logged = !!(S && S.user);
@@ -35,7 +62,7 @@ function apply(state) {
   $('origin').value = S.origin || '';
   if (!logged) return;
   $('me-name').textContent = S.user.name;
-  $('me-avatar').textContent = initials(S.user.name);
+  setAvatar($('me-avatar'), S.user.avatar, S.user.name);
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
   const warn = S.warning || (S.open.length && !S.storage_allowed ? 'Métricas desligadas no painel: ative "armazenamento" em Configurações para registrar tempo de resposta e vendas.' : '');
   $('warning').textContent = warn; $('warning').classList.toggle('hidden', !warn);
@@ -112,7 +139,7 @@ function card(c) {
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
@@ -267,6 +294,8 @@ $('login-form').addEventListener('submit', async (e) => {
   $('login-btn').disabled = false;
 });
 $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin').value.trim() || 'https://altapulse.com.br'); toast('Endereço salvo.'); };
+$('me-avatar').onclick = () => photoMenu();
+$('me-photo').onchange = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return; try { const image = await shrinkImage(f); await run(() => window.pulse.setAvatar(image), 'Foto atualizada.'); } catch (err) { toast(err.message); } };
 $('btn-logout').onclick = async () => {
   const mine = (S.creators || []).filter((c) => c.shift && c.shift.operator_id === S.user.id);
   const extra = mine.length ? `<p><b>Você ainda tem ${mine.length} turno${mine.length > 1 ? 's' : ''} aberto${mine.length > 1 ? 's' : ''}</b> (${esc(mine.map((c) => c.name).join(', '))}). Ao sair, ${mine.length > 1 ? 'eles serão encerrados' : 'ele será encerrado'} agora.</p>` : '';

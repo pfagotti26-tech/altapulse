@@ -11,8 +11,10 @@ router = APIRouter()
 async def creators(user=Depends(current_user)):
     query = {} if user['role'] == 'manager' else {'id': {'$in': user['creator_ids']}}
     rows = await db.creators.find(query, {'_id': 0}).sort('created_at', 1).to_list(1000)
+    avatars = {u['id']: u.get('avatar') for u in await db.users.find({'avatar': {'$ne': None}}, {'_id': 0, 'id': 1, 'avatar': 1}).to_list(500)}
     for row in rows:
         row['shift'] = await db.shifts.find_one({'creator_id': row['id'], 'active': True}, {'_id': 0, 'expires_at': 0})
+        if row['shift']: row['shift']['operator_avatar'] = avatars.get(row['shift']['operator_id'])
         row['browser'] = await db.browsers.find_one({'creator_id': row['id']}, {'_id': 0})
         if row['browser'] and row['browser'].get('last_seen', '') < (now() - timedelta(seconds=30)).isoformat():
             row['browser']['state'] = 'interrupted'

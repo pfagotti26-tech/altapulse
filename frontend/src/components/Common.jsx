@@ -4,6 +4,20 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 export { Button, Input };
+const ini = (name) => (name || '?').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+// foto de perfil (data URL) ou iniciais, no mesmo círculo
+export const Avatar = ({ user, name, src, className = '', size }) => { const img = src ?? user?.avatar; const n = name ?? user?.name; return <div className={`avatar ${className}`} style={size ? { width: size, height: size } : undefined}>{img ? <img src={img} alt="" className="avatar-img"/> : ini(n)}</div>; };
+// reduz a imagem escolhida para 256x256 (recorte central) e devolve data URL JPEG
+export const shrinkImage = (file) => new Promise((resolve, reject) => {
+  if (!file || !/^image\//.test(file.type)) return reject(new Error('Escolha uma imagem (JPG, PNG ou WebP).'));
+  const reader = new FileReader(); reader.onerror = () => reject(new Error('Não consegui ler a imagem.'));
+  reader.onload = () => { const img = new Image(); img.onerror = () => reject(new Error('Imagem inválida.')); img.onload = () => {
+    const side = Math.min(img.width, img.height), c = document.createElement('canvas'); c.width = c.height = 256;
+    c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+    let q = 0.85, out = c.toDataURL('image/jpeg', q); while (out.length > 110000 && q > 0.4) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+    resolve(out); }; img.src = reader.result; };
+  reader.readAsDataURL(file);
+});
 export const PageHeading = ({ eyebrow = 'SEU CENTRO DE GESTÃO', title, description, children }) => <div className="page-heading"><div><span className="eyebrow" data-testid="page-eyebrow">{eyebrow}</span><h1 data-testid="page-title">{title}</h1><p data-testid="page-description">{description}</p></div><div className="heading-actions">{children}</div></div>;
 export const Badge = ({ children, tone = 'neutral', testId }) => <span data-testid={testId} className={`status-badge ${tone}`}><i/>{children}</span>;
 export const Field = ({ label, id, children, ...props }) => <label className="field" htmlFor={id}><span data-testid={`${id}-label`}>{label}</span>{children || <Input id={id} data-testid={id} {...props}/>}</label>;

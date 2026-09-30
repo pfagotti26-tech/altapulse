@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('pulse', {
   setOrigin: (origin) => ipcRenderer.invoke('config:setOrigin', origin),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
   appInfo: () => ipcRenderer.invoke('app:info'),
+  setAvatar: (image) => ipcRenderer.invoke('me:avatar', image),
 
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
   onToast: (fn) => ipcRenderer.on('toast', (_e, m) => fn(m)),

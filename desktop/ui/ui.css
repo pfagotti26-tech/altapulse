@@ -74,7 +74,10 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .me { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 8px; }
 .me .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.me .uavatar { width: 30px; height: 30px; border-radius: 50%; background: #35222a; color: #f6b1bf; display: grid; place-items: center; font-weight: 700; font-size: 11px; flex: none; }
+.me .uavatar { width: 30px; height: 30px; border-radius: 50%; background: #35222a; color: #f6b1bf; display: grid; place-items: center; font-weight: 700; font-size: 11px; flex: none; cursor: pointer; overflow: hidden; }
+.me .uavatar img { width: 100%; height: 100%; object-fit: cover; }
+.me .uavatar:hover { outline: 2px solid #e53935; }
+.op-photo { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; vertical-align: -3px; margin-right: 4px; }
 
 .popover { position: fixed; z-index: 20; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: flex; flex-direction: column; }
 .popover button { background: transparent; text-align: left; padding: 7px 10px; border-radius: 6px; }
@@ -124,3 +127,5 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .shift-btn.end:hover{background:rgba(229,57,53,.25);border-color:#e53935}
 .shift-btn.pause{flex:0 0 auto;background:transparent;color:#bbb;border:1px solid rgba(255,255,255,.15)}
 .shift-btn.pause:hover{color:#fff}
+
+.photo-choice{display:flex;flex-direction:column;align-items:center;gap:10px}.photo-choice img{width:96px;height:96px;border-radius:50%;object-fit:cover}.photo-choice button{width:100%}
