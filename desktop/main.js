@@ -46,7 +46,7 @@ const STATS_URL = 'https://privacy.com.br/myprivacystats';
 const PEEK = 2;
 function hiddenBounds() {
   const [w, h] = win.getContentSize(); const width = Math.max(w - SIDEBAR_WIDTH, 1000);
-  return activeId && views.has(activeId) ? { x: SIDEBAR_WIDTH, y: 0, width, height: h } : { x: SIDEBAR_WIDTH, y: h - PEEK, width, height: 900 };
+  return activeId && tabs.has(activeId) && tabs.get(activeId).size ? { x: SIDEBAR_WIDTH, y: 0, width, height: h } : { x: SIDEBAR_WIDTH, y: h - PEEK, width, height: 900 };
 }
 
 const dataDir = () => app.getPath('userData');
@@ -154,8 +154,12 @@ async function refreshState() {
 
 // ---------- janela, lateral e perfis ----------
 let win, sidebar;
-const views = new Map(); // creatorId -> WebContentsView
+const views = new Map(); // creatorId -> aba da PRIVACY (leitor, extrato e presença usam esta)
+const tabs = new Map(); // creatorId -> Map(plataforma -> WebContentsView): uma aba por plataforma, mesmo perfil
+const activeTab = new Map(); // creatorId -> plataforma em primeiro plano
 let activeId = null;
+const tabsOf = (id) => { if (!tabs.has(id)) tabs.set(id, new Map()); return tabs.get(id); };
+const currentView = (id) => { const t = tabs.get(id); return t ? t.get(activeTab.get(id)) || [...t.values()][0] : null; };
 
 function pushState() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('state', publicState()); }
 function publicState() {
@@ -163,8 +167,10 @@ function publicState() {
     ...state,
     origin: config.origin,
     local,
-    open: [...views.keys()],
+    open: [...tabs.keys()].filter((id) => tabs.get(id).size),
     active: activeId,
+    tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])),
+    activeTab: Object.fromEntries(activeTab),
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
@@ -179,9 +185,9 @@ function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
-  for (const [id, v] of views) {
+  for (const [id, t] of tabs) for (const [platform, v] of t) {
     v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH - PEEK, 200), height: h });
-    v.setVisible(id === activeId);
+    v.setVisible(id === activeId && platform === activeTab.get(id));
   }
   for (const x of extratos.values()) if (x.view && !x.shown && !x.view.webContents.isDestroyed()) x.view.setBounds(hiddenBounds());
 }
@@ -189,13 +195,9 @@ function layout() {
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
 
 function openProfile(creatorId, platform = 'privacy') {
-  const home = (PLATFORMS[platform] || PLATFORMS.privacy).home;
-  if (views.has(creatorId)) {
-    activeId = creatorId; layout(); pushState();
-    const v = views.get(creatorId);
-    if (platform && platformOf(v.webContents.getURL()) !== platform) v.webContents.loadURL(home, { userAgent: UA });
-    return;
-  }
+  if (!PLATFORMS[platform]) platform = 'privacy';
+  const t = tabsOf(creatorId);
+  if (t.has(platform)) { activeId = creatorId; activeTab.set(creatorId, platform); layout(); pushState(); return; }
   const ses = session.fromPartition(partitionFor(creatorId));
   ses.setUserAgent(UA);
   const view = new WebContentsView({
@@ -213,35 +215,39 @@ function openProfile(creatorId, platform = 'privacy') {
   view.webContents.on('did-navigate', () => pushState());
   view.webContents.on('did-navigate-in-page', () => pushState());
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
-    if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir a Privacy (${code} ${description}).`);
+    if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
   win.contentView.addChildView(view);
-  views.set(creatorId, view);
-  activeId = creatorId;
+  t.set(platform, view);
+  if (platform === 'privacy') views.set(creatorId, view);
+  activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
-  view.webContents.loadURL(home, { userAgent: UA });
+  view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
   pushState();
-  scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
+  if (platform === 'privacy') scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
 }
 
-function closeProfile(creatorId) {
-  const view = views.get(creatorId);
+function closeTab(creatorId, platform) {
+  const t = tabs.get(creatorId); const view = t && t.get(platform);
   if (!view) return;
   win.contentView.removeChildView(view);
   view.webContents.close();
-  views.delete(creatorId);
-  closeStatsView(creatorId);
-  if (activeId === creatorId) activeId = views.size ? [...views.keys()].at(-1) : null;
+  t.delete(platform);
+  if (platform === 'privacy') { views.delete(creatorId); closeStatsView(creatorId); readers.delete(creatorId); }
+  if (activeTab.get(creatorId) === platform) activeTab.set(creatorId, [...t.keys()][0] || null);
+  if (!t.size) { tabs.delete(creatorId); activeTab.delete(creatorId); if (activeId === creatorId) activeId = [...tabs.keys()].at(-1) || null; }
   layout();
   pushState();
+}
+function closeProfile(creatorId) {
+  for (const platform of [...(tabs.get(creatorId) || new Map()).keys()]) closeTab(creatorId, platform);
 }
 
 async function clearProfileData(creatorId, what) {
   const ses = session.fromPartition(partitionFor(creatorId));
   if (what === 'cache' || what === 'tudo') await ses.clearCache();
   if (what === 'cookies' || what === 'tudo') await ses.clearStorageData();
-  const view = views.get(creatorId);
-  if (view) view.webContents.loadURL(PRIVACY_HOME, { userAgent: UA });
+  for (const [platform, view] of (tabs.get(creatorId) || new Map())) view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
 }
 
 // ---------- leitor (fase 2) ----------
@@ -255,15 +261,16 @@ function readerFor(id) {
 }
 async function readAll() {
   if (!state.user) return;
+  // tela de login em alguma aba? (para oferecer "Entrar com o acesso salvo")
+  for (const [id, t] of tabs) {
+    const found = [];
+    for (const [platform, view] of t) {
+      try { if (await view.webContents.executeJavaScript(LOGIN_PROBE, true)) found.push(platform); } catch {}
+    }
+    if (found.length) loginPages.set(id, found); else loginPages.delete(id);
+  }
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
-    // tela de login de alguma plataforma? (para oferecer "Entrar com o acesso salvo")
-    try {
-      const url = view.webContents.getURL(); const platform = platformOf(url);
-      const hasPassword = platform ? await view.webContents.executeJavaScript(LOGIN_PROBE, true) : false;
-      if (hasPassword && platform) loginPages.set(id, platform); else loginPages.delete(id);
-      probeInfo.set(id, { platform, hasPassword: !!hasPassword, url: url.slice(0, 80) });
-    } catch (error) { loginPages.delete(id); probeInfo.set(id, { error: error.message.slice(0, 120) }); }
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
@@ -403,7 +410,7 @@ ipcMain.handle('extrato:toggle', (_e, id) => {
   const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;
   const [w, h] = win.getContentSize(); const show = !x.shown;
   x.view.setBounds(show ? { x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH, 200), height: h } : hiddenBounds());
-  if (show) { for (const v of views.values()) v.setVisible(false); x.shown = true; } else { x.shown = false; layout(); }
+  if (show) { for (const t of tabs.values()) for (const v of t.values()) v.setVisible(false); x.shown = true; } else { x.shown = false; layout(); }
   return show;
 });
 
@@ -435,7 +442,7 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
 ipcMain.handle('auth:logout', async () => {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
-  for (const id of [...views.keys()]) closeProfile(id);
+  for (const id of [...tabs.keys()]) closeProfile(id);
   state = { user: null, creators: [], sla_minutes: 5, version: null };
   pushState();
   return publicState();
@@ -446,30 +453,30 @@ ipcMain.handle('state:snapshot', () => publicState());
 ipcMain.handle('profile:open', (_e, id, platform) => { openProfile(id, platform || 'privacy'); return publicState(); });
 // cofre: pede login/senha ao painel (auditado) e preenche o formulário da plataforma aberta. A senha
 // não passa pela lateral: vai do painel para o processo principal e daí para a página, e é descartada.
-ipcMain.handle('vault:use', async (_e, creatorId) => {
-  const view = views.get(creatorId); if (!view) throw new Error('Abra a criadora primeiro.');
-  const url = view.webContents.getURL(); const platform = platformOf(url);
-  if (!platform) throw new Error('A aba não está numa plataforma conhecida.');
+ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
+  const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId);
+  const view = t && t.get(platform); if (!view) throw new Error('Abra a criadora primeiro.');
   const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
   if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
   const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
   let result;
   try { result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); } finally { data.password = null; }
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
-  loginPages.delete(creatorId); pushState();
+  loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
 });
-ipcMain.handle('profile:show', (_e, id) => { if (views.has(id)) { activeId = id; layout(); pushState(); } return publicState(); });
+ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); } return publicState(); });
+ipcMain.handle('profile:closeTab', (_e, id, platform) => { closeTab(id, platform); return publicState(); });
 ipcMain.handle('profile:close', (_e, id) => { closeProfile(id); return publicState(); });
-ipcMain.handle('profile:reload', (_e, id) => { const v = views.get(id); if (v) v.webContents.reload(); return true; });
-ipcMain.handle('profile:back', (_e, id) => { const v = views.get(id); if (v && v.webContents.canGoBack()) v.webContents.goBack(); return true; });
+ipcMain.handle('profile:reload', (_e, id) => { const v = currentView(id); if (v) v.webContents.reload(); return true; });
+ipcMain.handle('profile:back', (_e, id) => { const v = currentView(id); if (v && v.webContents.canGoBack()) v.webContents.goBack(); return true; });
 ipcMain.handle('profile:clear', async (_e, { id, what }) => { await clearProfileData(id, what); return true; });
 ipcMain.handle('profile:hideAll', () => { activeId = null; layout(); pushState(); return publicState(); });
 
 // Calibração (fase 2): envia ao painel só o esqueleto da tela aberta (tags, classes, horários),
 // com nomes e textos mascarados, para escrever a leitura de tempo de resposta e vendas.
 ipcMain.handle('profile:calibrate', async (_e, id) => {
-  const view = views.get(id);
+  const view = views.get(id) || currentView(id);
   if (!view) throw new Error('Abra a criadora primeiro.');
   const url = view.webContents.getURL();
   if (!/privacy\.com\.br/i.test(url)) throw new Error('Abra uma conversa da Privacy antes de capturar.');

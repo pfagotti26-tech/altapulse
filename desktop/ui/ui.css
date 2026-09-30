@@ -103,3 +103,14 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .plat{border:1px solid #333;background:#1c1c20;color:#eee;border-radius:6px;padding:10px;cursor:pointer;text-align:left;font-size:13px}
 .plat:hover{border-color:#C41E3A}
 .plat-ok{float:right;opacity:.9}
+
+/* abas por plataforma (chips no card da criadora) */
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;line-height:1;padding:4px 6px;border-radius:10px;background:rgba(255,255,255,.08);color:#cfcfcf;cursor:pointer;border:1px solid transparent;position:relative}
+.chip:hover{background:rgba(255,255,255,.14)}
+.chip.on{background:#e53935;color:#fff}
+.chip.login::before{content:'';width:7px;height:7px;border-radius:50%;background:#ff5252;box-shadow:0 0 0 2px rgba(255,82,82,.25)}
+.chip.on.login::before{background:#fff}
+.chip.add{padding:4px 7px;font-weight:700;opacity:.7}
+.chip-x{font-weight:700;opacity:.55;padding:0 2px;margin-left:2px}
+.chip-x:hover{opacity:1}

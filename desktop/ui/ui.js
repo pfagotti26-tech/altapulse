@@ -93,27 +93,38 @@ function card(c) {
     else if (ex.error) queue += `<div class="queue late" title="${esc(ex.error)}">extrato: falha na leitura</div>`;
     else if (ex.readAt) { const cents = ex.todayCents || 0; queue += `<div class="queue ok" title="Extrato lido às ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${ex.rows || 0} linhas · ${ex.sent || 0} enviadas${ex.dropped ? ` · ${ex.dropped} não enviadas (armazenamento desligado)` : ''}${ex.rejected ? ` · ${ex.rejected} recusadas: ${esc(ex.lastReject || '')}` : ''}${ex.period ? ` · ${esc(ex.period)}` : ''}${ex.dbg ? ` · ${esc(ex.dbg)}` : ''}">hoje: ${ex.today || 0} venda${ex.today === 1 ? '' : 's'} · R$ ${(cents / 100).toFixed(2).replace('.', ',')}</div>`; }
   }
-  const loginPlatform = S.loginPages && S.loginPages[c.id];
-  const cred = loginPlatform && (S.credentials || []).find((x) => x.creator_id === c.id && x.platform === loginPlatform);
-  const platLabel = loginPlatform && S.platforms && S.platforms[loginPlatform] ? S.platforms[loginPlatform].label : loginPlatform;
+  // abas abertas desta criadora (uma por plataforma): chip clicável; bolinha vermelha = tela de login
+  const openTabs = (S.tabs && S.tabs[c.id]) || []; const cur = S.activeTab && S.activeTab[c.id];
+  const loginList = (S.loginPages && S.loginPages[c.id]) || [];
+  const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
+  const hasCred = (p) => (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === p);
+  let chips = '';
+  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · use o botão Entrar com o acesso salvo' : 'Tela de login · sem acesso salvo no cofre') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
-  if (!loginPlatform && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
-  if (loginPlatform) queue += cred ? `<button class="vault-btn" data-vault="${esc(c.id)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(platLabel)}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">tela de login · sem acesso salvo</div>`;
+  if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
+  for (const p of loginList) queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(labelOf(p))}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${queue}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${chips}${queue}</div>
     ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
-  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu')) return; if (e.target.closest('.vault-btn')) return; openCreator(c); });
-  const vb = el.querySelector('.vault-btn'); if (vb) vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c); });
+  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip')) return; openCreator(c); });
+  el.querySelectorAll('.vault-btn').forEach((vb) => vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c, vb.dataset.vault); }));
+  el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
+    const p = ch.dataset.plat; if (p === '+') return platformDialog(c);
+    run(() => window.pulse.showProfile(c.id, p));
+  }));
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
   return el;
 }
 
-async function vaultLogin(c) {
-  const r = await run(() => window.pulse.vaultUse(c.id));
+async function vaultLogin(c, platform) {
+  if (platform) await run(() => window.pulse.showProfile(c.id, platform));
+  const r = await run(() => window.pulse.vaultUse(c.id, platform));
   if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
 }
 async function openCreator(c, platform) {
@@ -145,8 +156,7 @@ function creatorMenu(c, anchor) {
   items.push(isOpen ? ['Mostrar', () => window.pulse.showProfile(c.id)] : ['Abrir perfil', () => openCreator(c)]);
   if (isOpen) { items.push(['Recarregar', () => window.pulse.reloadProfile(c.id)]); items.push(['Voltar', () => window.pulse.backProfile(c.id)]); }
   items.push(['Abrir plataforma…', () => platformDialog(c)]);
-  const lp = S.loginPages && S.loginPages[c.id];
-  if (lp && (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) items.push(['Entrar com o acesso salvo', () => vaultLogin(c)]);
+  for (const lp of (S.loginPages && S.loginPages[c.id]) || []) if ((S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) items.push([`Entrar com o acesso salvo · ${S.platforms && S.platforms[lp] ? S.platforms[lp].label : lp}`, () => vaultLogin(c, lp)]);
   items.push('-');
   if (!c.shift) items.push(['Iniciar turno', () => run(() => window.pulse.startShift(c.id), 'Turno iniciado.')]);
   if (mine && !c.shift.paused) items.push(['Pausar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'pause'), 'Turno pausado.')]);
@@ -162,7 +172,7 @@ function creatorMenu(c, anchor) {
   if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
   items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);
   items.push(['Sair da conta da Privacy (limpar cookies)', async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); }, 'danger']);
-  if (isOpen) items.push(['Fechar perfil', () => run(() => window.pulse.closeProfile(c.id))]);
+  if (isOpen) items.push([((S.tabs && S.tabs[c.id]) || []).length > 1 ? 'Fechar todas as abas' : 'Fechar perfil', () => run(() => window.pulse.closeProfile(c.id))]);
   m.innerHTML = '';
   for (const it of items) {
     if (it === '-') { m.appendChild(document.createElement('hr')); continue; }
