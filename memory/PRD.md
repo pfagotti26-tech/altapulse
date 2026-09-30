@@ -222,6 +222,16 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - QA `/app/test_reports/iteration_4.json`: 8/8 testes backend, login/logout real, nomes de arquivos e integridade ZIP, navegação desktop/mobile. Ajuste final do botão de fechar menu móvel: posição contida, largura responsiva e abertura sem transição de deslocamento; sidebar rolável em alturas menores.
 - Limitação já existente mantida: execução Windows/compatibilidade das telas Privacy ainda dependem de validação na estação autorizada; a mudança de marca não habilita coleta por si só.
 
+### Desktop 1.2.0, bloco D passo 2 e bloco E — 2026-09-30
+- Abas por plataforma: cada criadora tem uma aba por plataforma (Privacy, Instagram, X…) no mesmo perfil isolado; chips no card para trocar/fechar; bolinha vermelha quando a aba está na tela de login; "Entrar com o acesso salvo" por plataforma (cofre).
+- Turno visível no card: "Iniciar turno" vira "Encerrar turno" + "Pausar/Retomar"; ao sair do app com turnos abertos, o aviso lista e encerra todos.
+- Reabre as abas ao iniciar (arquivo `abas-abertas.json` no perfil do app).
+- Vigia de extrato (só gestor): a cada 10 min lê o extrato de todas as criadoras com sessão da Privacy salva no computador, mesmo sem aba aberta; leituras em fila (uma aba oculta por vez, trazida ao topo da camada oculta) e `setBackgroundThrottling(false)` na aba oculta (sem isso a SPA não montava as abas quando a leitura era de fundo).
+- Bloco D passo 2: a cada 6 h a aba oculta lê Meu Privacy → Assinantes (`.ass-view .sl-row`: nome, situação, preço, duração; "ver mais" até 25x) e envia para `POST /extension/subscribers` (coleção `subscribers`, fan_ref igual ao do extrato). `/fans` junta: segmentos novos "Assina, nunca comprou" e "Assinatura inativa", flag `churn_risk` (já comprou e assinatura inativa).
+- Bloco E (qualidade por IA, sem custo extra): opção `quality_ai_allowed` em Configurações; o app envia amostras anonimizadas da conversa aberta (só no turno do próprio usuário, no máx. 1 por conversa a cada 30 min; nome/e-mail/telefone/link/números mascarados no app e de novo no servidor) para `POST /extension/samples` (coleção `samples`, 14 dias). A tarefa agendada do Claude lê `GET /api/quality/samples?key=...&part=N` (texto) e grava o resultado por `GET /api/quality/insights/ingest?key=...&payload=<json>`; a chave é gerada em Configurações (`POST /quality/key`, só o hash fica salvo). Insights aparecem em Qualidade.
+- Instalador 1.2.0 em `backend/desktop_dist` (partes de 60 MB); quem tem a 1.1.0 atualiza sozinho pelo electron-updater.
+- Diagnóstico: menu da criadora → "Capturar Meu Privacy → Assinantes (calibração)" grava o esqueleto mascarado em `desktop/calibracoes/` (ou no perfil do app, se instalado).
+
 ### P0 — dependências para monitoramento real
 1. Usuário criar gestor e cadastrar perfis/operadores; instalar componente na estação Windows autorizada.
 2. Validar abertura/isolamento/login manual na Privacy no computador real, sem transmitir credenciais.
