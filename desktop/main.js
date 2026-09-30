@@ -107,6 +107,7 @@ let token = null; // lido só depois do app ficar pronto (safeStorage depende di
 let state = { user: null, creators: [], sla_minutes: 5, version: null, storage_allowed: false };
 let credentials = []; // acessos salvos (sem senha) das criadoras do usuário
 const loginPages = new Map(); // creatorId -> plataforma cuja tela de login está aberta
+const probeInfo = new Map(); // diagnóstico da sonda de login
 
 async function api(method, route, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -170,6 +171,7 @@ function publicState() {
     platforms: PLATFORMS,
     credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
     loginPages: Object.fromEntries(loginPages),
+    probeInfo: Object.fromEntries(probeInfo),
   };
 }
 
@@ -260,7 +262,8 @@ async function readAll() {
       const url = view.webContents.getURL(); const platform = platformOf(url);
       const hasPassword = platform ? await view.webContents.executeJavaScript(LOGIN_PROBE, true) : false;
       if (hasPassword && platform) loginPages.set(id, platform); else loginPages.delete(id);
-    } catch { loginPages.delete(id); }
+      probeInfo.set(id, { platform, hasPassword: !!hasPassword, url: url.slice(0, 80) });
+    } catch (error) { loginPages.delete(id); probeInfo.set(id, { error: error.message.slice(0, 120) }); }
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
@@ -512,6 +515,8 @@ ipcMain.handle('external:open', (_e, url) => { if (/^https:\/\//.test(url)) shel
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, dataDir: dataDir() }));
 
 // ---------- ciclo de vida ----------
+if (!app.requestSingleInstanceLock()) app.quit(); // dois cliques no Iniciar não abrem duas cópias
+app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(async () => {
   win = new BaseWindow({ width: 1440, height: 900, minWidth: 1000, minHeight: 600, title: 'Alta Pulse', backgroundColor: '#111113', icon: path.join(__dirname, 'ui', 'brand', 'favicon.ico') });
   win.setMenuBarVisibility(false);

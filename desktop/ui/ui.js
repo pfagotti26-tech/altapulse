@@ -96,6 +96,8 @@ function card(c) {
   const loginPlatform = S.loginPages && S.loginPages[c.id];
   const cred = loginPlatform && (S.credentials || []).find((x) => x.creator_id === c.id && x.platform === loginPlatform);
   const platLabel = loginPlatform && S.platforms && S.platforms[loginPlatform] ? S.platforms[loginPlatform].label : loginPlatform;
+  const pi = S.probeInfo && S.probeInfo[c.id];
+  if (!loginPlatform && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
   if (loginPlatform) queue += cred ? `<button class="vault-btn" data-vault="${esc(c.id)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(platLabel)}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">tela de login · sem acesso salvo</div>`;
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
