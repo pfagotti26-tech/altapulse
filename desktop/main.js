@@ -473,6 +473,21 @@ async function vigia() {
 function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
 function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
 ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); return publicState(); });
+// diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
+ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
+  const x = extratoFor(id); const view = statsView(id); raiseStatsView(view);
+  if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
+  const clicked = await view.webContents.executeJavaScript(`(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+    for (const r of roots) { const b = r.querySelector('.seg-btn[data-tour="tour-${tour}"]'); if (b) { b.click(); return true; } }
+    const all = roots.flatMap((r) => [...r.querySelectorAll('.seg-btn')]).map((b) => b.getAttribute('data-tour') + ':' + b.textContent.trim()); return all; })()`, true);
+  await sleep(5000);
+  const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
+  const dir = path.join(dataDir(), 'calibracoes'); fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `stats-${tour}-${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
+  fs.writeFileSync(file, `<!-- ${view.webContents.getURL()} clicked=${JSON.stringify(clicked)} -->\n${outline}`);
+  if (!views.has(id) && !x.shown) closeStatsView(id);
+  return { ok: true, file, clicked, size: outline.length };
+});
 // diagnóstico: mostra/esconde a aba oculta do extrato no lugar da aba da criadora
 ipcMain.handle('extrato:toggle', (_e, id) => {
   const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;

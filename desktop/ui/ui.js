@@ -189,6 +189,7 @@ function creatorMenu(c, anchor) {
   if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
   if (isOpen && S.user.role === 'manager') items.push(['Mostrar/esconder aba do extrato (diagnóstico)', () => window.pulse.toggleExtrato(c.id)]);
   if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
+  if (S.user.role === 'manager') items.push(['Capturar Meu Privacy → Assinantes (calibração)', async () => { const r = await run(() => window.pulse.calibrateStats(c.id, 'assinantes')); if (r && r.ok) toast(`Estrutura salva (${r.size} caracteres): ${r.file}`); }]);
   items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);
   items.push(['Sair da conta da Privacy (limpar cookies)', async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); }, 'danger']);
   if (isOpen) items.push([((S.tabs && S.tabs[c.id]) || []).length > 1 ? 'Fechar todas as abas' : 'Fechar perfil', () => run(() => window.pulse.closeProfile(c.id))]);
