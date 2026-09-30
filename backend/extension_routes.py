@@ -125,7 +125,7 @@ async def observations(body: ObservationBatch, user=Depends(extension_user)):
         if user['role'] != 'manager' and event.creator_id not in user['creator_ids']:
             results.append({'event_ref': event.event_ref, 'ok': False, 'detail': 'Criadora não autorizada.'}); continue
         try:
-            outcome = await ingest(event, {'source': 'extension', 'operator_id': user['id']})
+            outcome = await ingest(event, {'source': 'desktop-extrato' if event.sale_source == 'extrato' else 'extension', 'operator_id': user['id']})
             results.append({'event_ref': event.event_ref, **outcome})
         except HTTPException as error:
             results.append({'event_ref': event.event_ref, 'ok': False, 'status': error.status_code, 'detail': error.detail})

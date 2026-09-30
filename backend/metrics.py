@@ -21,7 +21,8 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
             'operator_id': shift['operator_id'] if shift else None,
             'operator_name': shift['operator_name'] if shift else 'Sem atribuição', 'shift_id': shift['id'] if shift else None})
         if row['kind'] == 'sale':
-            row['eligible'] = row.get('sale_origin') == 'chat' and bool(row.get('confirmed_at')) and row.get('sale_status') in ['confirmed', 'refunded', 'cancelled']
+            # atribuível ao turno: venda de chat com instante conhecido (assinatura, postagem e mimo ficam só no total da criadora)
+            row['eligible'] = row.get('sale_origin') == 'chat' and bool(row.get('confirmed_at')) and row.get('sale_status') in ['confirmed', 'pending', 'refunded', 'cancelled']
             if not row['eligible']: row.update({'operator_id': None, 'operator_name': 'Sem atribuição', 'shift_id': None})
             if row.get('manual_assignment') is not None:
                 chosen = await db.shifts.find_one({'id': row['manual_assignment'].get('shift_id')}, {'_id': 0})
@@ -44,6 +45,24 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
     confirmed = [s for s in eligible if s['sale_status'] == 'confirmed']
     refunded = [s for s in eligible if s['sale_status'] == 'refunded']
     cancelled = [s for s in eligible if s['sale_status'] == 'cancelled']
+    pending_sales = [s for s in eligible if s['sale_status'] == 'pending']
+    # bloco A: totais da criadora por produto e por forma de pagamento (todas as origens, exceto estornos/cancelados)
+    def breakdown(key):
+        out = {}
+        for s in sales:
+            if s['sale_status'] in ['refunded', 'cancelled']: continue
+            k = s.get(key) or 'unknown'
+            cell = out.setdefault(k, {'count': 0, 'cents': 0, 'commission_cents': 0, 'pending_cents': 0})
+            cell['count'] += 1; cell['cents'] += s['amount_cents']; cell['commission_cents'] += s.get('commission_cents') or 0
+            if s['sale_status'] == 'pending': cell['pending_cents'] += s['amount_cents']
+        return out
+    by_origin, by_payment = breakdown('sale_origin'), breakdown('payment_method')
+    by_operator = {}
+    for s in eligible:
+        if s['sale_status'] in ['refunded', 'cancelled']: continue
+        cell = by_operator.setdefault(s['operator_name'], {'count': 0, 'cents': 0, 'operator_id': s['operator_id']})
+        cell['count'] += 1; cell['cents'] += s['amount_cents']
+    extrato_count = sum(s.get('sale_source') == 'extrato' for s in sales)
     times = [r['seconds'] for r in responses]
     has_sample = bool(responses or pending or incomplete)
     return {'responses': responses, 'pending': sorted(pending, key=lambda p: p['seconds'], reverse=True), 'sales': sales,
@@ -53,5 +72,9 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         'confirmed_count': len(confirmed) if sales else None, 'confirmed_cents': sum(s['amount_cents'] for s in confirmed) if sales else None,
         'refunded_cents': sum(s['amount_cents'] for s in refunded) if sales else None, 'cancelled_cents': sum(s['amount_cents'] for s in cancelled) if sales else None,
         'unassigned_sales': sum(s['operator_id'] is None for s in sales), 'sales_sample': len(sales),
+        'pending_cents': sum(s['amount_cents'] for s in pending_sales) if sales else None,
+        'gross_cents': sum(s['amount_cents'] for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
+        'commission_cents': sum(s.get('commission_cents') or 0 for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
+        'by_origin': by_origin, 'by_payment': by_payment, 'by_operator': by_operator, 'extrato_count': extrato_count,
         'last_observed_at': max((r['observed_at'] for r in responses + pending + sales), default=None),
         'coverage': 'partial' if has_sample or sales else 'no_data', 'storage_allowed': config['storage_allowed']}}

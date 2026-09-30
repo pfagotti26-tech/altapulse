@@ -13,7 +13,7 @@ async def correct_sale_assignment(event_id: str, body: SaleAssignment, user=Depe
     event = await db.events.find_one({'id': event_id, 'kind': 'sale', 'expires_at': {'$gt': now()}}, {'_id': 0, 'expires_at': 0})
     if not event: raise HTTPException(404, 'Venda não encontrada.')
     if body.shift_id:
-        if event.get('sale_origin') != 'chat' or not event.get('confirmed_at') or event.get('sale_status') not in ['confirmed', 'refunded', 'cancelled']:
+        if event.get('sale_origin') != 'chat' or not event.get('confirmed_at') or event.get('sale_status') not in ['confirmed', 'pending', 'refunded', 'cancelled']:
             raise HTTPException(422, 'Somente vendas de chat com confirmação conhecida podem ser associadas a um turno.')
         shift = await db.shifts.find_one({'id': body.shift_id, 'creator_id': event['creator_id']}, {'_id': 0})
         if not shift: raise HTTPException(422, 'O turno precisa pertencer à mesma criadora.')
@@ -107,11 +107,11 @@ async def export_report(kind: str = Query('summary', pattern='^(summary|sales|re
     output = io.StringIO(); writer = csv.writer(output, delimiter=';')
     if kind == 'summary':
         writer.writerow(['Indicador', 'Valor', 'Cobertura'])
-        labels = {'mean_seconds': 'Tempo médio (segundos)', 'median_seconds': 'Mediana (segundos)', 'response_count': 'Respostas observadas', 'pending_count': 'Pendências observadas', 'late_count': 'Pendências atrasadas', 'sample_count': 'Tamanho da amostra', 'incomplete_count': 'Sequências incompletas', 'confirmed_cents': 'Vendas de chat confirmadas (centavos)', 'refunded_cents': 'Estornos (centavos)', 'unassigned_sales': 'Vendas sem atribuição'}
+        labels = {'mean_seconds': 'Tempo médio (segundos)', 'median_seconds': 'Mediana (segundos)', 'response_count': 'Respostas observadas', 'pending_count': 'Pendências observadas', 'late_count': 'Pendências atrasadas', 'sample_count': 'Tamanho da amostra', 'incomplete_count': 'Sequências incompletas', 'confirmed_cents': 'Vendas de chat confirmadas (centavos)', 'refunded_cents': 'Estornos (centavos)', 'unassigned_sales': 'Vendas sem atribuição', 'gross_cents': 'Faturamento bruto da criadora, todas as origens (centavos)', 'commission_cents': 'Comissão da criadora (centavos)', 'pending_cents': 'Vendas de chat a receber (centavos)', 'extrato_count': 'Registros vindos do extrato'}
         for key, label in labels.items(): writer.writerow([label, csv_safe(data['summary'][key]), 'Parcial' if data['summary']['coverage'] == 'partial' else 'Sem dados'])
     elif kind == 'sales':
-        writer.writerow(['Criadora', 'Assinante', 'Operador associado ao turno', 'Confirmação', 'Valor bruto (centavos)', 'Situação', 'Origem', 'Tipo de associação'])
-        for s in data['sales']: writer.writerow([csv_safe(s.get(k)) for k in ['creator_name', 'fan_name', 'operator_name', 'confirmed_at', 'amount_cents', 'sale_status', 'sale_origin', 'assignment_type']])
+        writer.writerow(['Criadora', 'Assinante', 'Operador associado ao turno', 'Confirmação', 'Valor bruto (centavos)', 'Comissão (centavos)', 'Situação', 'Origem', 'Pagamento', 'Fonte', 'Tipo de associação'])
+        for s in data['sales']: writer.writerow([csv_safe(s.get(k)) for k in ['creator_name', 'fan_name', 'operator_name', 'confirmed_at', 'amount_cents', 'commission_cents', 'sale_status', 'sale_origin', 'payment_method', 'sale_source', 'assignment_type']])
     elif kind == 'reviews':
         writer.writerow(['Criadora', 'Operador', 'Supervisor', 'Data', 'Resposta', 'Continuidade', 'Clareza', 'Orientações', 'Acompanhamento'])
         for r in await reviews(user):

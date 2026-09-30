@@ -26,6 +26,10 @@ A cada 10 s o app lê a estrutura da tela da Privacy aberta (sem texto de mensag
 
 Os eventos vão para o painel só quando o turno da criadora é do usuário logado, não está pausado e o armazenamento está ativo em Configurações. O botão "Capturar estrutura da tela (calibração)" continua no menu da criadora para recalibrar se a Privacy mudar o layout.
 
+## Vendas pelo Extrato (bloco A)
+
+Para cada criadora aberta, o app mantém uma aba **oculta** do mesmo perfil em "Meu Privacy → Extratos" e lê a lista de transações a cada 10 min (na primeira vez carrega o histórico do período com "Ver mais"). Cada linha vira uma venda exata no painel: data e hora, produto (chat, assinatura, postagem, mimo), forma de pagamento, valor bruto, comissão da criadora e situação (concluída, a receber, estornada). Com o extrato funcionando, a venda inferida pela lista de conversas deixa de ser enviada. A aba oculta não toca no chat e não marca conversa como lida. No menu da criadora: "Ler extrato de vendas agora" e "Mostrar/esconder aba do extrato" (diagnóstico, só gestor). Os valores só aparecem para gestor.
+
 ## O que ainda não faz
 
 - Grupos, etiquetas e anotações são salvos no painel (campos da criadora) quando o painel tem a versão com `/api/extension/creators/{id}/meta`; em painel antigo ficam só no computador (`%APPDATA%\alta-pulse-desktop\local.json`).
