@@ -249,3 +249,7 @@ tbody tr:hover { background: #fdfbfc; }
 .tiny-avatar{width:20px;height:20px;font-size:8px;flex-shrink:0}.operator-with-photo{display:flex!important;align-items:center;gap:6px}
 .account-photo{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:6px}.account-photo-avatar{width:96px;height:96px;font-size:28px;background:#f6e3e7;color:#ae344b;border:4px solid #fff;box-shadow:0 2px 10px #28151c1a}
 .account-photo-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.photo-btn{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:6px 11px;border-radius:5px;background:#c41e3a;color:#fff;border:0;cursor:pointer}.photo-btn.ghost{background:transparent;color:#8a7782;border:1px solid #e7dfe4}.photo-btn:hover{filter:brightness(1.05)}
+
+/* período personalizado e filtros da tabela de vendas */
+.date-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.date-range label{display:flex;align-items:center;gap:6px;font-size:11px;color:#7b6b74}.date-range input{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 8px;font-size:11px;color:#5c4c55;background:#fff}
+.sales-table-filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.sales-table-filters select{min-width:170px;height:35px;font-size:11px}.table-search{height:35px;border:1px solid #e2dce0;border-radius:5px;padding:0 11px;font-size:11px;min-width:200px;background:#fff}.sales-table-filters .body-muted{font-size:10px}
