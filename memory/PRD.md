@@ -263,3 +263,4 @@ O usuário aprovou posteriormente o plano completo **Gerenciador de criadoras e 
 - Cartão do fã: status da assinatura pelo aviso da Privacy ("não é seu assinante"); assinatura ativa tem prioridade quando o fã tem várias linhas; "Esperando sua resposta há X" ao vivo; tempo de resposta a este fã (seu, equipe, última) — GET /extension/fan traz `response`.
 - Balão vermelho de conversas sem resposta nas últimas 24 h: em cada criadora da lateral e total no topo (só app).
 - Operação (painel): tabela "Tempo de resposta por chatter" (`summary.response_by_operator`).
+- Lote 5: Operação rápida (turnos carregados uma vez e atribuídos em memória; filtro de período no banco; índices em events/shifts); fotos dos chatters na Operação; convite "Colocar sua foto" no painel e no app (1.3.3).

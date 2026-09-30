@@ -33,6 +33,11 @@ async def lifespan(app):
     await db.fan_tasks.create_index([('assigned_to', 1), ('status', 1)])
     await db.subscribers.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.samples.create_index([('creator_id', 1), ('fan_ref', 1), ('day', 1)], unique=True)
+    # velocidade da Operação, do cartão do fã e das listas
+    await db.events.create_index([('observed_at', -1)])
+    await db.events.create_index([('creator_id', 1), ('kind', 1), ('fan_ref', 1)])
+    await db.events.create_index([('kind', 1), ('creator_id', 1)])
+    await db.shifts.create_index([('creator_id', 1), ('started_at', 1)])
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     yield
     client.close()
