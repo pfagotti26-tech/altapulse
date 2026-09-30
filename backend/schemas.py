@@ -66,6 +66,8 @@ class SettingsUpdate(Strict):
     retention_days: int = Field(ge=1, le=90)
     storage_allowed: bool
     fan_names_allowed: bool = False
+    # bloco E: amostras anonimizadas da conversa para análise por IA (tarefa agendada do Claude)
+    quality_ai_allowed: bool = False
 class ReviewStart(Strict):
     acknowledge_read: Literal[True]
 class Review(Strict):

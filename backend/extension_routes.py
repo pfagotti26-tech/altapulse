@@ -13,6 +13,7 @@ from pydantic import Field
 from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta
 from performance import SnapshotIn
+from quality_ai import SampleIn
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
 from people import start_shift, change_shift
@@ -48,6 +49,7 @@ class StateOut(Public):
     creators: list[CreatorOut]
     storage_allowed: bool
     fan_names_allowed: bool = False
+    quality_ai_allowed: bool = False
     sla_minutes: int
     version: str
     latest_version: str
@@ -97,7 +99,7 @@ async def creators_for(user):
 @router.get('/extension/state', response_model=StateOut)
 async def state(user=Depends(extension_user)):
     config = await settings()
-    return {'user': user, 'creators': await creators_for(user), 'storage_allowed': config['storage_allowed'], 'fan_names_allowed': bool(config.get('fan_names_allowed')), 'sla_minutes': config['sla_minutes'], 'version': VERSION, 'latest_version': VERSION}
+    return {'user': user, 'creators': await creators_for(user), 'storage_allowed': config['storage_allowed'], 'fan_names_allowed': bool(config.get('fan_names_allowed')), 'quality_ai_allowed': bool(config.get('quality_ai_allowed')), 'sla_minutes': config['sla_minutes'], 'version': VERSION, 'latest_version': VERSION}
 
 @router.post('/extension/shifts', status_code=201, response_model=ShiftOut)
 async def extension_start_shift(body: ShiftStart, user=Depends(extension_user)):
@@ -226,6 +228,11 @@ async def extension_credential_use(credential_id: str, request: Request, user=De
     return await extension_use(credential_id, user, (token or {}).get('device_name'))
 
 # ---------- retrato da criadora (bloco B) ----------
+@router.post('/extension/samples')
+async def extension_sample(body: SampleIn, user=Depends(extension_user)):
+    from quality_ai import save_sample
+    return await save_sample(body, user)
+
 @router.post('/extension/snapshots')
 async def extension_snapshot(body: SnapshotIn, user=Depends(extension_user)):
     """Retrato da "Visão geral" do Meu Privacy lido pelo app (uma vez por hora; painel guarda um por dia)."""

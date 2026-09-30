@@ -29,6 +29,9 @@ async def update_settings(body: SettingsUpdate, user=Depends(manager)):
     await db.settings.update_one({'id': 'main'}, {'$set': body.model_dump()}, upsert=True)
     if not body.storage_allowed:
         for collection in ['events', 'reviews']: await db[collection].delete_many({})
+    if old.get('quality_ai_allowed') and not body.quality_ai_allowed:
+        await db.samples.delete_many({})
+        await audit(user, 'Análise por IA desligada; amostras apagadas', 'Configurações')
     if old.get('fan_names_allowed') and not body.fan_names_allowed:
         await db.events.update_many({'fan_name': {'$ne': None}}, {'$set': {'fan_name': None}})
         await audit(user, 'Nomes de assinantes apagados', 'Configurações')

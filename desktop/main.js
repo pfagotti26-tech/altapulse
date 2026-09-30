@@ -9,7 +9,8 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-const { CreatorReader } = require('./reader.js');
+const { CreatorReader, parseDateLabel } = require('./reader.js');
+const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
 const { ExtratoReader } = require('./extrato.js');
@@ -33,6 +34,7 @@ const STATE_REFRESH_MS = 20000;
 const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
+const SAMPLE_MS = 30 * 60 * 1000;       // bloco E: no máximo uma amostra por conversa a cada 30 min
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
 // A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
 // Privacy monta o layout de celular (sem abas); recortada a uma faixa, a lista de transações não é
@@ -133,7 +135,7 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
-    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed };
+    state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
     try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
@@ -301,6 +303,8 @@ async function readAll() {
     // com o extrato funcionando para esta criadora, a venda inferida pela lista de conversas não é
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
+    // bloco E: amostra anonimizada da conversa aberta, só no turno do próprio usuário e com a opção ligada
+    if (mine && state.storage_allowed && state.quality_ai_allowed && data.open && data.open.cid) sampleConversation(id, view, r, data.open).catch(() => {});
     if (!events.length) continue;
     if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; continue; }
     try {
@@ -309,6 +313,22 @@ async function readAll() {
     } catch (error) { r.lastError = error.message; r.summary.error = error.message; }
   }
   pushState();
+}
+
+// ---------- amostras de conversa (bloco E) ----------
+const samples = new Map(); // creatorId|cid -> { at, count }
+async function sampleConversation(id, view, r, open) {
+  const key = `${id}|${open.cid}`; const last = samples.get(key);
+  const count = (open.msgs || []).length;
+  if (last && (Date.now() - last.at < SAMPLE_MS || last.count === count)) return;
+  samples.set(key, { at: Date.now(), count });
+  const data = await view.webContents.executeJavaScript(SAMPLE_SCRIPT, true);
+  if (!data || !data.msgs || data.msgs.length < 3) return;
+  const now = new Date();
+  const when = (m) => { if (!m.date || !m.time) return null; const d = parseDateLabel(m.date, now); if (!d) return null; const [h, mi] = m.time.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString(); };
+  const fan = r.reader.fan(data.name); if (!fan.fan_ref) return;
+  await api('POST', '/extension/samples', { creator_id: id, fan_ref: fan.fan_ref, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
+  r.summary.sampled = (r.summary.sampled || 0) + 1;
 }
 
 // ---------- extrato (bloco A) ----------
