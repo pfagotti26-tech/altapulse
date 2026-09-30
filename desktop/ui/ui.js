@@ -66,6 +66,9 @@ function apply(state) {
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
   const warn = S.warning || (S.open.length && !S.storage_allowed ? 'Métricas desligadas no painel: ative "armazenamento" em Configurações para registrar tempo de resposta e vendas.' : '');
   $('warning').textContent = warn; $('warning').classList.toggle('hidden', !warn);
+  const openTasks = (S.tasks || []).filter((t) => t.status === 'open');
+  $('my-list').classList.toggle('hidden', !openTasks.length);
+  if (openTasks.length) { const byReason = {}; for (const t of openTasks) byReason[t.reason || 'fãs'] = (byReason[t.reason || 'fãs'] || 0) + 1; $('my-list').innerHTML = `<b>Minha lista · ${openTasks.length}</b><small>${esc(Object.entries(byReason).map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · '))}</small>`; }
   renderList();
 }
 
@@ -295,6 +298,17 @@ $('login-form').addEventListener('submit', async (e) => {
 });
 $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin').value.trim() || 'https://altapulse.com.br'); toast('Endereço salvo.'); };
 $('me-avatar').onclick = () => photoMenu();
+$('my-list').onclick = async () => {
+  const list = (S.tasks || []).filter((t) => t.status === 'open');
+  const body = `<div class="task-list">${list.map((t) => `<div class="task"><div><b>${esc(t.fan_name || 'Fã sem nome')}</b><small>${esc(t.creator_name)}${t.reason ? ' · ' + esc(t.reason) : ''} · por ${esc(t.assigned_by)}</small></div><button class="primary" data-task="${esc(t.id)}">Abrir</button></div>`).join('') || '<p class="muted">Nada pendente.</p>'}</div><p class="muted">Ao abrir, o cartão do fã aparece à direita; marque "contatado" depois de falar com ele.</p>`;
+  const p = dialog({ title: 'Minha lista', body, hideOk: true });
+  $('dialog-body').querySelectorAll('[data-task]').forEach((b) => b.addEventListener('click', async () => {
+    $('dialog-cancel').onclick();
+    const r = await run(() => window.pulse.taskOpen(b.dataset.task));
+    if (r && !r.found) toast(`Procure "${r.name || 'o fã'}" na lista de conversas: ainda não sei qual é a conversa dele neste computador.`);
+  }));
+  await p;
+};
 $('me-photo').onchange = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return; try { const image = await shrinkImage(f); await run(() => window.pulse.setAvatar(image), 'Foto atualizada.'); } catch (err) { toast(err.message); } };
 $('btn-logout').onclick = async () => {
   const mine = (S.creators || []).filter((c) => c.shift && c.shift.operator_id === S.user.id);

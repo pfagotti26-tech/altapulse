@@ -14,7 +14,7 @@ from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta, AvatarIn
 from performance import SnapshotIn
 from quality_ai import SampleIn
-from fans import SubscribersIn, save_subscribers
+from fans import SubscribersIn, save_subscribers, NoteIn, fan_card, add_note, delete_note, can_see, tasks_with_result
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
 from people import start_shift, change_shift
@@ -229,6 +229,46 @@ async def extension_credential_use(credential_id: str, request: Request, user=De
     return await extension_use(credential_id, user, (token or {}).get('device_name'))
 
 # ---------- retrato da criadora (bloco B) ----------
+# chave única da agência para gerar as referências (hash) de fã e de venda: igual em todos os computadores,
+# senão a mesma venda/fã vira dois. O primeiro gestor que conecta cadastra a chave do próprio computador.
+class HashKeyIn(Strict):
+    key: str = Field(min_length=32, max_length=128, pattern=r'^[A-Za-z0-9]+$')
+@router.get('/extension/hash-key')
+async def get_hash_key(user=Depends(extension_user)):
+    row = await db.secrets.find_one({'id': 'fan_hash_key'}, {'_id': 0})
+    return {'key': row['value'] if row else None}
+@router.post('/extension/hash-key')
+async def set_hash_key(body: HashKeyIn, user=Depends(extension_user)):
+    if user['role'] != 'manager': raise HTTPException(403, 'Somente gestores.')
+    async with lock:
+        row = await db.secrets.find_one({'id': 'fan_hash_key'}, {'_id': 0})
+        if row: return {'key': row['value'], 'created': False}
+        await db.secrets.insert_one({'id': 'fan_hash_key', 'value': body.key, 'created_at': iso(), 'created_by': user['id']})
+    await audit(user, 'Chave de referência de fãs definida', 'App desktop')
+    return {'key': body.key, 'created': True}
+
+# cartão do fã no app (chatter vê só o que o fã gastou com a criadora que ele atende; nada do faturamento dela)
+@router.get('/extension/fan')
+async def extension_fan(creator_id: str, fan_ref: str, user=Depends(extension_user)):
+    await can_see(user, creator_id)
+    if not re.fullmatch(r'[a-f0-9]{64}', fan_ref): raise HTTPException(422, 'Referência inválida.')
+    return await fan_card(creator_id, fan_ref, user['id'])
+@router.post('/extension/fan/notes')
+async def extension_add_note(body: NoteIn, user=Depends(extension_user)): return await add_note(body, user)
+@router.delete('/extension/fan/notes/{note_id}')
+async def extension_delete_note(note_id: str, user=Depends(extension_user)): return await delete_note(note_id, user)
+@router.get('/extension/fan-tasks')
+async def extension_tasks(user=Depends(extension_user)):
+    since = (now() - timedelta(days=2)).isoformat()
+    rows = await db.fan_tasks.find({'assigned_to': user['id'], '$or': [{'status': 'open'}, {'contacted_at': {'$gte': since}}]}, {'_id': 0, 'expires_at': 0}).sort('created_at', -1).to_list(300)
+    return rows
+@router.post('/extension/fan-tasks/{task_id}/contacted')
+async def extension_task_contacted(task_id: str, user=Depends(extension_user)):
+    task = await db.fan_tasks.find_one({'id': task_id, 'assigned_to': user['id']}, {'_id': 0})
+    if not task: raise HTTPException(404, 'Tarefa não encontrada.')
+    await db.fan_tasks.update_one({'id': task_id}, {'$set': {'status': 'contacted', 'contacted_at': iso()}})
+    return {'ok': True}
+
 @router.put('/extension/avatar')
 async def extension_avatar(body: AvatarIn, user=Depends(extension_user)):
     from auth_routes import set_avatar

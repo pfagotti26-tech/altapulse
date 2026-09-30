@@ -129,3 +129,11 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .shift-btn.pause:hover{color:#fff}
 
 .photo-choice{display:flex;flex-direction:column;align-items:center;gap:10px}.photo-choice img{width:96px;height:96px;border-radius:50%;object-fit:cover}.photo-choice button{width:100%}
+
+/* lista de trabalho do chatter */
+.work { display: block; width: calc(100% - 16px); margin: 6px 8px; text-align: left; background: #2a1418; border: 1px solid #5a2630; border-radius: 8px; padding: 8px 10px; color: #ececf1; cursor: pointer; }
+.work b { color: #ff8a80; font-size: 12px; } .work small { display: block; color: #9a9aa6; font-size: 10.5px; margin-top: 2px; }
+.work:hover { border-color: #e53935; }
+.task-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.task { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.04); border-radius: 8px; padding: 8px; }
+.task > div { flex: 1; min-width: 0; } .task small { display: block; color: #9a9aa6; font-size: 10.5px; }

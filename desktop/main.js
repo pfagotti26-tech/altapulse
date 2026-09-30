@@ -98,6 +98,20 @@ function writeToken(token) {
 }
 
 // segredo local para os hashes de referência (nunca sai do computador)
+// chave compartilhada (servidor) para as referências de fã/venda; sem ela, cai na chave local deste computador
+let hashKey = null;
+const secretFor = () => hashKey || localSecret();
+async function syncHashKey() {
+  try {
+    let { key } = await api('GET', '/extension/hash-key');
+    if (!key && state.user && state.user.role === 'manager') ({ key } = await api('POST', '/extension/hash-key', { key: localSecret() }));
+    if (key && key !== hashKey) {
+      hashKey = key;
+      for (const r of readers.values()) r.reader.secret = key;
+      for (const x of extratos.values()) x.reader.secret = key;
+    }
+  } catch { /* painel antigo: segue com a chave local */ }
+}
 function localSecret() {
   try { const raw = fs.readFileSync(filePath('secret.bin')); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8'); }
   catch {
@@ -141,6 +155,8 @@ async function refreshState() {
     const data = await api('GET', '/extension/state');
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
     try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
+    if (!hashKey) await syncHashKey();
+    await loadTasks();
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
     for (const c of data.creators) {
@@ -183,18 +199,67 @@ function publicState() {
     platforms: PLATFORMS,
     credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
     loginPages: Object.fromEntries(loginPages),
+    tasks: myTasks,
     probeInfo: Object.fromEntries(probeInfo),
   };
+}
+
+// ---------- painel do fã (à direita da aba da Privacy) ----------
+const FAN_W = 290, FAN_MIN = 30;
+let fanView = null;
+let fanUi = readJson('painel-fa.json', { collapsed: false });
+let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
+let myTasks = [];
+let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
+function fanPanelWidth() {
+  if (!state.user || !activeId || activeTab.get(activeId) !== 'privacy' || !tabs.has(activeId)) return 0;
+  return fanUi.collapsed ? FAN_MIN : FAN_W;
+}
+function pushFan() {
+  if (!fanView || fanView.webContents.isDestroyed()) return;
+  const creator = (state.creators || []).find((c) => c.id === fan.creatorId);
+  fanView.webContents.send('fan', { ...fan, creatorName: creator ? creator.name : '', collapsed: !!fanUi.collapsed, active: fan.creatorId === activeId, user: state.user ? { id: state.user.id, role: state.user.role } : null });
+}
+async function loadFanCard(force = false) {
+  if (!fan.creatorId || !fan.fanRef) return;
+  if (!force && fan.card && Date.now() - fan.fetchedAt < 60000) return;
+  const want = `${fan.creatorId}|${fan.fanRef}`; fan.loading = true; pushFan();
+  try {
+    const card = await api('GET', `/extension/fan?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${fan.fanRef}`);
+    if (`${fan.creatorId}|${fan.fanRef}` === want) { fan.card = card; fan.error = null; fan.fetchedAt = Date.now(); }
+  } catch (error) { fan.error = /404|Not Found/i.test(error.message) ? 'O painel ainda não tem o cartão do fã (publicação pendente).' : error.message; }
+  fan.loading = false; pushFan();
+}
+function setFanFromChat(id, open) {
+  if (!open || !open.name) {
+    if (fan.creatorId !== id || fan.fanRef) { fan = { creatorId: id, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 }; pushFan(); }
+    return;
+  }
+  const ref = readerFor(id).reader.roomKey(open.name);
+  if (open.cid) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
+  if (fan.creatorId !== id || fan.fanRef !== ref) { fan = { creatorId: id, fanRef: ref, name: open.name, cid: open.cid, card: null, loading: false, error: null, fetchedAt: 0 }; loadFanCard(true); }
+  else loadFanCard();
+}
+// troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
+async function quickFan(id) {
+  const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
+  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
+}
+async function loadTasks() {
+  try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
 }
 
 function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
+  const pw = fanPanelWidth();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
   for (const [id, t] of tabs) for (const [platform, v] of t) {
-    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH - PEEK, 200), height: h });
+    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200), height: h });
     v.setVisible(id === activeId && platform === activeTab.get(id));
   }
+  // a faixa de 2 px da aba oculta do extrato fica ENTRE a Privacy e o painel do fã (não coberta)
+  if (fanView) { fanView.setBounds({ x: w - pw, y: 0, width: pw, height: h }); fanView.setVisible(pw > 0); }
   for (const x of extratos.values()) if (x.view && !x.shown && !x.view.webContents.isDestroyed()) x.view.setBounds(hiddenBounds());
 }
 
@@ -237,7 +302,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     return { action: 'deny' };
   });
   view.webContents.on('did-navigate', () => pushState());
-  view.webContents.on('did-navigate-in-page', () => pushState());
+  view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy') setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -279,7 +344,7 @@ const readers = new Map(); // creatorId -> { reader, summary, lastError }
 function readerFor(id) {
   if (!readers.has(id)) {
     const store = readJson(`reader-${id}.json`, null);
-    readers.set(id, { reader: new CreatorReader(id, localSecret(), store, { fanNames: !!state.fan_names_allowed }), summary: null, lastError: null });
+    readers.set(id, { reader: new CreatorReader(id, secretFor(), store, { fanNames: !!state.fan_names_allowed }), summary: null, lastError: null });
   }
   return readers.get(id);
 }
@@ -297,6 +362,7 @@ async function readAll() {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
+    if (id === activeId) setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let { events, summary } = r.reader.process(data, new Date());
     r.summary = summary;
@@ -349,7 +415,7 @@ function extratoHealthy(id) {
 function extratoFor(id) {
   if (!extratos.has(id)) {
     const store = readJson(`extrato-${id}.json`, null);
-    extratos.set(id, { view: null, reader: new ExtratoReader(id, localSecret(), store, { fanNames: !!state.fan_names_allowed }), summary: null, timer: null, busy: false });
+    extratos.set(id, { view: null, reader: new ExtratoReader(id, secretFor(), store, { fanNames: !!state.fan_names_allowed }), summary: null, timer: null, busy: false });
   }
   return extratos.get(id);
 }
@@ -429,10 +495,16 @@ async function readExtratoNow(id, opts = {}) {
     }
     let data = await run('read');
     for (let i = 0; i < 8 && !(data.rows || []).length; i++) { await sleep(2500); data = await run('read'); }
-    // primeira leitura desta criadora: carrega o histórico do período (até 15 "ver mais")
-    if (!x.reader.s.backfilled) {
-      for (let i = 0; i < 15 && data.hasMore; i++) { await run('more'); await sleep(1800); data = await run('read'); }
-      x.reader.s.backfilled = true;
+    // histórico do período (o extrato mostra 30 dias): clica "ver mais" enquanto a lista crescer.
+    // v2: refaz para quem ficou só com a 1ª página (antes era marcado como feito mesmo sem linhas)
+    if ((x.reader.s.backfillV || 0) < 2 && (data.rows || []).length) {
+      let prev = data.rows.length, pages = 0;
+      for (let i = 0; i < 80 && data.hasMore; i++) {
+        await run('more'); let grew = false;
+        for (let w = 0; w < 8; w++) { await sleep(1500); data = await run('read'); if ((data.rows || []).length > prev) { grew = true; break; } }
+        if (!grew) break; prev = data.rows.length; pages += 1;
+      }
+      x.reader.s.backfillV = 2; x.reader.s.backfilled = true; x.backfillPages = pages;
     }
     const { events, summary } = x.reader.process(data.rows || [], new Date());
     x.summary = { ...summary, period: data.period, sent: 0, dbg: JSON.stringify({ tabActive: data.tabActive, ...(data.dbg || {}) }) };
@@ -502,6 +574,22 @@ async function vigia() {
 }
 function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
 function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
+ipcMain.handle('fan:collapse', (_e, collapsed) => { fanUi.collapsed = !!collapsed; writeJson('painel-fa.json', fanUi); layout(); pushFan(); return true; });
+ipcMain.handle('fan:refresh', async () => { await loadFanCard(true); return true; });
+ipcMain.handle('fan:note:add', async (_e, text) => {
+  if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
+  await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
+  await loadFanCard(true); return true;
+});
+ipcMain.handle('fan:note:del', async (_e, noteId) => { await api('DELETE', `/extension/fan/notes/${encodeURIComponent(noteId)}`); await loadFanCard(true); return true; });
+ipcMain.handle('fan:contacted', async (_e, taskId) => { await api('POST', `/extension/fan-tasks/${encodeURIComponent(taskId)}/contacted`, {}); await loadTasks(); await loadFanCard(true); pushState(); return true; });
+ipcMain.handle('task:open', async (_e, taskId) => {
+  const t = myTasks.find((x) => x.id === taskId); if (!t) throw new Error('Tarefa não encontrada.');
+  openProfile(t.creator_id, 'privacy');
+  const view = views.get(t.creator_id); const cid = fanCids[t.creator_id] && fanCids[t.creator_id][t.fan_ref];
+  if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
+  return { found: !!cid, name: t.fan_name };
+});
 ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); return publicState(); });
 // diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
 ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
@@ -589,7 +677,7 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
 });
-ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); } return publicState(); });
+ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); pushFan(); quickFan(id); } return publicState(); });
 ipcMain.handle('profile:closeTab', (_e, id, platform) => { closeTab(id, platform); return publicState(); });
 ipcMain.handle('profile:close', (_e, id) => { closeProfile(id); return publicState(); });
 ipcMain.handle('profile:reload', (_e, id) => { const v = currentView(id); if (v) v.webContents.reload(); return true; });
@@ -656,6 +744,10 @@ app.whenReady().then(async () => {
   });
   win.contentView.addChildView(sidebar);
   sidebar.webContents.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  fanView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  win.contentView.addChildView(fanView);
+  fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
+  fanView.webContents.on('did-finish-load', pushFan);
   win.on('resize', layout);
   layout();
 

@@ -127,6 +127,12 @@ async def ingest(body: Observation, source: dict):
             if old['kind'] == 'sale' and old['sale_status'] in ['refunded', 'cancelled'] and body.sale_status == 'confirmed': return {'ok': True, 'deduplicated': True}
             # o extrato é a fonte exata: uma venda inferida pela lista nunca sobrescreve uma venda do extrato
             if old['kind'] == 'sale' and old.get('sale_source') == 'extrato' and body.sale_source != 'extrato': return {'ok': True, 'deduplicated': True}
+        # a mesma venda do extrato lida por outro computador (chave de hash diferente) não entra de novo
+        if not old and body.kind == 'sale' and body.sale_source == 'extrato' and row.get('confirmed_at'):
+            twin = {'creator_id': body.creator_id, 'kind': 'sale', 'sale_source': 'extrato', 'confirmed_at': row['confirmed_at'],
+                    'amount_cents': body.amount_cents, 'sale_origin': body.sale_origin}
+            if row.get('fan_name'): twin['fan_name'] = row['fan_name']
+            if await db.events.find_one(twin, {'_id': 1}): return {'ok': True, 'deduplicated': True}
         await db.events.update_one({'creator_id': body.creator_id, 'event_ref': body.event_ref},
             {'$set': {**row, **source, 'observed_at': iso()}, '$setOnInsert': {'id': uid(), 'expires_at': await expiration()}}, upsert=True)
     return {'ok': True}
