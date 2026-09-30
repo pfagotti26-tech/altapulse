@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>Alta Pulse</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+
+<!-- tela de login -->
+<section id="login" class="screen hidden">
+  <img class="logo" src="brand/alta-pulse-white.png" alt="Alta Pulse" width="155">
+  <p class="muted lead">Entre com o mesmo acesso do painel Alta Pulse.</p>
+  <form id="login-form" autocomplete="off">
+    <label>E-mail <input id="login-email" type="email" required></label>
+    <label>Senha <input id="login-password" type="password" required></label>
+    <button type="submit" class="primary" id="login-btn">Entrar</button>
+    <p id="login-error" class="error"></p>
+  </form>
+  <details class="config">
+    <summary>Painel</summary>
+    <label>Endereço <input id="origin" type="url" placeholder="https://altapulse.com.br"></label>
+    <button type="button" id="origin-save" class="ghost">Salvar</button>
+  </details>
+</section>
+
+<!-- lateral principal -->
+<section id="main" class="screen hidden">
+  <header>
+    <img class="logo small" src="brand/alta-pulse-white.png" alt="Alta Pulse" width="112">
+    <div class="tools">
+      <button id="btn-refresh" class="icon" title="Atualizar">&#8635;</button>
+      <button id="btn-menu" class="icon" title="Opções">&#8942;</button>
+    </div>
+  </header>
+
+  <div class="search">
+    <input id="search" type="search" placeholder="Buscar criadora">
+    <select id="sort" title="Ordenar">
+      <option value="az">A–Z</option>
+      <option value="za">Z–A</option>
+      <option value="tag">Por etiqueta</option>
+      <option value="recent">Mais recente</option>
+      <option value="old">Mais antiga</option>
+    </select>
+  </div>
+  <label class="toggle"><input id="only-open" type="checkbox"> <span>Somente em atendimento</span></label>
+  <p id="warning" class="warn hidden"></p>
+
+  <div id="list" class="list"></div>
+
+  <footer>
+    <button id="btn-new-group" class="ghost wide">+ Novo grupo</button>
+    <div class="me">
+      <div class="who"><div class="uavatar" id="me-avatar"></div><div><b id="me-name"></b><br><span id="me-role" class="muted"></span></div></div>
+      <button id="btn-logout" class="ghost">Sair</button>
+    </div>
+  </footer>
+</section>
+
+<!-- menu de opções do app -->
+<div id="app-menu" class="popover hidden">
+  <button data-act="panel">Abrir painel no navegador</button>
+  <button data-act="tags">Editar etiquetas</button>
+  <button data-act="hide">Ocultar perfil aberto</button>
+  <button data-act="about">Sobre</button>
+</div>
+
+<!-- menu de cada criadora -->
+<div id="creator-menu" class="popover hidden"></div>
+
+<!-- diálogo genérico -->
+<div id="dialog" class="modal hidden">
+  <div class="box">
+    <h3 id="dialog-title"></h3>
+    <div id="dialog-body"></div>
+    <div class="actions">
+      <button id="dialog-cancel" class="ghost">Cancelar</button>
+      <button id="dialog-ok" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="ui.js"></script>
+</body>
+</html>

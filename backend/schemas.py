@@ -41,6 +41,13 @@ class Creator(Strict):
     name: str = Field(min_length=2, max_length=70)
     handle: str = Field(default='', max_length=60)
     color: Literal['green', 'rose', 'blue', 'amber', 'lavender'] = 'green'
+    group: str = Field(default='', max_length=40)
+    tag: str = Field(default='', max_length=30)
+    notes: str = Field(default='', max_length=2000)
+class CreatorMeta(Strict):
+    group: Optional[str] = Field(default=None, max_length=40)
+    tag: Optional[str] = Field(default=None, max_length=30)
+    notes: Optional[str] = Field(default=None, max_length=2000)
 class Reason(Strict):
     reason: str = Field(min_length=5, max_length=200)
 class SaleAssignment(Reason):
@@ -58,6 +65,7 @@ class SettingsUpdate(Strict):
     sla_minutes: int = Field(ge=1, le=120)
     retention_days: int = Field(ge=1, le=90)
     storage_allowed: bool
+    fan_names_allowed: bool = False
 class ReviewStart(Strict):
     acknowledge_read: Literal[True]
 class Review(Strict):
@@ -81,6 +89,8 @@ class Observation(Strict):
     amount_cents: Optional[int] = Field(default=None, ge=0, le=100000000)
     sale_status: Optional[Literal['confirmed', 'refunded', 'cancelled', 'unknown']] = None
     sale_origin: Optional[Literal['chat', 'subscription', 'renewal', 'tip', 'unknown']] = None
+    fan_ref: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    fan_name: Optional[str] = Field(default=None, max_length=80)
     @model_validator(mode='after')
     def valid_event(self):
         from datetime import timezone, timedelta

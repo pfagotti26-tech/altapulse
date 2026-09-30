@@ -32,6 +32,9 @@ class CreatorOut(Public):
     name: str
     handle: str
     color: str
+    group: str = ''
+    tag: str = ''
+    notes: str = ''
     created_at: str
     review: dict[str, Any] | None = None
     shift: ShiftOut | None = None
@@ -43,6 +46,7 @@ class SettingsOut(Public):
     sla_minutes: int
     retention_days: int
     storage_allowed: bool
+    fan_names_allowed: bool = False
 
 class MeOut(Public):
     user: UserOut

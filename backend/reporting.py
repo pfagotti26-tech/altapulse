@@ -29,6 +29,9 @@ async def update_settings(body: SettingsUpdate, user=Depends(manager)):
     await db.settings.update_one({'id': 'main'}, {'$set': body.model_dump()}, upsert=True)
     if not body.storage_allowed:
         for collection in ['events', 'reviews']: await db[collection].delete_many({})
+    if old.get('fan_names_allowed') and not body.fan_names_allowed:
+        await db.events.update_many({'fan_name': {'$ne': None}}, {'$set': {'fan_name': None}})
+        await audit(user, 'Nomes de assinantes apagados', 'Configurações')
     if body.retention_days < old['retention_days']:
         from datetime import timedelta
         cutoff = now() - timedelta(days=body.retention_days)
@@ -107,8 +110,8 @@ async def export_report(kind: str = Query('summary', pattern='^(summary|sales|re
         labels = {'mean_seconds': 'Tempo médio (segundos)', 'median_seconds': 'Mediana (segundos)', 'response_count': 'Respostas observadas', 'pending_count': 'Pendências observadas', 'late_count': 'Pendências atrasadas', 'sample_count': 'Tamanho da amostra', 'incomplete_count': 'Sequências incompletas', 'confirmed_cents': 'Vendas de chat confirmadas (centavos)', 'refunded_cents': 'Estornos (centavos)', 'unassigned_sales': 'Vendas sem atribuição'}
         for key, label in labels.items(): writer.writerow([label, csv_safe(data['summary'][key]), 'Parcial' if data['summary']['coverage'] == 'partial' else 'Sem dados'])
     elif kind == 'sales':
-        writer.writerow(['Criadora', 'Operador associado ao turno', 'Confirmação', 'Valor bruto (centavos)', 'Situação', 'Origem', 'Tipo de associação'])
-        for s in data['sales']: writer.writerow([csv_safe(s.get(k)) for k in ['creator_name', 'operator_name', 'confirmed_at', 'amount_cents', 'sale_status', 'sale_origin', 'assignment_type']])
+        writer.writerow(['Criadora', 'Assinante', 'Operador associado ao turno', 'Confirmação', 'Valor bruto (centavos)', 'Situação', 'Origem', 'Tipo de associação'])
+        for s in data['sales']: writer.writerow([csv_safe(s.get(k)) for k in ['creator_name', 'fan_name', 'operator_name', 'confirmed_at', 'amount_cents', 'sale_status', 'sale_origin', 'assignment_type']])
     elif kind == 'reviews':
         writer.writerow(['Criadora', 'Operador', 'Supervisor', 'Data', 'Resposta', 'Continuidade', 'Clareza', 'Orientações', 'Acompanhamento'])
         for r in await reviews(user):

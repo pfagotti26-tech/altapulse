@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
 from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
-from schemas import Strict, Login, ShiftStart, ShiftAction, Observation
+from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
 from people import start_shift, change_shift
@@ -20,6 +20,9 @@ from stations import ingest
 router = APIRouter()
 SOURCE = Path(__file__).parent.parent / 'extension'
 VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
+DESKTOP = Path(__file__).parent.parent / 'desktop'
+DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
+DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json'}
 TOKEN_DAYS = 30
 
 class ExtensionLogin(Login):
@@ -28,6 +31,7 @@ class ExtensionLogin(Login):
 class HeartbeatIn(Strict):
     creator_id: str
     page: Literal['chat', 'other'] = 'other'
+    source: Literal['extension', 'desktop'] = 'extension'
     observation_state: Literal['no_data', 'partial', 'paused', 'validation_required', 'interrupted'] = 'partial'
 
 class ObservationBatch(Strict):
@@ -42,6 +46,7 @@ class StateOut(Public):
     user: UserOut
     creators: list[CreatorOut]
     storage_allowed: bool
+    fan_names_allowed: bool = False
     sla_minutes: int
     version: str
     latest_version: str
@@ -91,7 +96,7 @@ async def creators_for(user):
 @router.get('/extension/state', response_model=StateOut)
 async def state(user=Depends(extension_user)):
     config = await settings()
-    return {'user': user, 'creators': await creators_for(user), 'storage_allowed': config['storage_allowed'], 'sla_minutes': config['sla_minutes'], 'version': VERSION, 'latest_version': VERSION}
+    return {'user': user, 'creators': await creators_for(user), 'storage_allowed': config['storage_allowed'], 'fan_names_allowed': bool(config.get('fan_names_allowed')), 'sla_minutes': config['sla_minutes'], 'version': VERSION, 'latest_version': VERSION}
 
 @router.post('/extension/shifts', status_code=201, response_model=ShiftOut)
 async def extension_start_shift(body: ShiftStart, user=Depends(extension_user)):
@@ -110,7 +115,7 @@ async def heartbeat(body: HeartbeatIn, user=Depends(extension_user)):
     paused = not shift or shift.get('paused', False) or bool(creator.get('review'))
     state = 'paused' if paused else body.observation_state if body.page == 'chat' else 'no_data'
     await db.browsers.update_one({'creator_id': body.creator_id}, {'$set': {'creator_id': body.creator_id, 'state': 'open', 'observation_state': state,
-        'last_seen': iso(), 'source': 'extension', 'operator_id': user['id'], 'operator_name': user['name'], 'page': body.page}}, upsert=True)
+        'last_seen': iso(), 'source': body.source, 'operator_id': user['id'], 'operator_name': user['name'], 'page': body.page}}, upsert=True)
     return {'ok': True, 'paused': paused, 'review': bool(creator.get('review')), 'shift': shift, 'storage_allowed': (await settings())['storage_allowed']}
 
 @router.post('/extension/observations')
@@ -125,6 +130,35 @@ async def observations(body: ObservationBatch, user=Depends(extension_user)):
         except HTTPException as error:
             results.append({'event_ref': event.event_ref, 'ok': False, 'status': error.status_code, 'detail': error.detail})
     return {'results': results, 'accepted': sum(r['ok'] for r in results)}
+
+@router.patch('/extension/creators/{creator_id}/meta')
+async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extension_user)):
+    """Grupo, etiqueta e anotações da criadora (app desktop). Gestor altera tudo; chatter só anotações."""
+    from core import creator_access
+    creator = await creator_access(creator_id, user)
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if user['role'] != 'manager': patch = {k: v for k, v in patch.items() if k == 'notes'}
+    if not patch: raise HTTPException(422, 'Nada para alterar.')
+    await db.creators.update_one({'id': creator_id}, {'$set': patch})
+    if 'group' in patch or 'tag' in patch: await audit(user, 'Organização da criadora alterada', creator['name'], {k: v for k, v in patch.items() if k != 'notes'})
+    return {'ok': True, **patch}
+
+@router.get('/desktop/release')
+async def desktop_release(): return {'version': DESKTOP_VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip', 'available': DESKTOP_VERSION is not None}
+
+@router.get('/desktop/download')
+async def desktop_download():
+    """Pacote do app desktop (fontes + Iniciar.bat). Sem segredos; o Electron é baixado pelo npm na primeira execução."""
+    if not DESKTOP_VERSION: raise HTTPException(404, 'App desktop indisponível nesta versão.')
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
+        for file in DESKTOP.rglob('*'):
+            if not file.is_file() or DESKTOP_SKIP & set(file.relative_to(DESKTOP).parts): continue
+            name = 'Alta-Pulse-Desktop/' + str(file.relative_to(DESKTOP))
+            if file.suffix in ['.js', '.json', '.md', '.html', '.css']:
+                package.writestr(name, file.read_text(encoding='utf-8').replace('https://altapulse.com.br', ORIGIN))
+            else: package.write(file, name)
+    return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip"'})
 
 @router.get('/extension/release')
 async def release(): return {'version': VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Extensao-{VERSION}.zip'}
