@@ -22,7 +22,7 @@ SOURCE = Path(__file__).parent.parent / 'extension'
 VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
 DESKTOP = Path(__file__).parent.parent / 'desktop'
 DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
-DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json'}
+DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json', 'iniciar.log'}
 TOKEN_DAYS = 30
 
 class ExtensionLogin(Login):
