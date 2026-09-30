@@ -143,40 +143,57 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
     if 'group' in patch or 'tag' in patch: await audit(user, 'Organização da criadora alterada', creator['name'], {k: v for k, v in patch.items() if k != 'notes'})
     return {'ok': True, **patch}
 
-# Instalador Windows (.exe) publicado nas releases do GitHub do projeto (electron-builder + electron-updater).
-GITHUB_REPO = os.environ.get('DESKTOP_GITHUB_REPO', 'pfagotti26-tech/altapulse')
-_installer_cache = {'at': None, 'data': None}
-async def installer_info():
-    """Última release do GitHub com o AltaPulse-Setup-*.exe; cache de 10 min; None se indisponível."""
-    from datetime import datetime
-    if _installer_cache['at'] and (now() - _installer_cache['at']) < timedelta(minutes=10): return _installer_cache['data']
-    data = None
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest', headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'alta-pulse-panel'})
-        if r.status_code == 200:
-            rel = r.json()
-            asset = next((a for a in rel.get('assets', []) if a['name'].startswith('AltaPulse-Setup') and a['name'].endswith('.exe')), None)
-            if asset: data = {'version': (rel.get('tag_name') or '').lstrip('v'), 'url': asset['browser_download_url'], 'filename': asset['name'], 'size': asset.get('size'), 'published_at': rel.get('published_at')}
-    except Exception: data = None
-    _installer_cache.update({'at': now(), 'data': data})
-    return data
+# Instalador Windows (.exe) hospedado pelo próprio painel em backend/desktop_dist (partes < 100 MB por
+# causa do limite do GitHub; o servidor concatena). Serve também latest.yml/blockmap para o
+# electron-updater (provider "generic" em https://altapulse.com.br/api/desktop/updates).
+DIST = Path(__file__).parent / 'desktop_dist'
+def installer_info():
+    """Lê latest.yml de desktop_dist; None se não houver instalador publicado."""
+    meta = DIST / 'latest.yml'
+    if not meta.exists(): return None
+    text = meta.read_text(encoding='utf-8')
+    version = re.search(r'^version:\s*(\S+)', text, re.M); path = re.search(r'^path:\s*(\S+)', text, re.M)
+    if not version or not path: return None
+    name = path.group(1); parts = sorted(DIST.glob(name + '.part*'))
+    if not parts and not (DIST / name).exists(): return None
+    size = sum(f.stat().st_size for f in parts) if parts else (DIST / name).stat().st_size
+    return {'version': version.group(1), 'filename': name, 'size': size, 'url': f'{ORIGIN}/api/desktop/installer'}
+
+def installer_stream(name):
+    single = DIST / name
+    files = [single] if single.exists() else sorted(DIST.glob(name + '.part*'))
+    for part in files:
+        with open(part, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''): yield chunk
 
 @router.get('/desktop/release')
 async def desktop_release():
-    installer = await installer_info()
+    installer = installer_info()
     return {'version': (installer or {}).get('version') or DESKTOP_VERSION, 'api_origin': ORIGIN, 'available': DESKTOP_VERSION is not None,
         'installer': installer, 'filename': (installer or {}).get('filename') or f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip',
         'zip_version': DESKTOP_VERSION, 'zip_filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip'}
 
 @router.get('/desktop/installer')
 async def desktop_installer():
-    """Redireciona para o instalador .exe mais recente (release do GitHub)."""
-    from fastapi.responses import RedirectResponse
-    installer = await installer_info()
+    """Instalador .exe mais recente (download direto)."""
+    from fastapi.responses import StreamingResponse
+    installer = installer_info()
     if not installer: raise HTTPException(404, 'Instalador ainda não publicado. Use o pacote .zip.')
-    return RedirectResponse(installer['url'], status_code=302)
+    return StreamingResponse(installer_stream(installer['filename']), media_type='application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename="{installer["filename"]}"', 'Content-Length': str(installer['size'])})
+
+@router.get('/desktop/updates/{name}')
+async def desktop_updates(name: str):
+    """Arquivos do electron-updater: latest.yml, .exe e .blockmap."""
+    from fastapi.responses import StreamingResponse, FileResponse
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or name.startswith('.'): raise HTTPException(404)
+    if name.endswith('.yml') or name.endswith('.blockmap'):
+        file = DIST / name
+        if not file.exists(): raise HTTPException(404)
+        return FileResponse(file, media_type='text/yaml' if name.endswith('.yml') else 'application/octet-stream')
+    if not name.endswith('.exe') or not (list(DIST.glob(name + '.part*')) or (DIST / name).exists()): raise HTTPException(404)
+    size = sum(f.stat().st_size for f in DIST.glob(name + '.part*')) or (DIST / name).stat().st_size
+    return StreamingResponse(installer_stream(name), media_type='application/octet-stream', headers={'Content-Length': str(size), 'Content-Disposition': f'attachment; filename="{name}"'})
 
 @router.get('/desktop/download')
 async def desktop_download():
