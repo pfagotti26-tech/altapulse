@@ -91,7 +91,7 @@ function card(c) {
   if (ex && S.user && S.user.role === 'manager') {
     if (ex.error === 'login') queue += '<div class="queue">extrato: entre na Privacy</div>';
     else if (ex.error) queue += `<div class="queue late" title="${esc(ex.error)}">extrato: falha na leitura</div>`;
-    else if (ex.readAt) { const cents = ex.todayCents || 0; queue += `<div class="queue ok" title="Extrato lido às ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${ex.rejected ? ` · ${ex.rejected} recusadas: ${esc(ex.lastReject || '')}` : ''}">hoje: ${ex.today || 0} venda${ex.today === 1 ? '' : 's'} · R$ ${(cents / 100).toFixed(2).replace('.', ',')}</div>`; }
+    else if (ex.readAt) { const cents = ex.todayCents || 0; queue += `<div class="queue ok" title="Extrato lido às ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${ex.rows || 0} linhas · ${ex.sent || 0} enviadas${ex.dropped ? ` · ${ex.dropped} não enviadas (armazenamento desligado)` : ''}${ex.rejected ? ` · ${ex.rejected} recusadas: ${esc(ex.lastReject || '')}` : ''}${ex.period ? ` · ${esc(ex.period)}` : ''}${ex.dbg ? ` · ${esc(ex.dbg)}` : ''}">hoje: ${ex.today || 0} venda${ex.today === 1 ? '' : 's'} · R$ ${(cents / 100).toFixed(2).replace('.', ',')}</div>`; }
   }
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');

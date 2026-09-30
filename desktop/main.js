@@ -31,7 +31,20 @@ const STATE_REFRESH_MS = 20000;
 const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
-const HIDDEN_BOUNDS = { x: -2600, y: 0, width: 1280, height: 900 }; // fora da área visível, mas com largura de desktop
+// A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
+// Privacy monta o layout de celular (sem abas); recortada a uma faixa, a lista de transações não é
+// renderizada (carregamento sob demanda quando entra na área visível). Então ela ocupa a MESMA área da
+// criadora ativa, mas por baixo dela (índice 0): totalmente coberta e ainda assim "visível" para a página.
+// Sem criadora ativa, encosta na borda de baixo da janela (aparece só uma faixa de 2 px).
+// Detalhe do Windows: uma aba TOTALMENTE coberta por outra é tratada como "oculta" pelo Chromium
+// (document.visibilityState = hidden) e a Privacy para de renderizar a lista. Por isso a aba da criadora
+// deixa uma coluna de 2 px livre na borda direita, onde a aba do extrato aparece: isso basta para ela
+// continuar "visível" e renderizar normalmente.
+const PEEK = 2;
+function hiddenBounds() {
+  const [w, h] = win.getContentSize(); const width = Math.max(w - SIDEBAR_WIDTH, 1000);
+  return activeId && views.has(activeId) ? { x: SIDEBAR_WIDTH, y: 0, width, height: h } : { x: SIDEBAR_WIDTH, y: h - PEEK, width, height: 900 };
+}
 
 const dataDir = () => app.getPath('userData');
 const filePath = (name) => path.join(dataDir(), name);
@@ -103,7 +116,9 @@ async function api(method, route, body) {
   try { data = await response.json(); } catch {}
   if (!response.ok) {
     if (response.status === 401) { token = null; writeToken(null); state = { ...state, user: null, creators: [] }; }
-    throw new Error((data && data.detail) || `Erro ${response.status} no painel.`);
+    let detail = data && data.detail;
+    if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg ? `${(d.loc || []).slice(-1)[0] || ''}: ${d.msg}` : JSON.stringify(d))).join('; ').slice(0, 300);
+    throw new Error(detail || `Erro ${response.status} no painel.`);
   }
   return data;
 }
@@ -154,9 +169,10 @@ function layout() {
   const [w, h] = win.getContentSize();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
   for (const [id, v] of views) {
-    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH, 200), height: h });
+    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH - PEEK, 200), height: h });
     v.setVisible(id === activeId);
   }
+  for (const x of extratos.values()) if (x.view && !x.shown && !x.view.webContents.isDestroyed()) x.view.setBounds(hiddenBounds());
 }
 
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
@@ -274,7 +290,7 @@ function statsView(id) {
   // fica por BAIXO das outras abas (índice 0) e com tamanho de tela de desktop: com uma janela minúscula
   // a Privacy montava o layout de celular (sem as abas) e com setVisible(false) não terminava de carregar
   win.contentView.addChildView(view, 0);
-  view.setBounds(HIDDEN_BOUNDS);
+  view.setBounds(hiddenBounds());
   x.view = view;
   return view;
 }
@@ -323,7 +339,7 @@ async function readExtrato(id) {
       x.reader.s.backfilled = true;
     }
     const { events, summary } = x.reader.process(data.rows || [], new Date());
-    x.summary = { ...summary, period: data.period, sent: 0 };
+    x.summary = { ...summary, period: data.period, sent: 0, dbg: JSON.stringify({ tabActive: data.tabActive, ...(data.dbg || {}) }) };
     if (events.length && state.storage_allowed) {
       const accepted = [];
       for (let i = 0; i < events.length; i += 150) {
@@ -337,7 +353,8 @@ async function readExtrato(id) {
     if (!state.storage_allowed) x.summary.dropped = events.length;
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
-    x.summary = { ...(x.summary || {}), error: error.message, readAt: new Date().toISOString() };
+    const old = /Extra inputs are not permitted/.test(error.message);
+    x.summary = { ...(x.summary || {}), error: old ? 'painel desatualizado: publique a versão nova do Alta Pulse' : error.message, readAt: new Date().toISOString() };
   } finally {
     x.busy = false; pushState();
     if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
@@ -348,7 +365,7 @@ ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id); return
 ipcMain.handle('extrato:toggle', (_e, id) => {
   const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;
   const [w, h] = win.getContentSize(); const show = !x.shown;
-  x.view.setBounds(show ? { x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH, 200), height: h } : HIDDEN_BOUNDS);
+  x.view.setBounds(show ? { x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH, 200), height: h } : hiddenBounds());
   if (show) { for (const v of views.values()) v.setVisible(false); x.shown = true; } else { x.shown = false; layout(); }
   return show;
 });

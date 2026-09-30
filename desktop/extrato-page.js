@@ -42,7 +42,8 @@ function script(action) {
         payment: txt(card.querySelector('.tx-payment')), product: txt(card.querySelector('.tx-tipo')), status: st.status, statusRaw: st.raw };
     }).filter((r) => r.when && r.gross != null);
     const period = txt(qs('.date-range-text'));
-    return { onStats, tabActive, rows, hasMore: !!more, period, loggedOut: /login|entrar/i.test(location.pathname) };
+    return { onStats, tabActive, rows, hasMore: !!more, period, loggedOut: /login|entrar/i.test(location.pathname),
+      dbg: { vis: document.visibilityState, lists: qsa('.ext-tx-list').length, shells: qsa('.tx-card-shell').length, skel: qsa('.skeleton-content').length, w: innerWidth, h: innerHeight, sy: scrollY } };
   })()`;
 }
 
