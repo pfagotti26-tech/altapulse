@@ -6,12 +6,13 @@ horários, valores e situações de venda observados pela extensão no Chrome do
 import io, json, os, re, secrets, zipfile
 from pathlib import Path
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
 from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta
+from performance import SnapshotIn
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
 from people import start_shift, change_shift
@@ -208,6 +209,28 @@ async def desktop_download():
                 package.writestr(name, file.read_text(encoding='utf-8').replace('https://altapulse.com.br', ORIGIN))
             else: package.write(file, name)
     return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip"'})
+
+
+# ---------- cofre de acessos (bloco F) ----------
+@router.get('/extension/credentials')
+async def extension_credentials(creator_id: Optional[str] = None, user=Depends(extension_user)):
+    """Acessos salvos (sem senha) das criadoras do usuário, para o app mostrar "Entrar com o acesso salvo"."""
+    from vault import extension_list
+    return await extension_list(user, creator_id)
+
+@router.post('/extension/credentials/{credential_id}/use')
+async def extension_credential_use(credential_id: str, request: Request, user=Depends(extension_user)):
+    """Login e senha para o app preencher o formulário da plataforma. Auditado; chatter não vê a senha."""
+    from vault import extension_use
+    token = await db.extension_tokens.find_one({'token_hash': request.state.extension_token_hash}, {'_id': 0, 'device_name': 1})
+    return await extension_use(credential_id, user, (token or {}).get('device_name'))
+
+# ---------- retrato da criadora (bloco B) ----------
+@router.post('/extension/snapshots')
+async def extension_snapshot(body: SnapshotIn, user=Depends(extension_user)):
+    """Retrato da "Visão geral" do Meu Privacy lido pelo app (uma vez por hora; painel guarda um por dia)."""
+    from performance import save_snapshot
+    return await save_snapshot(body, user)
 
 @router.get('/extension/release')
 async def release(): return {'version': VERSION, 'api_origin': ORIGIN, 'filename': f'Alta-Pulse-Extensao-{VERSION}.zip'}

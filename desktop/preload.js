@@ -6,7 +6,8 @@ contextBridge.exposeInMainWorld('pulse', {
   getState: () => ipcRenderer.invoke('state:get'),
   snapshot: () => ipcRenderer.invoke('state:snapshot'),
 
-  openProfile: (id) => ipcRenderer.invoke('profile:open', id),
+  openProfile: (id, platform) => ipcRenderer.invoke('profile:open', id, platform),
+  vaultUse: (id) => ipcRenderer.invoke('vault:use', id),
   showProfile: (id) => ipcRenderer.invoke('profile:show', id),
   closeProfile: (id) => ipcRenderer.invoke('profile:close', id),
   reloadProfile: (id) => ipcRenderer.invoke('profile:reload', id),

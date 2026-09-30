@@ -95,3 +95,11 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .choice.sel { border-color: var(--red); }
 
 .toast { position: fixed; left: 12px; right: 12px; bottom: 90px; background: #3a3e44; color: #fff; padding: 10px 12px; border-radius: 8px; z-index: 40; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+
+/* cofre / plataformas (bloco F) */
+.vault-btn{margin-top:6px;width:100%;border:1px solid #2e7d4f;background:#173f2a;color:#bfe8cf;border-radius:6px;padding:6px 8px;font-size:12px;cursor:pointer;text-align:left}
+.vault-btn:hover{background:#1e5236}
+.plat-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.plat{border:1px solid #333;background:#1c1c20;color:#eee;border-radius:6px;padding:10px;cursor:pointer;text-align:left;font-size:13px}
+.plat:hover{border-color:#C41E3A}
+.plat-ok{float:right;opacity:.9}

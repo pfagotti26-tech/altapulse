@@ -9,6 +9,8 @@ from people import router as people
 from reporting import router as reporting
 from stations import router as stations
 from extension_routes import router as extension
+from vault import router as vault
+from performance import router as performance
 
 @asynccontextmanager
 async def lifespan(app):
@@ -19,8 +21,10 @@ async def lifespan(app):
     await db.events.create_index([('creator_id', 1), ('event_ref', 1)], unique=True)
     await db.extension_tokens.create_index('expires_at', expireAfterSeconds=0)
     await db.extension_tokens.create_index('token_hash', unique=True)
-    for collection in ['events', 'reviews', 'audit', 'shifts', 'pairings', 'commands']:
+    for collection in ['events', 'reviews', 'audit', 'shifts', 'pairings', 'commands', 'creator_snapshots']:
         await db[collection].create_index('expires_at', expireAfterSeconds=0)
+    await db.creator_snapshots.create_index([('creator_id', 1), ('day', 1)], unique=True)
+    await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     yield
     client.close()
 
@@ -39,7 +43,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension]:
+for router in [auth, people, reporting, stations, extension, vault, performance]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')

@@ -93,6 +93,12 @@ function card(c) {
     else if (ex.error) queue += `<div class="queue late" title="${esc(ex.error)}">extrato: falha na leitura</div>`;
     else if (ex.readAt) { const cents = ex.todayCents || 0; queue += `<div class="queue ok" title="Extrato lido às ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${ex.rows || 0} linhas · ${ex.sent || 0} enviadas${ex.dropped ? ` · ${ex.dropped} não enviadas (armazenamento desligado)` : ''}${ex.rejected ? ` · ${ex.rejected} recusadas: ${esc(ex.lastReject || '')}` : ''}${ex.period ? ` · ${esc(ex.period)}` : ''}${ex.dbg ? ` · ${esc(ex.dbg)}` : ''}">hoje: ${ex.today || 0} venda${ex.today === 1 ? '' : 's'} · R$ ${(cents / 100).toFixed(2).replace('.', ',')}</div>`; }
   }
+  const loginPlatform = S.loginPages && S.loginPages[c.id];
+  const cred = loginPlatform && (S.credentials || []).find((x) => x.creator_id === c.id && x.platform === loginPlatform);
+  const platLabel = loginPlatform && S.platforms && S.platforms[loginPlatform] ? S.platforms[loginPlatform].label : loginPlatform;
+  const pi = S.probeInfo && S.probeInfo[c.id];
+  if (!loginPlatform && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
+  if (loginPlatform) queue += cred ? `<button class="vault-btn" data-vault="${esc(c.id)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(platLabel)}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">tela de login · sem acesso salvo</div>`;
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
@@ -100,19 +106,31 @@ function card(c) {
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${queue}</div>
     ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
-  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu')) return; openCreator(c); });
+  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu')) return; if (e.target.closest('.vault-btn')) return; openCreator(c); });
+  const vb = el.querySelector('.vault-btn'); if (vb) vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c); });
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
   return el;
 }
 
-async function openCreator(c) {
-  if (S.open.includes(c.id)) return run(() => window.pulse.showProfile(c.id));
+async function vaultLogin(c) {
+  const r = await run(() => window.pulse.vaultUse(c.id));
+  if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
+}
+async function openCreator(c, platform) {
+  if (S.open.includes(c.id) && !platform) return run(() => window.pulse.showProfile(c.id));
   if (c.shift && c.shift.operator_id !== S.user.id) {
     const ok = await dialog({ title: 'Criadora em atendimento', body: `<p>${esc(c.shift.operator_name)} está com o turno ativo de <b>${esc(c.name)}</b>. Abrir mesmo assim só para acompanhar? Você não vai conseguir iniciar turno enquanto o dele estiver ativo.</p>`, okText: 'Abrir' });
     if (!ok) return;
   }
-  await run(() => window.pulse.openProfile(c.id));
-  if (!c.shift) offerShift(c);
+  await run(() => window.pulse.openProfile(c.id, platform || 'privacy'));
+  if (!c.shift && !platform) offerShift(c);
+}
+async function platformDialog(c) {
+  const plats = S.platforms || {}; const creds = (S.credentials || []).filter((x) => x.creator_id === c.id);
+  const body = `<p>Abrir no perfil isolado de <b>${esc(c.name)}</b>:</p><div class="plat-list">${Object.keys(plats).map((id) => `<button class="plat" data-plat="${esc(id)}">${esc(plats[id].label)}${creds.some((x) => x.platform === id) ? ' <span class="plat-ok" title="acesso salvo no cofre">🔑</span>' : ''}</button>`).join('')}</div>`;
+  const p = dialog({ title: 'Abrir plataforma', body, hideOk: true });
+  $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); openCreator(c, b.dataset.plat); }));
+  await p;
 }
 async function offerShift(c) {
   const ok = await dialog({ title: 'Iniciar turno?', body: `<p>Registrar que você está atendendo <b>${esc(c.name)}</b> a partir de agora. O gestor vê presença e horário; nada da conversa é enviado.</p>`, okText: 'Iniciar turno' });
@@ -126,6 +144,9 @@ function creatorMenu(c, anchor) {
   const items = [];
   items.push(isOpen ? ['Mostrar', () => window.pulse.showProfile(c.id)] : ['Abrir perfil', () => openCreator(c)]);
   if (isOpen) { items.push(['Recarregar', () => window.pulse.reloadProfile(c.id)]); items.push(['Voltar', () => window.pulse.backProfile(c.id)]); }
+  items.push(['Abrir plataforma…', () => platformDialog(c)]);
+  const lp = S.loginPages && S.loginPages[c.id];
+  if (lp && (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) items.push(['Entrar com o acesso salvo', () => vaultLogin(c)]);
   items.push('-');
   if (!c.shift) items.push(['Iniciar turno', () => run(() => window.pulse.startShift(c.id), 'Turno iniciado.')]);
   if (mine && !c.shift.paused) items.push(['Pausar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'pause'), 'Turno pausado.')]);
