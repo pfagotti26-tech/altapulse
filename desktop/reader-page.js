@@ -45,6 +45,13 @@ module.exports = String.raw`(() => {
       // oferta de mídia paga (bloco C): etiqueta "R$ X ainda não pago" (enviada) ou "R$ X pago" (paga)
       const paidEl = [...el.querySelectorAll('.vac-text-timestamp span')].find((x) => /R\$/.test(txt(x)) && /pago|paid/i.test(txt(x)) && !/n[aã]o pago|not-paid/i.test(txt(x) + ' ' + x.className));
       const offer = np ? { cents: (money(txt(np)) || {}).cents, paid: false } : paidEl ? { cents: (money(txt(paidEl)) || {}).cents, paid: true } : null;
+      if (offer) {
+        // "Solicitação Mídia" (botão Aguardando pagamento) x mídia paga enviada com valor; foto/vídeo pelo ícone do cartão
+        offer.type = el.querySelector('.media-request-action') || /solicita/i.test(txt(el.querySelector('.text-amount-info'))) ? 'request' : 'ppv';
+        const icons = [...el.querySelectorAll('.media-type svg[data-icon], .vac-message-files-container svg[data-icon]')].map((x) => x.getAttribute('data-icon'));
+        const photo = icons.some((i) => /image|camera|photo/.test(i)), video = icons.some((i) => /video|film|play/.test(i));
+        offer.media = photo && video ? 'mixed' : video ? 'video' : photo ? 'photo' : null;
+      }
       (label ? msgs : undated).push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null, offer: offer && offer.cents ? offer : null });
     }
     // aviso da Privacy no rodapé da conversa quando o fã não tem assinatura ativa

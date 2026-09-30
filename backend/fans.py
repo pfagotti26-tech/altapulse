@@ -148,7 +148,7 @@ async def fan_card(creator_id, fan_ref, user_id=None):
         if (s.get('confirmed_at') or '') >= since: totals[s['fan_ref']] = totals.get(s['fan_ref'], 0) + s['amount_cents']
     mine = sorted([s for s in sales if s['fan_ref'] == fan_ref], key=lambda s: s.get('confirmed_at') or '', reverse=True)
     sub = await db.subscribers.find_one({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0})
-    offers = await db.events.find({'creator_id': creator_id, 'kind': 'offer', 'fan_ref': fan_ref, 'offer_status': 'sent', 'expires_at': {'$gt': today}}, {'_id': 0, 'amount_cents': 1, 'offered_at': 1}).sort('offered_at', -1).to_list(5)
+    offers = await db.events.find({'creator_id': creator_id, 'kind': 'offer', 'fan_ref': fan_ref, 'offer_status': 'sent', 'expires_at': {'$gt': today}}, {'_id': 0, 'amount_cents': 1, 'offered_at': 1, 'offer_type': 1, 'media_type': 1}).sort('offered_at', -1).to_list(5)
     notes = await db.fan_notes.find({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0}).sort('created_at', -1).to_list(30)
     # tempo de resposta com este fã (30 dias): da primeira mensagem dele sem resposta até a resposta
     since30 = (today - timedelta(days=30)).isoformat()
@@ -175,7 +175,9 @@ async def fan_card(creator_id, fan_ref, user_id=None):
     habit = max(hours, key=hours.get) if hours and max(hours.values()) >= max(2, n // 2) else None
     # sugestão em uma frase, pelo estado do fã
     tips = []
-    if offers: tips.append(f"tem oferta de {money_br(offers[0]['amount_cents'])} ainda não paga: retome com leveza antes de mandar outra")
+    if offers:
+        what = 'solicitação de mídia' if offers[0].get('offer_type') == 'request' else 'mídia paga' if offers[0].get('offer_type') == 'ppv' else 'oferta'
+        tips.append(f"tem {what} de {money_br(offers[0]['amount_cents'])} ainda não paga: retome com leveza antes de mandar outra")
     if 'novo_sem_compra' in tags: tips.append('assinou há poucos dias e ainda não comprou: é a melhor janela para a primeira oferta')
     elif 'esfriando' in tags: tips.append(f"está {days_since} dias sem comprar: boa hora para uma oferta exclusiva")
     elif 'dormente' in tags: tips.append('sumiu há mais de 30 dias: puxe conversa antes de oferecer')
