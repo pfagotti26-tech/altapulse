@@ -11,7 +11,9 @@ const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
 const { CreatorReader } = require('./reader.js');
 const EXTRATO = require('./extrato-page.js');
+const SNAPSHOT = require('./snapshot-page.js');
 const { ExtratoReader } = require('./extrato.js');
+const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------
@@ -30,6 +32,7 @@ const READ_MS = 10000;
 const STATE_REFRESH_MS = 20000;
 const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
+const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
 // A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
 // Privacy monta o layout de celular (sem abas); recortada a uma faixa, a lista de transações não é
@@ -102,6 +105,8 @@ function localSecret() {
 // ---------- API do painel (chamada só pelo processo principal, nunca pela página da Privacy) ----------
 let token = null; // lido só depois do app ficar pronto (safeStorage depende disso no Windows)
 let state = { user: null, creators: [], sla_minutes: 5, version: null, storage_allowed: false };
+let credentials = []; // acessos salvos (sem senha) das criadoras do usuário
+const loginPages = new Map(); // creatorId -> plataforma cuja tela de login está aberta
 
 async function api(method, route, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -128,6 +133,7 @@ async function refreshState() {
   try {
     const data = await api('GET', '/extension/state');
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed };
+    try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
     for (const c of data.creators) {
@@ -161,6 +167,9 @@ function publicState() {
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
+    platforms: PLATFORMS,
+    credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
+    loginPages: Object.fromEntries(loginPages),
   };
 }
 
@@ -177,8 +186,14 @@ function layout() {
 
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
 
-function openProfile(creatorId) {
-  if (views.has(creatorId)) { activeId = creatorId; layout(); pushState(); return; }
+function openProfile(creatorId, platform = 'privacy') {
+  const home = (PLATFORMS[platform] || PLATFORMS.privacy).home;
+  if (views.has(creatorId)) {
+    activeId = creatorId; layout(); pushState();
+    const v = views.get(creatorId);
+    if (platform && platformOf(v.webContents.getURL()) !== platform) v.webContents.loadURL(home, { userAgent: UA });
+    return;
+  }
   const ses = session.fromPartition(partitionFor(creatorId));
   ses.setUserAgent(UA);
   const view = new WebContentsView({
@@ -187,7 +202,7 @@ function openProfile(creatorId) {
   view.webContents.setUserAgent(UA);
   // pop-ups do próprio site (login social, por exemplo) abrem na mesma sessão isolada
   view.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\/([a-z0-9-]+\.)*privacy\.com\.br\//i.test(url) || /^https:\/\/accounts\.google\.com\//i.test(url) || /^https:\/\/appleid\.apple\.com\//i.test(url)) {
+    if (/^https:\/\//i.test(url) && allowedUrl(url)) {
       return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { partition: partitionFor(creatorId), contextIsolation: true, sandbox: true } } };
     }
     shell.openExternal(url);
@@ -202,7 +217,7 @@ function openProfile(creatorId) {
   views.set(creatorId, view);
   activeId = creatorId;
   layout();
-  view.webContents.loadURL(PRIVACY_HOME, { userAgent: UA });
+  view.webContents.loadURL(home, { userAgent: UA });
   pushState();
   scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
 }
@@ -240,6 +255,12 @@ async function readAll() {
   if (!state.user) return;
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
+    // tela de login de alguma plataforma? (para oferecer "Entrar com o acesso salvo")
+    try {
+      const url = view.webContents.getURL(); const platform = platformOf(url);
+      const hasPassword = platform ? await view.webContents.executeJavaScript(LOGIN_PROBE, true) : false;
+      if (hasPassword && platform) loginPages.set(id, platform); else loginPages.delete(id);
+    } catch { loginPages.delete(id); }
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
@@ -351,6 +372,19 @@ async function readExtrato(id) {
       x.reader.markSent(accepted); x.summary.sent = accepted.length;
     } else x.reader.markSent([]);
     if (!state.storage_allowed) x.summary.dropped = events.length;
+    // bloco B: retrato da criadora (Visão geral) a cada hora, na mesma aba oculta
+    if (state.storage_allowed && (!x.snapshotAt || Date.now() - x.snapshotAt > SNAPSHOT_MS)) {
+      try {
+        const t = await view.webContents.executeJavaScript(SNAPSHOT.script('tab'), true);
+        if (t.hadTab) {
+          await sleep(3500);
+          let snap = await view.webContents.executeJavaScript(SNAPSHOT.script('read'), true);
+          for (let i = 0; i < 4 && !snap.ok; i++) { await sleep(2500); snap = await view.webContents.executeJavaScript(SNAPSHOT.script('read'), true); }
+          if (snap.ok) { await api('POST', '/extension/snapshots', { creator_id: id, taken_at: snap.readAt, period: snap.period || null, data: snap }); x.snapshotAt = Date.now(); x.summary.snapshot = snap.readAt; }
+          else x.summary.snapshotError = 'sem dados na Visão geral';
+        }
+      } catch (error) { x.summary.snapshotError = error.message.slice(0, 120); }
+    }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
     const old = /Extra inputs are not permitted/.test(error.message);
@@ -406,7 +440,22 @@ ipcMain.handle('auth:logout', async () => {
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
 ipcMain.handle('state:snapshot', () => publicState());
 
-ipcMain.handle('profile:open', (_e, id) => { openProfile(id); return publicState(); });
+ipcMain.handle('profile:open', (_e, id, platform) => { openProfile(id, platform || 'privacy'); return publicState(); });
+// cofre: pede login/senha ao painel (auditado) e preenche o formulário da plataforma aberta. A senha
+// não passa pela lateral: vai do painel para o processo principal e daí para a página, e é descartada.
+ipcMain.handle('vault:use', async (_e, creatorId) => {
+  const view = views.get(creatorId); if (!view) throw new Error('Abra a criadora primeiro.');
+  const url = view.webContents.getURL(); const platform = platformOf(url);
+  if (!platform) throw new Error('A aba não está numa plataforma conhecida.');
+  const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
+  if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
+  const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
+  let result;
+  try { result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); } finally { data.password = null; }
+  if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
+  loginPages.delete(creatorId); pushState();
+  return { ok: true, clicked: result.clicked, user: result.user };
+});
 ipcMain.handle('profile:show', (_e, id) => { if (views.has(id)) { activeId = id; layout(); pushState(); } return publicState(); });
 ipcMain.handle('profile:close', (_e, id) => { closeProfile(id); return publicState(); });
 ipcMain.handle('profile:reload', (_e, id) => { const v = views.get(id); if (v) v.webContents.reload(); return true; });

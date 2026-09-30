@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { Layers3, Activity, ChartNoAxesCombined, ClipboardCheck, UsersRound, FileChartColumn, Settings2, LogOut, ChevronDown, Menu, X, ArrowUpRight, ShieldCheck, Bell, CircleHelp, Puzzle } from 'lucide-react';
+import { Layers3, Activity, ChartNoAxesCombined, TrendingUp, ClipboardCheck, UsersRound, FileChartColumn, Settings2, LogOut, ChevronDown, Menu, X, ArrowUpRight, ShieldCheck, Bell, CircleHelp, Puzzle } from 'lucide-react';
 import { useApp } from '../App';
 import { initials } from '../lib/api';
 import { Badge, Modal } from './Common';
 import { Brand } from './Brand';
 import { CreatorSidebar } from './CreatorSidebar';
-const nav = [['/', 'Criadoras', Layers3], ['/operacao', 'Operação', Activity], ['/vendas', 'Vendas', ChartNoAxesCombined], ['/qualidade', 'Qualidade', ClipboardCheck], ['/equipe', 'Equipe e turnos', UsersRound], ['/relatorios', 'Relatórios', FileChartColumn]];
+const nav = [['/', 'Criadoras', Layers3], ['/operacao', 'Operação', Activity], ['/vendas', 'Vendas', ChartNoAxesCombined], ['/desempenho', 'Desempenho', TrendingUp], ['/qualidade', 'Qualidade', ClipboardCheck], ['/equipe', 'Equipe e turnos', UsersRound], ['/relatorios', 'Relatórios', FileChartColumn]];
 export const Shell = ({ children }) => {
   const { user, config, creators, logout } = useApp(); const [mobile, setMobile] = useState(false), [help, setHelp] = useState(false), [alerts, setAlerts] = useState(false);
   const route = useLocation().pathname; const active = nav.find(n => n[0] === route)?.[1] || (route === '/minha-conta' ? 'Minha conta' : 'Configurações');
@@ -21,7 +21,7 @@ export const Shell = ({ children }) => {
     {mobile && <button aria-label="Fechar navegação" data-testid="menu-backdrop" className="menu-backdrop" onClick={() => setMobile(false)}/>}
     <div className="main-layout"><header className="topbar"><div className="breadcrumb"><button data-testid="open-menu" aria-label="Abrir menu" className="mobile-toggle icon-btn" onClick={() => setMobile(true)}><Menu size={21}/></button><span>Workspace</span><span className="slash">/</span><strong data-testid="breadcrumb-current">{active}</strong></div><div className="topbar-right"><span className="timezone" data-testid="timezone">Horário de Brasília <span>UTC−3</span></span><span className="topbar-divider"/><button data-testid="help-button" title="Privacidade e limites" className="icon-btn" onClick={() => setHelp(true)}><CircleHelp size={19}/></button><button data-testid="alerts-button" title="Avisos da operação" className="icon-btn" onClick={() => setAlerts(true)}><Bell size={19}/><i className="notification-dot"/></button><div className="avatar small-avatar">{initials(user.name)}</div></div></header>
     <main>{children}</main><footer className="page-footer"><span data-testid="footer-brand">Alta Pulse · Um produto Alta Agency.</span><span data-testid="footer-privacy"><ShieldCheck size={13}/>Dados mínimos. Sem API da Privacy.</span></footer></div>
-    <Modal title="Privacidade por princípio" open={help} onClose={() => setHelp(false)} id="help-modal"><p data-testid="privacy-summary" className="body-muted">Somente métricas e avaliações estruturadas. Senhas, cookies e conteúdo das conversas permanecem no Chrome do chatter. Não há integração com a API da Privacy.</p><p data-testid="coverage-summary" className="body-muted">A amostra é parcial. A leitura de tempo de resposta e vendas depende de validação das telas; presença e turnos já são registrados pela extensão.</p></Modal>
+    <Modal title="Privacidade por princípio" open={help} onClose={() => setHelp(false)} id="help-modal"><p data-testid="privacy-summary" className="body-muted">Somente métricas e avaliações estruturadas. Cookies e conteúdo das conversas permanecem no computador do chatter; senhas só existem no cofre criptografado, sob controle do gestor. Não há integração com a API da Privacy.</p><p data-testid="coverage-summary" className="body-muted">A amostra é parcial. A leitura de tempo de resposta e vendas depende de validação das telas; presença e turnos já são registrados pela extensão.</p></Modal>
     <Modal title="Avisos da operação" open={alerts} onClose={() => setAlerts(false)} id="alerts-modal"><Badge testId="alert-station-state" tone="neutral">Monitoramento pela extensão Chrome</Badge><p data-testid="alert-detail" className="body-muted">Cada chatter instala a extensão no próprio Chrome e escolhe a criadora atendida. A presença aparece quando a Privacy está aberta.</p>{!config?.storage_allowed && <p data-testid="alert-retention" className="body-muted">O armazenamento de métricas aguarda confirmação do gestor.</p>}</Modal>
   </div>;
 };
