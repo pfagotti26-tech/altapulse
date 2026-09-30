@@ -485,10 +485,13 @@ ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { backg
 ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
   const x = extratoFor(id); const view = statsView(id); raiseStatsView(view);
   if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
-  const clicked = await view.webContents.executeJavaScript(`(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-    for (const r of roots) { const b = r.querySelector('.seg-btn[data-tour="tour-${tour}"]'); if (b) { b.click(); return true; } }
-    const all = roots.flatMap((r) => [...r.querySelectorAll('.seg-btn')]).map((b) => b.getAttribute('data-tour') + ':' + b.textContent.trim()); return all; })()`, true);
-  await sleep(5000);
+  const tabScript = `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+    let b = null; for (const r of roots) { b = r.querySelector('.seg-btn[data-tour="tour-${tour}"]'); if (b) break; }
+    if (!b) return { found: false, tabs: roots.flatMap((r) => [...r.querySelectorAll('.seg-btn')]).map((x) => x.getAttribute('data-tour')) };
+    const active = b.classList.contains('active'); if (!active) b.click(); return { found: true, active }; })()`;
+  let clicked = null; // como no extrato: a SPA só aceita o clique depois de montar; insiste até a aba ficar ativa
+  for (let i = 0; i < 12; i++) { clicked = await view.webContents.executeJavaScript(tabScript, true); if (clicked && clicked.active) break; await sleep(2500); }
+  await sleep(4000);
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
   const dir = calibDir(); fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `stats-${tour}-${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
