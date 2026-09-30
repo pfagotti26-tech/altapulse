@@ -27,6 +27,8 @@ async def lifespan(app):
         await db[collection].create_index('expires_at', expireAfterSeconds=0)
     await db.creator_snapshots.create_index([('creator_id', 1), ('day', 1)], unique=True)
     await db.samples.create_index('expires_at', expireAfterSeconds=0)
+    await db.subscribers.create_index('expires_at', expireAfterSeconds=0)
+    await db.subscribers.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.samples.create_index([('creator_id', 1), ('fan_ref', 1), ('day', 1)], unique=True)
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     yield

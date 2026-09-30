@@ -14,6 +14,7 @@ from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta
 from performance import SnapshotIn
 from quality_ai import SampleIn
+from fans import SubscribersIn, save_subscribers
 from responses import Public, UserOut, ShiftOut, CreatorOut
 from auth_routes import verify_password
 from people import start_shift, change_shift
@@ -232,6 +233,10 @@ async def extension_credential_use(credential_id: str, request: Request, user=De
 async def extension_sample(body: SampleIn, user=Depends(extension_user)):
     from quality_ai import save_sample
     return await save_sample(body, user)
+
+@router.post('/extension/subscribers')
+async def extension_subscribers(body: SubscribersIn, user=Depends(extension_user)):
+    return await save_subscribers(body, user)
 
 @router.post('/extension/snapshots')
 async def extension_snapshot(body: SnapshotIn, user=Depends(extension_user)):

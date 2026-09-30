@@ -13,6 +13,7 @@ const { CreatorReader, parseDateLabel } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
+const SUBS = require('./subscribers-page.js');
 const { ExtratoReader } = require('./extrato.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
@@ -34,6 +35,7 @@ const STATE_REFRESH_MS = 20000;
 const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
+const SUBS_MS = 6 * 60 * 60 * 1000;     // bloco D: lista de assinantes a cada 6 h
 const SAMPLE_MS = 30 * 60 * 1000;       // bloco E: no máximo uma amostra por conversa a cada 30 min
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
 // A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
@@ -457,6 +459,25 @@ async function readExtratoNow(id, opts = {}) {
           else x.summary.snapshotError = 'sem dados na Visão geral';
         }
       } catch (error) { x.summary.snapshotError = error.message.slice(0, 120); }
+    }
+    // bloco D: lista de assinantes (situação e preço da assinatura) a cada 6 h, na mesma aba oculta
+    if (state.storage_allowed && (!x.reader.s.subsAt || Date.now() - x.reader.s.subsAt > SUBS_MS)) {
+      try {
+        const runS = (a) => view.webContents.executeJavaScript(SUBS.script(a), true);
+        let t = await runS('tab');
+        for (let i = 0; i < 8 && t.hadTab && !t.tabActive; i++) { await sleep(2000); t = await runS('tab'); }
+        if (t.tabActive) {
+          await sleep(3000);
+          let d = await runS('read');
+          for (let i = 0; i < 5 && !d.rows.length; i++) { await sleep(2000); d = await runS('read'); }
+          for (let i = 0; i < 25 && d.hasMore; i++) { await runS('more'); await sleep(1500); d = await runS('read'); }
+          const rows = d.rows.map((r) => ({ ...x.reader.fan(r.name), status: r.status.slice(0, 40), price_cents: r.price_cents, duration: r.duration.slice(0, 40) })).filter((r) => r.fan_ref);
+          if (rows.length) {
+            const out = await api('POST', '/extension/subscribers', { creator_id: id, taken_at: new Date().toISOString(), total_label: (d.count || '').slice(0, 40), revenue_cents: d.revenue_cents, rows: rows.slice(0, 3000) });
+            x.reader.s.subsAt = Date.now(); x.summary.subscribers = out.saved;
+          } else x.summary.subsError = 'lista de assinantes vazia';
+        } else x.summary.subsError = 'sem aba Assinantes';
+      } catch (error) { x.summary.subsError = error.message.slice(0, 120); }
     }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
