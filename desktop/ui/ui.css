@@ -114,3 +114,13 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .chip.add{padding:4px 7px;font-weight:700;opacity:.7}
 .chip-x{font-weight:700;opacity:.55;padding:0 2px;margin-left:2px}
 .chip-x:hover{opacity:1}
+
+/* botão de turno no card */
+.shift-row{display:flex;gap:6px;margin-top:6px}
+.shift-btn{flex:1;border:0;border-radius:6px;padding:6px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.shift-btn.start{background:#e53935;color:#fff}
+.shift-btn.start:hover{background:#c62828}
+.shift-btn.end{background:rgba(255,255,255,.1);color:#f5f5f5;border:1px solid rgba(255,255,255,.2)}
+.shift-btn.end:hover{background:rgba(229,57,53,.25);border-color:#e53935}
+.shift-btn.pause{flex:0 0 auto;background:transparent;color:#bbb;border:1px solid rgba(255,255,255,.15)}
+.shift-btn.pause:hover{color:#fff}

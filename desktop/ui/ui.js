@@ -103,14 +103,20 @@ function card(c) {
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
   for (const p of loginList) queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(labelOf(p))}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
+  // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
+  const mine = c.shift && c.shift.operator_id === S.user.id;
+  let shiftBtn = '';
+  if (!c.shift) shiftBtn = `<div class="shift-row"><button class="shift-btn start" data-shift="start">Iniciar turno</button></div>`;
+  else if (mine) shiftBtn = `<div class="shift-row"><button class="shift-btn end" data-shift="end">Encerrar turno</button><button class="shift-btn pause" data-shift="${c.shift.paused ? 'resume' : 'pause'}" title="${c.shift.paused ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${c.shift.paused ? 'Retomar' : 'Pausar'}</button></div>`;
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${chips}${queue}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
-  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip')) return; openCreator(c); });
+  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
+  el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
   el.querySelectorAll('.vault-btn').forEach((vb) => vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c, vb.dataset.vault); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -142,6 +148,19 @@ async function platformDialog(c) {
   const p = dialog({ title: 'Abrir plataforma', body, hideOk: true });
   $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); openCreator(c, b.dataset.plat); }));
   await p;
+}
+async function shiftClick(c, action) {
+  if (action === 'start') {
+    await run(() => window.pulse.startShift(c.id), 'Turno iniciado.');
+    if (!S.open.includes(c.id)) openCreator(c);
+    return;
+  }
+  if (action === 'end') {
+    const ok = await dialog({ title: 'Encerrar turno', body: `<p>Encerrar seu turno em <b>${esc(c.name)}</b>? A partir de agora as vendas e o tempo de resposta desta criadora deixam de contar pra você.</p>`, okText: 'Encerrar' });
+    if (!ok) return;
+    return run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.');
+  }
+  run(() => window.pulse.shiftAction(c.shift.id, action), action === 'pause' ? 'Turno pausado.' : 'Turno retomado.');
 }
 async function offerShift(c) {
   const ok = await dialog({ title: 'Iniciar turno?', body: `<p>Registrar que você está atendendo <b>${esc(c.name)}</b> a partir de agora. O gestor vê presença e horário; nada da conversa é enviado.</p>`, okText: 'Iniciar turno' });
@@ -247,7 +266,14 @@ $('login-form').addEventListener('submit', async (e) => {
   $('login-btn').disabled = false;
 });
 $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin').value.trim() || 'https://altapulse.com.br'); toast('Endereço salvo.'); };
-$('btn-logout').onclick = async () => { const ok = await dialog({ title: 'Sair', body: '<p>Sair do Alta Pulse neste computador? Os perfis abertos serão fechados. Os logins da Privacy continuam salvos.</p>', okText: 'Sair' }); if (ok) run(() => window.pulse.logout()); };
+$('btn-logout').onclick = async () => {
+  const mine = (S.creators || []).filter((c) => c.shift && c.shift.operator_id === S.user.id);
+  const extra = mine.length ? `<p><b>Você ainda tem ${mine.length} turno${mine.length > 1 ? 's' : ''} aberto${mine.length > 1 ? 's' : ''}</b> (${esc(mine.map((c) => c.name).join(', '))}). Ao sair, ${mine.length > 1 ? 'eles serão encerrados' : 'ele será encerrado'} agora.</p>` : '';
+  const ok = await dialog({ title: 'Sair', body: `${extra}<p>Sair do Alta Pulse neste computador? Os perfis abertos serão fechados. Os logins das plataformas continuam salvos.</p>`, okText: mine.length ? 'Encerrar e sair' : 'Sair' });
+  if (!ok) return;
+  for (const c of mine) { try { await window.pulse.shiftAction(c.shift.id, 'end'); } catch {} }
+  run(() => window.pulse.logout());
+};
 $('btn-refresh').onclick = () => run(() => window.pulse.getState());
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
