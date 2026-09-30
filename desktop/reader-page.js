@@ -29,23 +29,44 @@ module.exports = String.raw`(() => {
     unread: parseInt(txt(r.querySelector('.cn-unread-number')), 10) || 0,
     when: txt(r.querySelector('.vac-text-date')),
   })).filter((r) => r.name);
-  const cid = new URLSearchParams(location.search).get('cid');
+  // conversa aberta: o id vem do endereço (?cid= ou /chat/<id>); no layout estreito da Privacy ele pode
+  // não aparecer, então cai no nome do cabeçalho (estável para a mesma conversa)
+  const headerName = txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name'));
+  const cid = new URLSearchParams(location.search).get('cid') || (location.pathname.match(/\/chat\/([^/?#]+)/) || [])[1] || (headerName ? 'n:' + headerName : null);
   let open = null;
   const cont = qs('.vac-messages-container');
   if (cont && cid) {
-    let label = null; const msgs = [];
+    let label = null, sawLabel = false; const msgs = [], undated = [];
     for (const el of cont.querySelectorAll('.vac-card-date, .vac-message-wrapper-msg')) {
-      if (el.classList.contains('vac-card-date')) { label = txt(el); continue; }
-      if (!label) continue; // sem separador de data acima, a data é desconhecida: ignora
+      if (el.classList.contains('vac-card-date')) { label = txt(el); sawLabel = true; continue; }
       const m = txt(el.querySelector('.vac-text-timestamp')).match(/(\d{1,2}):(\d{2})/);
       if (!m) continue;
       const np = el.querySelector('.vac-text-not-paid');
       // oferta de mídia paga (bloco C): etiqueta "R$ X ainda não pago" (enviada) ou "R$ X pago" (paga)
       const paidEl = [...el.querySelectorAll('.vac-text-timestamp span')].find((x) => /R\$/.test(txt(x)) && /pago|paid/i.test(txt(x)) && !/n[aã]o pago|not-paid/i.test(txt(x) + ' ' + x.className));
       const offer = np ? { cents: (money(txt(np)) || {}).cents, paid: false } : paidEl ? { cents: (money(txt(paidEl)) || {}).cents, paid: true } : null;
-      msgs.push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null, offer: offer && offer.cents ? offer : null });
+      if (offer) {
+        // "Solicitação Mídia" (botão Aguardando pagamento) x mídia paga enviada com valor; foto/vídeo pelo ícone do cartão
+        offer.type = el.querySelector('.media-request-action') || /solicita/i.test(txt(el.querySelector('.text-amount-info'))) ? 'request' : 'ppv';
+        const icons = [...el.querySelectorAll('.media-type svg[data-icon], .vac-message-files-container svg[data-icon]')].map((x) => x.getAttribute('data-icon'));
+        const photo = icons.some((i) => /image|camera|photo/.test(i)), video = icons.some((i) => /video|film|play/.test(i));
+        offer.media = photo && video ? 'mixed' : video ? 'video' : photo ? 'photo' : null;
+      }
+      (label ? msgs : undated).push({ ours: el.classList.contains('vac-offset-current'), date: label, time: m[1].padStart(2, '0') + ':' + m[2], notPaid: np ? money(txt(np)) : null, offer: offer && offer.cents ? offer : null });
     }
-    open = { cid, msgs, name: txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name')), skeleton: !!qs('.skeleton-messages') };
+    // aviso da Privacy no rodapé da conversa quando o fã não tem assinatura ativa
+    const rx = /n[aã\u0303]+o poder[aá\u0301]+ responder|n[aã\u0303]+o [eé\u0301]+ seu assinante/i;
+    const notSub = roots.some((r) => rx.test(String(((r === document ? document.body : r) || {}).textContent || '').normalize('NFC').replace(/\s+/g, ' ')));
+    const sk = qs('.skeleton-messages');
+    // sem nenhum separador de data carregado: todas as mensagens são do mesmo dia da última mensagem,
+    // que a lista de conversas informa (HH:MM = hoje, "Ontem", "set 25")
+    if (!msgs.length && undated.length && !sawLabel) {
+      const room = rooms.find((x) => x.name === headerName);
+      const w = room ? room.when : '';
+      const day = /^\d{1,2}:\d{2}$/.test(w) ? 'Hoje' : w;
+      if (day) for (const m of undated) msgs.push({ ...m, date: day });
+    }
+    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub };
   }
   return { page: location.pathname.startsWith('/chat') ? 'chat' : 'other', rooms, open, loading: !!qs('.skeleton-messages'), roots: roots.length };
 })()`;
