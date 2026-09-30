@@ -10,6 +10,8 @@ const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
 const { CreatorReader } = require('./reader.js');
+const EXTRATO = require('./extrato-page.js');
+const { ExtratoReader } = require('./extrato.js');
 const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------
@@ -26,6 +28,10 @@ const SIDEBAR_WIDTH = 300;
 const HEARTBEAT_MS = 15000;
 const READ_MS = 10000;
 const STATE_REFRESH_MS = 20000;
+const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cada 10 min
+const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
+const STATS_URL = 'https://privacy.com.br/myprivacystats';
+const HIDDEN_BOUNDS = { x: -2600, y: 0, width: 1280, height: 900 }; // fora da área visível, mas com largura de desktop
 
 const dataDir = () => app.getPath('userData');
 const filePath = (name) => path.join(dataDir(), name);
@@ -139,6 +145,7 @@ function publicState() {
     active: activeId,
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
+    extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
   };
 }
 
@@ -181,6 +188,7 @@ function openProfile(creatorId) {
   layout();
   view.webContents.loadURL(PRIVACY_HOME, { userAgent: UA });
   pushState();
+  scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
 }
 
 function closeProfile(creatorId) {
@@ -189,6 +197,7 @@ function closeProfile(creatorId) {
   win.contentView.removeChildView(view);
   view.webContents.close();
   views.delete(creatorId);
+  closeStatsView(creatorId);
   if (activeId === creatorId) activeId = views.size ? [...views.keys()].at(-1) : null;
   layout();
   pushState();
@@ -218,12 +227,15 @@ async function readAll() {
     let data;
     try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
     if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
-    const { events, summary } = r.reader.process(data, new Date());
+    let { events, summary } = r.reader.process(data, new Date());
     r.summary = summary;
     writeJson(`reader-${id}.json`, r.reader.s);
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
     const mine = shift && shift.operator_id === state.user.id && !shift.paused;
+    // com o extrato funcionando para esta criadora, a venda inferida pela lista de conversas não é
+    // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
+    if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
     if (!events.length) continue;
     if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; continue; }
     try {
@@ -233,6 +245,113 @@ async function readAll() {
   }
   pushState();
 }
+
+// ---------- extrato (bloco A) ----------
+// Para cada criadora aberta, uma aba OCULTA do mesmo perfil carrega "Meu Privacy → Extratos" a cada
+// 10 min e lê as transações. Não toca na aba de chat do chatter nem marca conversa como lida.
+// As vendas vão com o instante exato do extrato; a atribuição ao turno é feita pelo painel.
+const extratos = new Map(); // creatorId -> { view, reader, summary, timer, busy }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function extratoHealthy(id) {
+  const x = extratos.get(id); const at = x && x.summary && x.summary.readAt && !x.summary.error ? Date.parse(x.summary.readAt) : 0;
+  return at && Date.now() - at < 3 * EXTRATO_MS;
+}
+function extratoFor(id) {
+  if (!extratos.has(id)) {
+    const store = readJson(`extrato-${id}.json`, null);
+    extratos.set(id, { view: null, reader: new ExtratoReader(id, localSecret(), store, { fanNames: !!state.fan_names_allowed }), summary: null, timer: null, busy: false });
+  }
+  return extratos.get(id);
+}
+function statsView(id) {
+  const x = extratoFor(id);
+  if (x.view && !x.view.webContents.isDestroyed()) return x.view;
+  const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  view.webContents.setUserAgent(UA);
+  view.webContents.setAudioMuted(true);
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // fica por BAIXO das outras abas (índice 0) e com tamanho de tela de desktop: com uma janela minúscula
+  // a Privacy montava o layout de celular (sem as abas) e com setVisible(false) não terminava de carregar
+  win.contentView.addChildView(view, 0);
+  view.setBounds(HIDDEN_BOUNDS);
+  x.view = view;
+  return view;
+}
+function closeStatsView(id) {
+  const x = extratos.get(id); if (!x) return;
+  clearTimeout(x.timer); x.timer = null;
+  if (x.view && !x.view.webContents.isDestroyed()) { win.contentView.removeChildView(x.view); x.view.webContents.close(); }
+  x.view = null;
+}
+function scheduleExtrato(id, ms) {
+  const x = extratoFor(id); clearTimeout(x.timer);
+  x.timer = setTimeout(() => readExtrato(id).catch(() => {}), ms);
+}
+async function loadStats(view) {
+  await new Promise((resolve) => {
+    const done = () => { view.webContents.removeListener('did-finish-load', done); view.webContents.removeListener('did-fail-load', done); resolve(); };
+    view.webContents.once('did-finish-load', done); view.webContents.once('did-fail-load', done);
+    view.webContents.loadURL(STATS_URL, { userAgent: UA });
+    setTimeout(done, 25000);
+  });
+  await sleep(4000); // SPA termina de montar
+}
+async function readExtrato(id) {
+  const x = extratoFor(id);
+  if (!views.has(id) || !state.user || x.busy) return;
+  x.busy = true;
+  try {
+    x.reader.options.fanNames = !!state.fan_names_allowed;
+    const view = statsView(id);
+    const run = (action) => view.webContents.executeJavaScript(EXTRATO.script(action), true);
+    if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
+    let info = await run('tab');
+    if (!info.onStats) { await loadStats(view); info = await run('tab'); }
+    // a página monta aos poucos: espera a aba "Extratos" aparecer (até ~30 s)
+    for (let i = 0; i < 12 && !info.hadTab; i++) { await sleep(2500); info = await run('tab'); }
+    if (!info.hadTab) { // sem login na Privacy nesta aba, ou o layout mudou
+      const url = view.webContents.getURL();
+      x.summary = { error: (/login|entrar|auth/i.test(url) || info.loggedOut ? 'login' : 'sem aba Extratos') + ` (${url.slice(0, 80)}) ${JSON.stringify(info).slice(0, 200)}`, readAt: new Date().toISOString(), rows: 0 };
+      return;
+    }
+    let data = await run('read');
+    for (let i = 0; i < 8 && !(data.rows || []).length; i++) { await sleep(2500); data = await run('read'); }
+    // primeira leitura desta criadora: carrega o histórico do período (até 15 "ver mais")
+    if (!x.reader.s.backfilled) {
+      for (let i = 0; i < 15 && data.hasMore; i++) { await run('more'); await sleep(1800); data = await run('read'); }
+      x.reader.s.backfilled = true;
+    }
+    const { events, summary } = x.reader.process(data.rows || [], new Date());
+    x.summary = { ...summary, period: data.period, sent: 0 };
+    if (events.length && state.storage_allowed) {
+      const accepted = [];
+      for (let i = 0; i < events.length; i += 150) {
+        const out = await api('POST', '/extension/observations', { events: events.slice(i, i + 150) });
+        for (const r of out.results || []) if (r.ok) accepted.push(r.event_ref);
+        const rejected = (out.results || []).filter((r) => !r.ok);
+        if (rejected.length) x.summary.rejected = (x.summary.rejected || 0) + rejected.length, x.summary.lastReject = rejected[0].detail;
+      }
+      x.reader.markSent(accepted); x.summary.sent = accepted.length;
+    } else x.reader.markSent([]);
+    if (!state.storage_allowed) x.summary.dropped = events.length;
+    writeJson(`extrato-${id}.json`, x.reader.s);
+  } catch (error) {
+    x.summary = { ...(x.summary || {}), error: error.message, readAt: new Date().toISOString() };
+  } finally {
+    x.busy = false; pushState();
+    if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
+  }
+}
+ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id); return publicState(); });
+// diagnóstico: mostra/esconde a aba oculta do extrato no lugar da aba da criadora
+ipcMain.handle('extrato:toggle', (_e, id) => {
+  const x = extratos.get(id); if (!x || !x.view || x.view.webContents.isDestroyed()) return false;
+  const [w, h] = win.getContentSize(); const show = !x.shown;
+  x.view.setBounds(show ? { x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH, 200), height: h } : HIDDEN_BOUNDS);
+  if (show) { for (const v of views.values()) v.setVisible(false); x.shown = true; } else { x.shown = false; layout(); }
+  return show;
+});
 
 // ---------- presença (heartbeat) ----------
 // Só para criadoras abertas aqui cujo turno ativo é do usuário logado. Nada da página é lido:

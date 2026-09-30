@@ -87,6 +87,12 @@ function card(c) {
     if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue ${late ? 'late' : ''}">${rd.waiting} esperando${wt}</div>`; }
     else queue = '<div class="queue ok">fila zerada</div>';
   }
+  const ex = S.extratos && S.extratos[c.id];
+  if (ex && S.user && S.user.role === 'manager') {
+    if (ex.error === 'login') queue += '<div class="queue">extrato: entre na Privacy</div>';
+    else if (ex.error) queue += `<div class="queue late" title="${esc(ex.error)}">extrato: falha na leitura</div>`;
+    else if (ex.readAt) { const cents = ex.todayCents || 0; queue += `<div class="queue ok" title="Extrato lido às ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${ex.rejected ? ` · ${ex.rejected} recusadas: ${esc(ex.lastReject || '')}` : ''}">hoje: ${ex.today || 0} venda${ex.today === 1 ? '' : 's'} · R$ ${(cents / 100).toFixed(2).replace('.', ',')}</div>`; }
+  }
   const el = document.createElement('div');
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
   el.dataset.id = c.id;
@@ -130,6 +136,8 @@ function creatorMenu(c, anchor) {
   items.push(['Mover para grupo', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
   items.push('-');
+  if (isOpen) items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
+  if (isOpen && S.user.role === 'manager') items.push(['Mostrar/esconder aba do extrato (diagnóstico)', () => window.pulse.toggleExtrato(c.id)]);
   if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
   items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);
   items.push(['Sair da conta da Privacy (limpar cookies)', async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); }, 'danger']);

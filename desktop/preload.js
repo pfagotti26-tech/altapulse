@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('pulse', {
   clearProfile: (id, what) => ipcRenderer.invoke('profile:clear', { id, what }),
   hideAll: () => ipcRenderer.invoke('profile:hideAll'),
   calibrate: (id) => ipcRenderer.invoke('profile:calibrate', id),
+  readExtrato: (id) => ipcRenderer.invoke('extrato:read', id),
+  toggleExtrato: (id) => ipcRenderer.invoke('extrato:toggle', id),
 
   startShift: (creatorId) => ipcRenderer.invoke('shift:start', creatorId),
   shiftAction: (shiftId, action) => ipcRenderer.invoke('shift:action', { shiftId, action }),

@@ -105,7 +105,8 @@ async def ingest(body: Observation, source: dict):
     if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
     if creator.get('review'): raise HTTPException(409, 'Observação pausada durante revisão.')
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True}, {'_id': 0})
-    if shift and shift['paused']: raise HTTPException(409, 'Turno pausado.')
+    # venda do extrato tem instante próprio (não é observação da tela em tempo real): entra mesmo com turno pausado
+    if shift and shift['paused'] and not (body.kind == 'sale' and body.sale_source == 'extrato'): raise HTTPException(409, 'Turno pausado.')
     row = body.model_dump(mode='json')
     # nome do assinante só é guardado com a opção explícita da agência em Configurações
     if not (await settings()).get('fan_names_allowed'): row['fan_name'] = None
@@ -123,6 +124,8 @@ async def ingest(body: Observation, source: dict):
             if old['kind'] == 'sale' and body.kind != 'sale' or old['kind'] != 'sale' and body.kind == 'sale': raise HTTPException(409, 'Referência com tipo conflitante.')
             if old['kind'] == 'response' and body.kind == 'pending': return {'ok': True, 'deduplicated': True}
             if old['kind'] == 'sale' and old['sale_status'] in ['refunded', 'cancelled'] and body.sale_status == 'confirmed': return {'ok': True, 'deduplicated': True}
+            # o extrato é a fonte exata: uma venda inferida pela lista nunca sobrescreve uma venda do extrato
+            if old['kind'] == 'sale' and old.get('sale_source') == 'extrato' and body.sale_source != 'extrato': return {'ok': True, 'deduplicated': True}
         await db.events.update_one({'creator_id': body.creator_id, 'event_ref': body.event_ref},
             {'$set': {**row, **source, 'observed_at': iso()}, '$setOnInsert': {'id': uid(), 'expires_at': await expiration()}}, upsert=True)
     return {'ok': True}

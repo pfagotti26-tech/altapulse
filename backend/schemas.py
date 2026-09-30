@@ -87,8 +87,12 @@ class Observation(Strict):
     confirmed_at: Optional[datetime] = None
     sequence_complete: bool = False
     amount_cents: Optional[int] = Field(default=None, ge=0, le=100000000)
-    sale_status: Optional[Literal['confirmed', 'refunded', 'cancelled', 'unknown']] = None
-    sale_origin: Optional[Literal['chat', 'subscription', 'renewal', 'tip', 'unknown']] = None
+    sale_status: Optional[Literal['confirmed', 'pending', 'refunded', 'cancelled', 'unknown']] = None
+    sale_origin: Optional[Literal['chat', 'subscription', 'renewal', 'post', 'tip', 'unknown']] = None
+    # bloco A: vendas lidas do extrato da Privacy (aba oculta do app) trazem produto, pagamento e comissão exatos
+    sale_source: Optional[Literal['list', 'extrato']] = None
+    payment_method: Optional[str] = Field(default=None, max_length=30)
+    commission_cents: Optional[int] = Field(default=None, ge=0, le=100000000)
     fan_ref: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     fan_name: Optional[str] = Field(default=None, max_length=80)
     @model_validator(mode='after')
