@@ -98,6 +98,8 @@ class Observation(Strict):
     # bloco C: oferta de mídia paga enviada no chat (etiqueta 'R$ X ainda não pago' / 'pago')
     offered_at: Optional[datetime] = None
     offer_status: Optional[Literal['sent', 'paid', 'expired']] = None
+    offer_type: Optional[Literal['ppv', 'request']] = None  # mídia paga enviada x "Solicitação Mídia"
+    media_type: Optional[Literal['photo', 'video', 'mixed']] = None
     fan_ref: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     fan_name: Optional[str] = Field(default=None, max_length=80)
     @model_validator(mode='after')

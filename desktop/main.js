@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-const { CreatorReader, parseDateLabel } = require('./reader.js');
+const { CreatorReader, parseDateLabel, at: msgAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
@@ -207,18 +207,35 @@ function publicState() {
 // ---------- painel do fã (à direita da aba da Privacy) ----------
 const FAN_W = 290, FAN_MIN = 30;
 let fanView = null;
-let fanUi = readJson('painel-fa.json', { collapsed: false });
+let fanUi = readJson('painel-fa.json', { mode: 'auto', collapsed: false }); // auto: aberto em tela larga; em notebook abre só para fã importante
+if (!fanUi.mode) fanUi.mode = 'auto';
+// zoom da Privacy: com a lateral e o cartão, a aba fica estreita e a Privacy troca para o layout de celular
+// (lista OU conversa). Reduzir o zoom faz a página "ver" uma largura de desktop e manter lista + conversa.
+const PRIVACY_CSS_WIDTH = 1460, ZOOM_MIN = 0.7;
+let zoomPref = readJson('zoom.json', { manual: null }); // manual: fator escolhido com Ctrl +/−
+const WIDE_SCREEN = 1700;
+function fanImportant() { const c = fan.card; return !!(c && (c.tier === 'baleia' || c.task || (c.tags || []).some((t) => ['esfriando', 'novo_sem_compra', 'assinatura_inativa'].includes(t)) || (c.pending_offers || []).length)); }
+function fanCollapsed() {
+  if (fanUi.mode === 'manual') return !!fanUi.collapsed;
+  const [w] = win ? win.getContentSize() : [1920];
+  return w < WIDE_SCREEN && !fanImportant();
+}
+function privacyZoom(viewWidth) {
+  if (zoomPref.manual) return zoomPref.manual;
+  return Math.max(ZOOM_MIN, Math.min(1, Math.floor((viewWidth / PRIVACY_CSS_WIDTH) * 20) / 20));
+}
+function applyZoom(view, width) { try { const z = privacyZoom(width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); } catch {} }
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
 function fanPanelWidth() {
   if (!state.user || !activeId || activeTab.get(activeId) !== 'privacy' || !tabs.has(activeId)) return 0;
-  return fanUi.collapsed ? FAN_MIN : FAN_W;
+  return fanCollapsed() ? FAN_MIN : FAN_W;
 }
 function pushFan() {
   if (!fanView || fanView.webContents.isDestroyed()) return;
   const creator = (state.creators || []).find((c) => c.id === fan.creatorId);
-  fanView.webContents.send('fan', { ...fan, creatorName: creator ? creator.name : '', collapsed: !!fanUi.collapsed, active: fan.creatorId === activeId, user: state.user ? { id: state.user.id, role: state.user.role } : null });
+  fanView.webContents.send('fan', { ...fan, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
 }
 async function loadFanCard(force = false) {
   if (!fan.creatorId || !fan.fanRef) return;
@@ -226,19 +243,33 @@ async function loadFanCard(force = false) {
   const want = `${fan.creatorId}|${fan.fanRef}`; fan.loading = true; pushFan();
   try {
     const card = await api('GET', `/extension/fan?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${fan.fanRef}`);
-    if (`${fan.creatorId}|${fan.fanRef}` === want) { fan.card = card; fan.error = null; fan.fetchedAt = Date.now(); }
+    if (`${fan.creatorId}|${fan.fanRef}` === want) { const before = fanCollapsed(); fan.card = card; fan.error = null; fan.fetchedAt = Date.now(); if (fanCollapsed() !== before) layout(); }
   } catch (error) { fan.error = /404|Not Found/i.test(error.message) ? 'O painel ainda não tem o cartão do fã (publicação pendente).' : error.message; }
   fan.loading = false; pushFan();
 }
 function setFanFromChat(id, open) {
   if (!open || !open.name) {
-    if (fan.creatorId !== id || fan.fanRef) { fan = { creatorId: id, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 }; pushFan(); }
+    if (fan.creatorId !== id || fan.fanRef) { const before = fanCollapsed(); fan = { creatorId: id, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 }; if (fanCollapsed() !== before) layout(); pushFan(); }
     return;
   }
   const ref = readerFor(id).reader.roomKey(open.name);
-  if (open.cid) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
-  if (fan.creatorId !== id || fan.fanRef !== ref) { fan = { creatorId: id, fanRef: ref, name: open.name, cid: open.cid, card: null, loading: false, error: null, fetchedAt: 0 }; loadFanCard(true); }
-  else loadFanCard();
+  if (open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
+  // fã que mandou mensagem hoje/ontem está com acesso ao chat: não mostrar "assinatura inativa" da lista antiga
+  const chatting = (open.msgs || []).some((m) => !m.ours && /^(hoje|ontem)$/i.test(String(m.date || '').trim()));
+  // subAtiva: true/false vindo do aviso da Privacy ("não poderá responder, pois não é seu assinante"); null enquanto carrega
+  const subAtiva = open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
+  // esperando resposta: da primeira mensagem do fã depois da nossa última até agora
+  let waitSince = null;
+  { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
+    const first = ms[i + 1]; if (first && !first.ours && first.date) { const t = msgAt(first.date, first.time, new Date()); if (t) waitSince = t.toISOString(); } }
+  if (fan.creatorId !== id || fan.fanRef !== ref) { fan = { creatorId: id, fanRef: ref, name: open.name, cid: open.cid, chatting, subAtiva, waitSince, card: null, loading: false, error: null, fetchedAt: 0 }; loadFanCard(true); }
+  else {
+    let ch = false;
+    if (fan.chatting !== chatting) { fan.chatting = chatting; ch = true; }
+    if (subAtiva != null && fan.subAtiva !== subAtiva) { fan.subAtiva = subAtiva; ch = true; }
+    if (!open.skeleton && fan.waitSince !== waitSince) { const was = fan.waitSince; fan.waitSince = waitSince; ch = true; if (was && !waitSince) fan.fetchedAt = 0; }
+    if (ch) pushFan(); loadFanCard();
+  }
 }
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
@@ -255,8 +286,10 @@ function layout() {
   const pw = fanPanelWidth();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
   for (const [id, t] of tabs) for (const [platform, v] of t) {
-    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200), height: h });
+    const vw = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
+    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vw, height: h });
     v.setVisible(id === activeId && platform === activeTab.get(id));
+    if (platform === 'privacy') applyZoom(v, vw);
   }
   // a faixa de 2 px da aba oculta do extrato fica ENTRE a Privacy e o painel do fã (não coberta)
   if (fanView) { fanView.setBounds({ x: w - pw, y: 0, width: pw, height: h }); fanView.setVisible(pw > 0); }
@@ -302,6 +335,17 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     return { action: 'deny' };
   });
   view.webContents.on('did-navigate', () => pushState());
+  if (platform === 'privacy') {
+    view.webContents.on('did-finish-load', () => layout());
+    view.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
+      const k = input.key; let z = view.webContents.getZoomFactor();
+      if (k === '=' || k === '+') z = Math.min(1.5, z + 0.05); else if (k === '-') z = Math.max(0.5, z - 0.05); else if (k === '0') { zoomPref = { manual: null }; writeJson('zoom.json', zoomPref); layout(); event.preventDefault(); return; } else return;
+      event.preventDefault(); zoomPref = { manual: Math.round(z * 100) / 100 }; writeJson('zoom.json', zoomPref);
+      for (const pv of views.values()) pv.webContents.setZoomFactor(zoomPref.manual);
+      if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
+    });
+  }
   view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy') setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
@@ -345,26 +389,44 @@ function readerFor(id) {
   if (!readers.has(id)) {
     const store = readJson(`reader-${id}.json`, null);
     readers.set(id, { reader: new CreatorReader(id, secretFor(), store, { fanNames: !!state.fan_names_allowed }), summary: null, lastError: null });
+    // uma vez: ofertas marcadas como enviadas antes da correção podem ter sido descartadas; reenvia (o painel deduplica)
+    const s = readers.get(id).reader.s;
+    if (s && s.sent && !s.offersV2) { for (const k of Object.keys(s.sent)) if (s.sent[k] === 'offer:sent') delete s.sent[k]; s.offersV2 = true; }
   }
   return readers.get(id);
 }
+// executeJavaScript numa aba em segundo plano pode nunca responder; sem limite, a leitura inteira travava
+function runJs(view, code, ms = 5000) {
+  return Promise.race([view.webContents.executeJavaScript(code, true), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+}
+let reading = false, readStartedAt = 0;
 async function readAll() {
   if (!state.user) return;
+  if (reading && Date.now() - readStartedAt < 60000) return;
+  reading = true; readStartedAt = Date.now();
+  try { await readAllNow(); }
+  catch (error) { try { fs.appendFileSync(path.join(app.isPackaged ? dataDir() : __dirname, 'erros-leitura.log'), `${new Date().toISOString()} readAll erro ${error && error.stack}\n`); } catch {} }
+  finally { reading = false; }
+}
+async function readAllNow() {
   // tela de login em alguma aba? (para oferecer "Entrar com o acesso salvo")
   for (const [id, t] of tabs) {
     const found = [];
     for (const [platform, view] of t) {
-      try { if (await view.webContents.executeJavaScript(LOGIN_PROBE, true)) found.push(platform); } catch {}
+      try { if (!view.webContents.isDestroyed() && await runJs(view, LOGIN_PROBE, 3000)) found.push(platform); } catch {}
     }
     if (found.length) loginPages.set(id, found); else loginPages.delete(id);
   }
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
-    try { data = await view.webContents.executeJavaScript(READER_SCRIPT, true); } catch { continue; }
+    try { if (view.webContents.isDestroyed()) continue; data = await runJs(view, READER_SCRIPT, 8000); } catch { continue; }
     if (id === activeId) setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
-    if (!data || data.page !== 'chat') { r.summary = { waiting: 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
-    let { events, summary } = r.reader.process(data, new Date());
+    // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
+    if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
+    let events, summary;
+    try { ({ events, summary } = r.reader.process(data, new Date())); }
+    catch (error) { try { fs.appendFileSync(path.join(app.isPackaged ? dataDir() : __dirname, 'erros-leitura.log'), `${new Date().toISOString()} process erro ${id.slice(0, 6)} ${error && error.stack}\n`); } catch {} continue; }
     r.summary = summary;
     writeJson(`reader-${id}.json`, r.reader.s);
     const creator = state.creators.find((c) => c.id === id);
@@ -376,11 +438,17 @@ async function readAll() {
     // bloco E: amostra anonimizada da conversa aberta, só no turno do próprio usuário e com a opção ligada
     if (mine && state.storage_allowed && state.quality_ai_allowed && data.open && data.open.cid) sampleConversation(id, view, r, data.open).catch(() => {});
     if (!events.length) continue;
-    if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; continue; }
+    // evento não enviado (sem turno próprio ou falha) volta a ficar pendente: é reenviado na próxima leitura
+    // (antes ficava marcado como enviado e a oferta/espera se perdia para sempre)
+    const unmark = () => { for (const e of events) delete r.reader.s.sent[e.event_ref]; writeJson(`reader-${id}.json`, r.reader.s); };
+    if (!mine || !state.storage_allowed) { r.summary.dropped = (r.summary.dropped || 0) + events.length; unmark(); continue; }
     try {
       const out = await api('POST', '/extension/observations', { events: events.slice(0, 200) });
       r.summary.accepted = out.accepted; r.lastError = null;
-    } catch (error) { r.lastError = error.message; r.summary.error = error.message; }
+      const failed = new Set((out.results || []).filter((x) => !x.ok && x.status !== 422).map((x) => x.event_ref));
+      if (failed.size) { for (const ref of failed) delete r.reader.s.sent[ref]; writeJson(`reader-${id}.json`, r.reader.s); }
+      if (id === fan.creatorId && events.some((e) => e.kind === 'offer')) loadFanCard(true);
+    } catch (error) { r.lastError = error.message; r.summary.error = error.message; unmark(); }
   }
   pushState();
 }
@@ -533,7 +601,7 @@ async function readExtratoNow(id, opts = {}) {
       } catch (error) { x.summary.snapshotError = error.message.slice(0, 120); }
     }
     // bloco D: lista de assinantes (situação e preço da assinatura) a cada 6 h, na mesma aba oculta
-    if (state.storage_allowed && (!x.reader.s.subsAt || Date.now() - x.reader.s.subsAt > SUBS_MS)) {
+    if (state.storage_allowed && (!x.reader.s.subsAt || x.reader.s.subsV !== 2 || Date.now() - x.reader.s.subsAt > SUBS_MS)) {
       try {
         const runS = (a) => view.webContents.executeJavaScript(SUBS.script(a), true);
         let t = await runS('tab');
@@ -543,10 +611,20 @@ async function readExtratoNow(id, opts = {}) {
           let d = await runS('read');
           for (let i = 0; i < 5 && !d.rows.length; i++) { await sleep(2000); d = await runS('read'); }
           for (let i = 0; i < 25 && d.hasMore; i++) { await runS('more'); await sleep(1500); d = await runS('read'); }
-          const rows = d.rows.map((r) => ({ ...x.reader.fan(r.name), status: r.status.slice(0, 40), price_cents: r.price_cents, duration: r.duration.slice(0, 40) })).filter((r) => r.fan_ref);
+          // a lista tem uma linha por ASSINATURA (a antiga inativa e a atual ativa aparecem separadas):
+          // agrupa por fã e fica com a ativa; só é "inativa" se nenhuma linha dele estiver ativa
+          const isActive = (st) => /ativ|vigent|em dia/i.test(st) && !/inativ|expir|cancel|venc|encerr/i.test(st);
+          const byFan = new Map();
+          for (const r of d.rows) {
+            const f = x.reader.fan(r.name); if (!f.fan_ref) continue;
+            const row = { ...f, status: r.status.slice(0, 40), price_cents: r.price_cents, duration: r.duration.slice(0, 40) };
+            const cur = byFan.get(f.fan_ref);
+            if (!cur || (isActive(row.status) && !isActive(cur.status))) byFan.set(f.fan_ref, row);
+          }
+          const rows = [...byFan.values()];
           if (rows.length) {
             const out = await api('POST', '/extension/subscribers', { creator_id: id, taken_at: new Date().toISOString(), total_label: (d.count || '').slice(0, 40), revenue_cents: d.revenue_cents, rows: rows.slice(0, 3000) });
-            x.reader.s.subsAt = Date.now(); x.summary.subscribers = out.saved;
+            x.reader.s.subsAt = Date.now(); x.reader.s.subsV = 2; x.summary.subscribers = out.saved;
           } else x.summary.subsError = 'lista de assinantes vazia';
         } else x.summary.subsError = 'sem aba Assinantes';
       } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
@@ -574,7 +652,7 @@ async function vigia() {
 }
 function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
 function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
-ipcMain.handle('fan:collapse', (_e, collapsed) => { fanUi.collapsed = !!collapsed; writeJson('painel-fa.json', fanUi); layout(); pushFan(); return true; });
+ipcMain.handle('fan:collapse', (_e, collapsed) => { if (collapsed === 'auto') fanUi = { mode: 'auto', collapsed: false }; else fanUi = { mode: 'manual', collapsed: !!collapsed }; writeJson('painel-fa.json', fanUi); layout(); pushFan(); return true; });
 ipcMain.handle('fan:refresh', async () => { await loadFanCard(true); return true; });
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');

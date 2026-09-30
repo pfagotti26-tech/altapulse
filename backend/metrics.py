@@ -74,6 +74,17 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         if o.get('offer_status') == 'paid': cell['paid'] += 1; cell['paid_cents'] += o['amount_cents']
     for cell in offers_by_operator.values(): cell['conversion'] = round(cell['paid'] / cell['sent'] * 100) if cell['sent'] else None
     times = [r['seconds'] for r in responses]
+    # tempo de resposta por chatter (operador do turno no momento da resposta)
+    response_by_operator = {}
+    for r in responses:
+        cell = response_by_operator.setdefault(r['operator_name'], {'operator_id': r['operator_id'], 'secs': [], 'late': 0})
+        cell['secs'].append(r['seconds']); cell['late'] += r['late']
+    for p in pending:
+        cell = response_by_operator.setdefault(p['operator_name'], {'operator_id': p['operator_id'], 'secs': [], 'late': 0})
+        cell['pending'] = cell.get('pending', 0) + 1
+    for cell in response_by_operator.values():
+        xs = cell.pop('secs'); cell.update({'count': len(xs), 'mean_seconds': round(mean(xs)) if xs else None, 'median_seconds': round(median(xs)) if xs else None,
+            'max_seconds': round(max(xs)) if xs else None, 'pending': cell.get('pending', 0)})
     has_sample = bool(responses or pending or incomplete)
     return {'responses': responses, 'pending': sorted(pending, key=lambda p: p['seconds'], reverse=True), 'sales': sales, 'offers': offers,
         'summary': {'mean_seconds': round(mean(times)) if times else None, 'median_seconds': round(median(times)) if times else None,
@@ -86,6 +97,6 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         'gross_cents': sum(s['amount_cents'] for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
         'commission_cents': sum(s.get('commission_cents') or 0 for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
         'by_origin': by_origin, 'by_payment': by_payment, 'by_operator': by_operator, 'extrato_count': extrato_count,
-        'offers_sent': len(offers), 'offers_paid': sum(o.get('offer_status') == 'paid' for o in offers), 'offers_by_operator': offers_by_operator,
+        'offers_sent': len(offers), 'offers_paid': sum(o.get('offer_status') == 'paid' for o in offers), 'offers_by_operator': offers_by_operator, 'response_by_operator': response_by_operator,
         'last_observed_at': max((r['observed_at'] for r in responses + pending + sales), default=None),
         'coverage': 'partial' if has_sample or sales else 'no_data', 'storage_allowed': config['storage_allowed']}}

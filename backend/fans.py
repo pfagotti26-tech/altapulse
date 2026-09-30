@@ -148,8 +148,17 @@ async def fan_card(creator_id, fan_ref, user_id=None):
         if (s.get('confirmed_at') or '') >= since: totals[s['fan_ref']] = totals.get(s['fan_ref'], 0) + s['amount_cents']
     mine = sorted([s for s in sales if s['fan_ref'] == fan_ref], key=lambda s: s.get('confirmed_at') or '', reverse=True)
     sub = await db.subscribers.find_one({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0})
-    offers = await db.events.find({'creator_id': creator_id, 'kind': 'offer', 'fan_ref': fan_ref, 'offer_status': 'sent', 'expires_at': {'$gt': today}}, {'_id': 0, 'amount_cents': 1, 'offered_at': 1}).sort('offered_at', -1).to_list(5)
+    offers = await db.events.find({'creator_id': creator_id, 'kind': 'offer', 'fan_ref': fan_ref, 'offer_status': 'sent', 'expires_at': {'$gt': today}}, {'_id': 0, 'amount_cents': 1, 'offered_at': 1, 'offer_type': 1, 'media_type': 1}).sort('offered_at', -1).to_list(5)
     notes = await db.fan_notes.find({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0}).sort('created_at', -1).to_list(30)
+    # tempo de resposta com este fã (30 dias): da primeira mensagem dele sem resposta até a resposta
+    since30 = (today - timedelta(days=30)).isoformat()
+    resp = await db.events.find({'creator_id': creator_id, 'kind': 'response', 'fan_ref': fan_ref, 'expires_at': {'$gt': today}, 'responded_at': {'$gte': since30}},
+        {'_id': 0, 'started_at': 1, 'responded_at': 1, 'operator_id': 1}).sort('responded_at', -1).to_list(500)
+    secs = [(r, (datetime.fromisoformat(r['responded_at']) - datetime.fromisoformat(r['started_at'])).total_seconds()) for r in resp if r.get('started_at') and r.get('responded_at')]
+    avg = lambda xs: round(sum(xs) / len(xs)) if xs else None
+    mine_secs = [x for r, x in secs if user_id and r.get('operator_id') == user_id]
+    response = {'count': len(secs), 'avg_seconds': avg([x for _, x in secs]), 'last_seconds': round(secs[0][1]) if secs else None,
+        'mine_count': len(mine_secs), 'mine_avg_seconds': avg(mine_secs)} if secs else None
     task = await db.fan_tasks.find_one({'creator_id': creator_id, 'fan_ref': fan_ref, 'status': 'open', **({'assigned_to': user_id} if user_id else {})}, {'_id': 0})
     total = sum(s['amount_cents'] for s in mine); n = len(mine)
     last = mine[0].get('confirmed_at') if mine else None
@@ -166,7 +175,9 @@ async def fan_card(creator_id, fan_ref, user_id=None):
     habit = max(hours, key=hours.get) if hours and max(hours.values()) >= max(2, n // 2) else None
     # sugestão em uma frase, pelo estado do fã
     tips = []
-    if offers: tips.append(f"tem oferta de {money_br(offers[0]['amount_cents'])} ainda não paga: retome com leveza antes de mandar outra")
+    if offers:
+        what = 'solicitação de mídia' if offers[0].get('offer_type') == 'request' else 'mídia paga' if offers[0].get('offer_type') == 'ppv' else 'oferta'
+        tips.append(f"tem {what} de {money_br(offers[0]['amount_cents'])} ainda não paga: retome com leveza antes de mandar outra")
     if 'novo_sem_compra' in tags: tips.append('assinou há poucos dias e ainda não comprou: é a melhor janela para a primeira oferta')
     elif 'esfriando' in tags: tips.append(f"está {days_since} dias sem comprar: boa hora para uma oferta exclusiva")
     elif 'dormente' in tags: tips.append('sumiu há mais de 30 dias: puxe conversa antes de oferecer')
@@ -178,7 +189,7 @@ async def fan_card(creator_id, fan_ref, user_id=None):
         'recent': [{'at': s.get('confirmed_at'), 'origin': s.get('sale_origin'), 'amount_cents': s['amount_cents']} for s in mine[:5]],
         'tier': tier, 'tags': tags, 'suggestion': ('. '.join(t[0].upper() + t[1:] for t in tips) + '.') if tips else None,
         'subscription': {k: sub.get(k) for k in ['status', 'active', 'price_cents', 'duration']} if sub else None,
-        'pending_offers': offers, 'notes': notes, 'task': task}
+        'pending_offers': offers, 'notes': notes, 'task': task, 'response': response}
 
 # ---------- anotações do fã (equipe) e listas de trabalho ----------
 class NoteIn(Strict):
