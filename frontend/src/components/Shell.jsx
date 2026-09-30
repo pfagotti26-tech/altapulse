@@ -6,7 +6,7 @@ import { initials } from '../lib/api';
 import { Badge, Modal } from './Common';
 import { Brand } from './Brand';
 import { CreatorSidebar } from './CreatorSidebar';
-const nav = [['/', 'Criadoras', Layers3], ['/operacao', 'Operação', Activity], ['/vendas', 'Vendas', ChartNoAxesCombined], ['/desempenho', 'Desempenho', TrendingUp], ['/qualidade', 'Qualidade', ClipboardCheck], ['/equipe', 'Equipe e turnos', UsersRound], ['/relatorios', 'Relatórios', FileChartColumn]];
+const nav = [['/', 'Criadoras', Layers3], ['/operacao', 'Operação', Activity], ['/vendas', 'Vendas', ChartNoAxesCombined], ['/desempenho', 'Desempenho', TrendingUp], ['/assinantes', 'Assinantes', UsersRound], ['/qualidade', 'Qualidade', ClipboardCheck], ['/equipe', 'Equipe e turnos', UsersRound], ['/relatorios', 'Relatórios', FileChartColumn]];
 export const Shell = ({ children }) => {
   const { user, config, creators, logout } = useApp(); const [mobile, setMobile] = useState(false), [help, setHelp] = useState(false), [alerts, setAlerts] = useState(false);
   const route = useLocation().pathname; const active = nav.find(n => n[0] === route)?.[1] || (route === '/minha-conta' ? 'Minha conta' : 'Configurações');

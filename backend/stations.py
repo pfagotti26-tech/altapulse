@@ -110,12 +110,12 @@ async def ingest(body: Observation, source: dict):
     row = body.model_dump(mode='json')
     # nome do assinante só é guardado com a opção explícita da agência em Configurações
     if not (await settings()).get('fan_names_allowed'): row['fan_name'] = None
-    for key in ['started_at', 'responded_at', 'confirmed_at']:
+    for key in ['started_at', 'responded_at', 'confirmed_at', 'offered_at']:
         if getattr(body, key):
             from core import clean_time
             row[key] = clean_time(getattr(body, key))
     from datetime import datetime
-    timestamp = row.get('confirmed_at') or row.get('responded_at') or row.get('started_at')
+    timestamp = row.get('confirmed_at') or row.get('responded_at') or row.get('started_at') or row.get('offered_at')
     if timestamp and datetime.fromisoformat(timestamp) < now() - timedelta(days=(await settings())['retention_days']):
         raise HTTPException(422, 'Registro anterior ao período de retenção.')
     async with lock:
@@ -123,6 +123,7 @@ async def ingest(body: Observation, source: dict):
         if old:
             if old['kind'] == 'sale' and body.kind != 'sale' or old['kind'] != 'sale' and body.kind == 'sale': raise HTTPException(409, 'Referência com tipo conflitante.')
             if old['kind'] == 'response' and body.kind == 'pending': return {'ok': True, 'deduplicated': True}
+            if old['kind'] == 'offer' and old.get('offer_status') == 'paid' and body.offer_status != 'paid': return {'ok': True, 'deduplicated': True}
             if old['kind'] == 'sale' and old['sale_status'] in ['refunded', 'cancelled'] and body.sale_status == 'confirmed': return {'ok': True, 'deduplicated': True}
             # o extrato é a fonte exata: uma venda inferida pela lista nunca sobrescreve uma venda do extrato
             if old['kind'] == 'sale' and old.get('sale_source') == 'extrato' and body.sale_source != 'extrato': return {'ok': True, 'deduplicated': True}

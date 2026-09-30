@@ -9,6 +9,7 @@ import Creators from './pages/Creators';
 import Operation from './pages/Operation';
 import Sales from './pages/Sales';
 import Performance from './pages/Performance';
+import Fans from './pages/Fans';
 import Quality from './pages/Quality';
 import Team from './pages/Team';
 import Settings from './pages/Settings';
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="/operacao" element={user.role === 'manager' ? <Operation/> : <Navigate to="/"/>}/>
       <Route path="/vendas" element={user.role === 'manager' ? <Sales/> : <Navigate to="/"/>}/>
       <Route path="/desempenho" element={user.role === 'manager' ? <Performance/> : <Navigate to="/"/>}/>
+      <Route path="/assinantes" element={user.role === 'manager' ? <Fans/> : <Navigate to="/"/>}/>
       <Route path="/qualidade" element={user.role === 'manager' ? <Quality/> : <Navigate to="/"/>}/>
       <Route path="/equipe" element={<Team/>}/>
       <Route path="/relatorios" element={user.role === 'manager' ? <Reports/> : <Navigate to="/"/>}/>

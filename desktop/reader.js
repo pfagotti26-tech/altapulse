@@ -99,6 +99,16 @@ class CreatorReader {
           start = null;
         }
       }
+      // ofertas de mídia paga enviadas por nós (bloco C): uma por mensagem; quando aparece como paga, atualiza
+      for (const m of open.msgs) {
+        if (!m.ours || !m.offer) continue;
+        const t = at(m.date, m.time, now); if (!t) continue;
+        const ref = this.ref('offer', open.cid, isoLocal(t), String(m.offer.cents));
+        const status = m.offer.paid ? 'paid' : 'sent';
+        if (this.s.sent[ref] === 'offer:' + status || (this.s.sent[ref] === 'offer:paid')) continue;
+        events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'offer', offered_at: isoLocal(t), amount_cents: m.offer.cents, offer_status: status, sequence_complete: true, ...this.fan(open.name) });
+        this.s.sent[ref] = 'offer:' + status;
+      }
       if (start) {
         const ref = this.ref('wait', open.cid, isoLocal(start));
         if (!this.s.sent[ref]) {
