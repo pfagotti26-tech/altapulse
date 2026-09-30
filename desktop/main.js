@@ -52,6 +52,8 @@ function hiddenBounds() {
 }
 
 const dataDir = () => app.getPath('userData');
+// calibrações: junto do código quando rodando da pasta (fácil de achar); no perfil do usuário quando instalado (asar é só leitura)
+const calibDir = () => (app.isPackaged ? path.join(dataDir(), 'calibracoes') : path.join(__dirname, 'calibracoes'));
 const filePath = (name) => path.join(dataDir(), name);
 
 function readJson(name, fallback) {
@@ -488,7 +490,7 @@ ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
     const all = roots.flatMap((r) => [...r.querySelectorAll('.seg-btn')]).map((b) => b.getAttribute('data-tour') + ':' + b.textContent.trim()); return all; })()`, true);
   await sleep(5000);
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
-  const dir = path.join(dataDir(), 'calibracoes'); fs.mkdirSync(dir, { recursive: true });
+  const dir = calibDir(); fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `stats-${tour}-${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
   fs.writeFileSync(file, `<!-- ${view.webContents.getURL()} clicked=${JSON.stringify(clicked)} -->\n${outline}`);
   if (!views.has(id) && !x.shown) closeStatsView(id);
@@ -576,7 +578,7 @@ ipcMain.handle('profile:calibrate', async (_e, id) => {
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
   if (!outline || outline.length < 200) throw new Error('A tela ainda não carregou. Espere aparecerem as mensagens e tente de novo.');
   // cópia local (mesmo conteúdo mascarado) para análise sem depender do banco do painel
-  const dir = path.join(dataDir(), 'calibracoes'); fs.mkdirSync(dir, { recursive: true }); // fora do pacote (asar é só leitura)
+  const dir = calibDir(); fs.mkdirSync(dir, { recursive: true }); // fora do pacote (asar é só leitura)
   const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.html`);
   fs.writeFileSync(file, `<!-- ${url} -->\n${outline}`);
   let sent = true;
