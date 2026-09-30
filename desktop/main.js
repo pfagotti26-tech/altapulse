@@ -357,6 +357,7 @@ function statsView(id) {
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   view.webContents.setUserAgent(UA);
   view.webContents.setAudioMuted(true);
+  view.webContents.setBackgroundThrottling(false); // sem isso a aba oculta pode não renderizar a SPA
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // fica por BAIXO das outras abas (índice 0) e com tamanho de tela de desktop: com uma janela minúscula
   // a Privacy montava o layout de celular (sem as abas) e com setVisible(false) não terminava de carregar

@@ -20,7 +20,7 @@ function script(action) {
     const onStats = /myprivacystats/i.test(location.pathname);
     const tab = qs('.seg-btn[data-tour="tour-extratos"]');
     const tabActive = !!(tab && tab.classList.contains('active'));
-    if (ACTION === 'tab') { if (tab && !tabActive) tab.click(); return { onStats, hadTab: !!tab, tabActive, loggedOut: /login|entrar/i.test(location.pathname), ready: document.readyState, roots: roots.length }; }
+    if (ACTION === 'tab') { if (tab && !tabActive) tab.click(); return { onStats, hadTab: !!tab, tabActive, loggedOut: /login|entrar/i.test(location.pathname), ready: document.readyState, roots: roots.length, vis: document.visibilityState, w: innerWidth, h: innerHeight }; }
     const more = qs('.ver-mais-btn');
     if (ACTION === 'more') { if (more) more.click(); return { clicked: !!more }; }
     // situação: o ícone vem dentro de <span title="Concluído"> (validado 30/09); por segurança também
