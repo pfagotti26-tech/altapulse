@@ -87,6 +87,7 @@ function statusOf(c) {
 
 // ---------- lista ----------
 function renderList() {
+  renderTurn();
   // total de conversas sem resposta (24 h) em todas as criadoras abertas: balão no topo
   const total = Object.values(S.readers || {}).reduce((n, r) => n + ((r && r.waitingRecent) || 0), 0);
   const tb = $('unread-total'); if (tb) { tb.textContent = total > 99 ? '99+' : String(total); tb.classList.toggle('hidden', !total); tb.title = `${total} conversa${total === 1 ? '' : 's'} sem resposta nas últimas 24 h`; }
@@ -135,23 +136,31 @@ function card(c) {
   const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
   const hasCred = (p) => (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === p);
   let chips = '';
-  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · use o botão Entrar com o acesso salvo' : 'Tela de login · sem acesso salvo no cofre') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
+  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · clique em Entrar' : 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
-  for (const p of loginList) queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(labelOf(p))}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
+  // botão simples "Entrar"; some ao clicar (volta só se a tela de login continuar depois de 40 s)
+  for (const p of loginList) if (vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000) continue;
+  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : ''; // sem acesso salvo: só a bolinha vermelha no chip (a dica explica)
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
   const mine = c.shift && c.shift.operator_id === S.user.id;
-  let shiftBtn = '';
-  if (!c.shift) shiftBtn = `<div class="shift-row"><button class="shift-btn start" data-shift="start">Iniciar turno</button></div>`;
-  else if (mine) shiftBtn = `<div class="shift-row"><button class="shift-btn end" data-shift="end">Encerrar turno</button><button class="shift-btn pause" data-shift="${c.shift.paused ? 'resume' : 'pause'}" title="${c.shift.paused ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${c.shift.paused ? 'Retomar' : 'Pausar'}</button></div>`;
+  // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
+  const shiftBtn = '';
   const el = document.createElement('div');
-  el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
+  // cards compactos (nome + status, como no Lauth); a criadora aberta na tela mostra os detalhes
+  const compact = S.active !== c.id;
+  el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '') + (compact ? ' compact' : '');
+  let inds = '';
+  if (compact) {
+    if (loginList.length) inds += `<span class="ind login" title="${esc(loginList.map(labelOf).join(', '))}: tela de login. Clique na criadora para entrar."></span>`;
+    if (ex && ex.error && S.user && S.user.role === 'manager') inds += `<span class="ind warn" title="${ex.error === 'login' ? 'Extrato: entre na Privacy' : 'Extrato: falha na leitura'}"></span>`;
+  }
   el.dataset.id = c.id;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}${bubble}</div>
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
-    ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
+    ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
@@ -166,7 +175,9 @@ function card(c) {
   return el;
 }
 
+const vaultPending = new Map();
 async function vaultLogin(c, platform) {
+  vaultPending.set(`${c.id}|${platform}`, Date.now()); renderList();
   if (platform) await run(() => window.pulse.showProfile(c.id, platform));
   const r = await run(() => window.pulse.vaultUse(c.id, platform));
   if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
@@ -201,9 +212,70 @@ async function shiftClick(c, action) {
   run(() => window.pulse.shiftAction(c.shift.id, action), action === 'pause' ? 'Turno pausado.' : 'Turno retomado.');
 }
 async function offerShift(c) {
-  const ok = await dialog({ title: 'Iniciar turno?', body: `<p>Registrar que você está atendendo <b>${esc(c.name)}</b> a partir de agora. O gestor vê presença e horário; nada da conversa é enviado.</p>`, okText: 'Iniciar turno' });
-  if (ok) run(() => window.pulse.startShift(c.id), 'Turno iniciado.');
+  const t = myTurn();
+  if (t.state === 'active') run(() => window.pulse.startShift(c.id), `${c.name} entrou no seu turno.`);
 }
+
+// ---------- Meu turno: um botão só para todas as criadoras do chatter ----------
+function myShifts() { return S.creators.filter((c) => c.shift && c.shift.operator_id === S.user.id); }
+function turnScope() {
+  // chatter: as criadoras liberadas para ele; gestor: as que estão abertas neste app (ou já no turno dele)
+  if (S.user.role !== 'manager') return S.creators;
+  return S.creators.filter((c) => S.open.includes(c.id) || (c.shift && c.shift.operator_id === S.user.id));
+}
+function myTurn() {
+  const mine = myShifts();
+  if (!mine.length) return { state: 'off', mine };
+  const since = mine.map((c) => c.shift.started_at).sort()[0];
+  return { state: mine.every((c) => c.shift.paused) ? 'paused' : 'active', mine, since };
+}
+const hm = (iso) => { const m = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`; };
+function renderTurn() {
+  const box = $('my-shift'); if (!box || !S.user) return;
+  const t = myTurn(); const scope = turnScope();
+  const free = scope.filter((c) => !c.shift).length;
+  box.classList.remove('hidden'); box.className = `myshift ${t.state}`;
+  if (t.state === 'off') {
+    box.innerHTML = `<div class="ms-info"><b>Fora de turno</b><span>${scope.length ? `${scope.length} criadora${scope.length === 1 ? '' : 's'}` : (S.user.role === 'manager' ? 'abra as criadoras que vai atender' : 'nenhuma criadora liberada')}</span></div><button class="ms-btn start" data-turn="start" ${scope.length ? '' : 'disabled'} title="Inicia o turno em todas as suas criadoras de uma vez">Iniciar turno</button>`;
+  } else {
+    const n = t.mine.length;
+    box.innerHTML = `<div class="ms-info"><b>${t.state === 'paused' ? 'Pausado' : 'Em turno'} · ${hm(t.since)}</b><span>${n} criadora${n === 1 ? '' : 's'}${free && S.user.role !== 'manager' ? ` · <a href="#" data-turn="start" title="Incluir no turno as criadoras que ficaram de fora">+${free}</a>` : ''}</span></div>`
+      + `<button class="ms-btn ghost" data-turn="${t.state === 'paused' ? 'resume' : 'pause'}" title="${t.state === 'paused' ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${t.state === 'paused' ? 'Retomar' : 'Pausar'}</button><button class="ms-btn end" data-turn="end">Encerrar</button>`;
+  }
+  box.querySelectorAll('[data-turn]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); turnAction(b.dataset.turn); }));
+}
+async function turnAction(action) {
+  const t = myTurn();
+  if (action === 'start') {
+    const scope = turnScope(); const busy = scope.filter((c) => c.shift && c.shift.operator_id !== S.user.id);
+    const todo = scope.filter((c) => !c.shift);
+    let last = null, ok = 0;
+    for (const c of todo) { try { last = await window.pulse.startShift(c.id); ok += 1; } catch (e) { toast(`${c.name}: ${String(e.message).replace(/^Error invoking remote method '[^']+': Error: /, '')}`); } }
+    if (last && last.creators) apply(last);
+    if (ok) toast(`Turno iniciado em ${ok} criadora${ok === 1 ? '' : 's'}.`);
+    if (busy.length) {
+      const names = busy.map((c) => `<li><b>${esc(c.name)}</b> ainda está com ${esc(c.shift.operator_name)}</li>`).join('');
+      const canEnd = S.user.role === 'manager';
+      const r = await dialog({ title: 'Criadoras com outro chatter', body: `<p>Estas ficaram fora do seu turno porque outro chatter ainda não encerrou:</p><ul>${names}</ul><p class="muted">${canEnd ? 'Você pode encerrar o turno dele e assumir agora.' : 'Peça para ele encerrar, ou avise o gestor. Depois clique no “+” da barra Meu turno.'}</p>`, okText: canEnd ? 'Encerrar e assumir' : 'Entendi', hideOk: false });
+      if (r && canEnd) {
+        let l2 = null;
+        for (const c of busy) { try { await window.pulse.shiftAction(c.shift.id, 'end'); l2 = await window.pulse.startShift(c.id); } catch (e) { toast(`${c.name}: ${String(e.message).replace(/^Error invoking remote method '[^']+': Error: /, '')}`); } }
+        if (l2 && l2.creators) apply(l2);
+      }
+    }
+    return;
+  }
+  if (action === 'end') {
+    const ok = await dialog({ title: 'Encerrar turno', body: `<p>Encerrar seu turno em <b>${t.mine.length} criadora${t.mine.length === 1 ? '' : 's'}</b>? A partir de agora as vendas e o tempo de resposta deixam de contar para você.</p>`, okText: 'Encerrar turno' });
+    if (!ok) return;
+  }
+  const list = t.mine.filter((c) => (action === 'pause' ? !c.shift.paused : action === 'resume' ? c.shift.paused : true));
+  let last = null;
+  for (const c of list) { try { last = await window.pulse.shiftAction(c.shift.id, action); } catch {} }
+  if (last && last.creators) apply(last);
+  toast(action === 'pause' ? 'Turno pausado.' : action === 'resume' ? 'Turno retomado.' : 'Turno encerrado.');
+}
+setInterval(() => { if (S && S.user) renderTurn(); }, 30000);
 
 // ---------- menu da criadora ----------
 function creatorMenu(c, anchor) {
