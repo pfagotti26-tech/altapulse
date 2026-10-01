@@ -1,8 +1,8 @@
-version: 1.3.3
+version: 1.3.4
 files:
-  - url: AltaPulse-Setup-1.3.3.exe
-    sha512: mY7CdZPPOuC0bC4jvQQaqftfDUnhERXpVBtWLXomHFyxnACv9sSqMAEEneZ/UVg1VHnV/UUqWLKHb/ejFCavUg==
-    size: 113687598
-path: AltaPulse-Setup-1.3.3.exe
-sha512: mY7CdZPPOuC0bC4jvQQaqftfDUnhERXpVBtWLXomHFyxnACv9sSqMAEEneZ/UVg1VHnV/UUqWLKHb/ejFCavUg==
-releaseDate: '2026-09-30T22:33:33.136Z'
+  - url: AltaPulse-Setup-1.3.4.exe
+    sha512: oPwUbKK1zoKVBY6AJHkKkFDnsx9ZtmlRNwH3ioB+UxpcwL9S/Rv0mg+OvRBtDtgmj3EKvThGu+mWk927y3STFA==
+    size: 113689615
+path: AltaPulse-Setup-1.3.4.exe
+sha512: oPwUbKK1zoKVBY6AJHkKkFDnsx9ZtmlRNwH3ioB+UxpcwL9S/Rv0mg+OvRBtDtgmj3EKvThGu+mWk927y3STFA==
+releaseDate: '2026-10-01T00:01:58.265Z'

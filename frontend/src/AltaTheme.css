@@ -281,3 +281,5 @@ tbody tr:hover { background: #fdfbfc; }
 .photo-nudge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:#ae344b;background:#fbeef1;border:1px dashed #e4a9b6;border-radius:14px;padding:5px 11px;white-space:nowrap}
 .photo-nudge:hover{background:#f6e3e7}
 .person-cell .avatar{font-size:9px}
+.assist-textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:9px 11px;font:inherit;font-size:12px;resize:vertical;background:#fff}
+.assist-textarea:focus{outline:none;border-color:#c98a97}
