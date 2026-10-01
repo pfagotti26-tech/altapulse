@@ -41,6 +41,7 @@ class CreatorOut(Public):
     review: dict[str, Any] | None = None
     shift: ShiftOut | None = None
     browser: dict[str, Any] | None = None
+    avatar: str | None = None
 
 class SettingsOut(Public):
     id: str = 'main'

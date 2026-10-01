@@ -95,6 +95,7 @@ class Observation(Strict):
     sale_source: Optional[Literal['list', 'extrato']] = None
     # plataforma da venda (vazio = Privacy, como sempre foi)
     platform: Optional[Literal['privacy', 'fatalfans', 'closefans', 'onlyfans']] = None
+    currency: Optional[Literal['BRL', 'USD']] = None  # OnlyFans vem em dólar
     payment_method: Optional[str] = Field(default=None, max_length=30)
     commission_cents: Optional[int] = Field(default=None, ge=0, le=100000000)
     # bloco C: oferta de mídia paga enviada no chat (etiqueta 'R$ X ainda não pago' / 'pago')

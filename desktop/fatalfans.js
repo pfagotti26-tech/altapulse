@@ -12,12 +12,17 @@ function parseWhen(when, now = new Date()) {
   const s = norm(when);
   let m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\D+(\d{1,2}):(\d{2})/);
   if (m) { const d = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]); return isNaN(d) ? null : d; }
+  // OnlyFans: "30 set, 2026 14:31"
+  m = s.match(/(\d{1,2})\s+([a-z]{3})[a-z.]*,?\s+(\d{4})\D+(\d{1,2}):(\d{2})/);
+  if (m && m[2] in MONTHS) { const d = new Date(+m[3], MONTHS[m[2]], +m[1], +m[4], +m[5]); return isNaN(d) ? null : d; }
   m = s.match(/([a-z]{3})[a-z.]*\s+(\d{1,2}),?\s+(\d{1,2}):(\d{2})/);
   if (!m || !(m[1] in MONTHS)) return null;
   let d = new Date(now.getFullYear(), MONTHS[m[1]], +m[2], +m[3], +m[4]);
   if (d > new Date(now.getTime() + 24 * 3600e3)) d = new Date(now.getFullYear() - 1, MONTHS[m[1]], +m[2], +m[3], +m[4]); // dezembro lido em janeiro
   return isNaN(d) ? null : d;
 }
+// "US$ 3.50" / "$3.50" (OnlyFans, em dólar) ou "R$ 30,00"
+const usd = (s) => { const m = (s || '').match(/\$\s*([\d,]*\d\.\d{2}|[\d,]+)/); if (!m || /R\$/.test(s)) return null; const v = parseFloat(m[1].replace(/,/g, '')); return isNaN(v) ? null : Math.round(v * 100); };
 const cents = (s) => { const m = (s || '').replace(/\s/g, ' ').match(/(-?)R\$\s*([\d.]+,\d{2}|[\d.]+)/); if (!m) return null; const v = parseFloat(m[2].replace(/\./g, '').replace(',', '.')); return isNaN(v) ? null : Math.round(v * 100); };
 function product(t) {
   const s = norm(t);
@@ -25,12 +30,16 @@ function product(t) {
   if (/assinatura/.test(s) && /recorr|[2-9]\s*º|[2-9]o pagamento/.test(s)) return 'renewal';
   if (/assinatura/.test(s)) return 'subscription';
   if (/chat|mensagem|midia/.test(s)) return 'chat';
-  if (/presente|mimo|gorjeta|tip/.test(s)) return 'tip';
+  if (/presente|mimo|gorjeta|gorjet|tip/.test(s)) return 'tip';
+  if (/mensagem|message|desbloque/.test(s)) return 'chat';
   if (/post/.test(s)) return 'post';
   return 'unknown';
 }
 function status(t) {
   const s = norm(t);
+  if (s === 'icon-done') return 'confirmed';
+  if (s === 'icon-loading') return 'pending';
+  if (s === 'icon-undo') return 'refunded';
   if (!s) return 'confirmed'; // a lista de transações só mostra vendas pagas
   if (/estorn|reembols|chargeback|devolv/.test(s)) return 'refunded';
   if (/cancel|recus|negad|falh/.test(s)) return 'cancelled';
@@ -51,7 +60,8 @@ class SalesReader {
     const events = []; let today = 0, todayCents = 0;
     this.s.pendingSig = {};
     for (const r of rows) {
-      const at = parseWhen(r.when, now); const gross = cents(r.gross); const net = cents(r.net);
+      const money = this.options.currency === 'USD' ? usd : cents;
+      const at = parseWhen(r.when, now); const gross = money(r.gross); const net = money(r.net);
       if (!at || gross == null || at > new Date(now.getTime() + 2 * 60e3)) continue;
       const st = status(r.status); const origin = product(r.product);
       if (at.toDateString() === now.toDateString() && st === 'confirmed') { today += 1; todayCents += gross; }
@@ -60,7 +70,7 @@ class SalesReader {
       if (this.s.sent[ref] === sig) continue;
       // "Seu ganho"/"Valor líquido" é a parte da criadora, como a comissão do extrato da Privacy
       events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'sale', platform: this.platform, amount_cents: gross,
-        commission_cents: net != null && net <= gross ? net : null, sale_origin: origin, sale_status: st, sale_source: 'extrato',
+        commission_cents: net != null && net <= gross ? net : null, sale_origin: origin, sale_status: st, sale_source: 'extrato', ...(this.options.currency ? { currency: this.options.currency } : {}),
         payment_method: (r.payment || '').slice(0, 30) || null, confirmed_at: at.toISOString(), sequence_complete: true, ...this.fan(r.name) });
       this.s.pendingSig[ref] = sig;
     }
@@ -74,4 +84,4 @@ class SalesReader {
 }
 
 class FatalFansReader extends SalesReader { constructor(c, s, st, o) { super(c, s, st, o, 'fatalfans'); } }
-module.exports = { SalesReader, FatalFansReader, parseWhen, cents, product, status };
+module.exports = { usd, SalesReader, FatalFansReader, parseWhen, cents, product, status };

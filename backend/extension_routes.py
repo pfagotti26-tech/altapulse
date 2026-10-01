@@ -301,6 +301,16 @@ async def extension_sample(body: SampleIn, user=Depends(extension_user)):
     from quality_ai import save_sample
     return await save_sample(body, user)
 
+@router.post('/extension/creators/{creator_id}/avatar')
+async def extension_creator_avatar(creator_id: str, body: AvatarIn, user=Depends(extension_user)):
+    """Foto de perfil da criadora lida pelo app na plataforma; não substitui uma foto escolhida pelo gestor."""
+    creator = await db.creators.find_one({'id': creator_id}, {'_id': 0, 'avatar_source': 1})
+    if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
+    if user['role'] != 'manager' and creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
+    if creator.get('avatar_source') == 'manual': return {'ok': True, 'kept': True}
+    await db.creators.update_one({'id': creator_id}, {'$set': {'avatar': body.image, 'avatar_source': 'auto'}})
+    return {'ok': True}
+
 @router.post('/extension/subscribers')
 async def extension_subscribers(body: SubscribersIn, user=Depends(extension_user)):
     return await save_subscribers(body, user)

@@ -319,3 +319,6 @@ tbody tr:hover { background: #fdfbfc; }
 .qa-parts b{text-align:right;font-weight:600;color:#3c3c44}
 .qa-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 10px;margin:0;padding-top:10px;border-top:1px solid #f0f0f3}
 .qa-facts dt{font-size:10px;color:#9a9aa4}.qa-facts dd{margin:2px 0 0;font-size:12.5px;font-weight:600;color:#3c3c44;font-variant-numeric:tabular-nums}
+.creator-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.creator-photo-pick { cursor: pointer; position: relative; overflow: hidden; }
+.creator-photo-pick:hover::after { content: 'foto'; position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); color: #fff; font-size: 10px; font-weight: 600; border-radius: 50%; }
