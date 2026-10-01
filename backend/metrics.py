@@ -69,12 +69,12 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         out = {}
         for s in sales:
             if s['sale_status'] in ['refunded', 'cancelled']: continue
-            k = s.get(key) or 'unknown'
+            k = s.get(key) or ('privacy' if key == 'platform' else 'unknown')
             cell = out.setdefault(k, {'count': 0, 'cents': 0, 'commission_cents': 0, 'pending_cents': 0})
             cell['count'] += 1; cell['cents'] += s['amount_cents']; cell['commission_cents'] += s.get('commission_cents') or 0
             if s['sale_status'] == 'pending': cell['pending_cents'] += s['amount_cents']
         return out
-    by_origin, by_payment = breakdown('sale_origin'), breakdown('payment_method')
+    by_origin, by_payment, by_platform = breakdown('sale_origin'), breakdown('payment_method'), breakdown('platform')
     by_operator = {}
     for s in eligible:
         if s['sale_status'] in ['refunded', 'cancelled']: continue
@@ -113,7 +113,7 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         'pending_cents': sum(s['amount_cents'] for s in pending_sales) if sales else None,
         'gross_cents': sum(s['amount_cents'] for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
         'commission_cents': sum(s.get('commission_cents') or 0 for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
-        'by_origin': by_origin, 'by_payment': by_payment, 'by_operator': by_operator, 'extrato_count': extrato_count,
+        'by_origin': by_origin, 'by_payment': by_payment, 'by_platform': by_platform, 'by_operator': by_operator, 'extrato_count': extrato_count,
         'offers_sent': len(offers), 'offers_paid': sum(o.get('offer_status') == 'paid' for o in offers), 'offers_by_operator': offers_by_operator, 'response_by_operator': response_by_operator, 'operator_avatars': operator_avatars,
         'last_observed_at': max((r['observed_at'] for r in responses + pending + sales), default=None),
         'coverage': 'partial' if has_sample or sales else 'no_data', 'storage_allowed': config['storage_allowed']}}
