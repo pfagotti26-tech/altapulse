@@ -162,3 +162,19 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .ms-btn.start{background:#e53935;color:#fff}.ms-btn.start:hover{background:#c62828}.ms-btn.start:disabled{opacity:.4;cursor:default}
 .ms-btn.ghost{background:transparent;color:#ccc;border:1px solid rgba(255,255,255,.18)}.ms-btn.ghost:hover{color:#fff}
 .ms-btn.end{background:rgba(255,255,255,.08);color:#f5f5f5;border:1px solid rgba(255,255,255,.2)}.ms-btn.end:hover{background:rgba(229,57,53,.25);border-color:#e53935}
+
+/* respiro na lateral */
+header { padding: 16px 16px 12px; }
+.search { gap: 8px; padding: 0 16px 10px; }
+.myshift { margin: 2px 16px 12px; padding: 12px 12px; gap: 8px; }
+.toggle { padding: 0 18px 12px; }
+.list { padding: 2px 12px 14px; }
+.group { margin: 8px 0 12px; }
+.group-head { padding: 8px 6px; margin-bottom: 4px; }
+.card { gap: 14px; padding: 13px 14px; margin: 0 0 10px; }
+.card .name { font-size: 14px; }
+.card .status { margin-top: 3px; }
+.card .chips { margin-top: 9px; }
+.card .queue { margin-top: 7px; }
+.card .vault-btn { margin-top: 9px; }
+footer { padding: 12px 16px 14px; }
