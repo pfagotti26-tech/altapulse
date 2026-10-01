@@ -178,3 +178,11 @@ header { padding: 16px 16px 12px; }
 .card .queue { margin-top: 7px; }
 .card .vault-btn { margin-top: 9px; }
 footer { padding: 12px 16px 14px; }
+
+/* cards compactos: só nome e status; detalhes na criadora aberta */
+.card.compact { padding: 10px 12px; margin: 0 0 8px; align-items: center; }
+.card.compact .chips, .card.compact .queue, .card.compact .vault-btn { display: none; }
+.card.compact .name { font-size: 13.5px; }
+.ind { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.ind.login { background: #e53935; box-shadow: 0 0 0 3px rgba(229,57,53,.2); }
+.ind.warn { background: #e0a838; }

@@ -147,13 +147,20 @@ function card(c) {
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
   const shiftBtn = '';
   const el = document.createElement('div');
-  el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '');
+  // cards compactos (nome + status, como no Lauth); a criadora aberta na tela mostra os detalhes
+  const compact = S.active !== c.id;
+  el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '') + (compact ? ' compact' : '');
+  let inds = '';
+  if (compact) {
+    if (loginList.length) inds += `<span class="ind login" title="${esc(loginList.map(labelOf).join(', '))}: tela de login. Clique na criadora para entrar."></span>`;
+    if (ex && ex.error && S.user && S.user.role === 'manager') inds += `<span class="ind warn" title="${ex.error === 'login' ? 'Extrato: entre na Privacy' : 'Extrato: falha na leitura'}"></span>`;
+  }
   el.dataset.id = c.id;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
   el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}${bubble}</div>
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
-    ${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
+    ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
