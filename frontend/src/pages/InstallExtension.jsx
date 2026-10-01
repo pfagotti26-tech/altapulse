@@ -27,7 +27,7 @@ export default function InstallExtension() {
       <section className="ext-hero">
         <span className="eyebrow" data-testid="ext-eyebrow">ALTA PULSE PARA WINDOWS</span>
         <h1 data-testid="ext-title">Todas as criadoras<br/><span>em uma janela só.</span></h1>
-        <p data-testid="ext-subtitle">Cada criadora abre num perfil isolado, com login e sessão próprios, e a troca é um clique na lateral. O app registra presença, turno, fila de fãs esperando, tempo de resposta e vendas, sem ler o texto das conversas. Substitui o Lauth na operação.</p>
+        <p data-testid="ext-subtitle">A central de operação da agência: cada criadora num perfil isolado, troca com um clique, e tudo o que acontece no atendimento vira número para o gestor. Turno, fila de fãs, tempo de resposta, ofertas, vendas, nota de qualidade por chatter e a Alta Ajuda com IA para escrever melhor.</p>
         <div className="ext-cta">
           {installer
             ? <button className="ext-download-btn" data-testid="download-installer" onClick={getInstaller}><Download size={17}/>Baixar o instalador do Alta Pulse{installer.version ? ` · v${installer.version}` : ''}{mb}</button>
@@ -48,18 +48,21 @@ export default function InstallExtension() {
         <div><span className="ext-step-num">04</span><PlayCircle size={20}/><h2>Entre e abra uma criadora</h2><p>Use o mesmo acesso do painel. Clique na criadora, faça o login dela na Privacy uma única vez e inicie o turno.</p></div>
       </section>}
 
-      <section className="ext-lauth" data-testid="ext-lauth">
-        <div className="ext-lauth-tag"><Sparkles size={14}/>O QUE MUDA EM RELAÇÃO AO LAUTH</div>
-        <h2 data-testid="ext-lauth-title">Mesma troca de perfil, mais a supervisão.</h2>
-        <div className="ext-lauth-steps">
-          <div><Users size={18}/><h3>Perfis, grupos e etiquetas</h3><p>Lateral com busca, grupos, etiquetas coloridas e anotações por criadora. Vários perfis abertos ao mesmo tempo, cada um com sua sessão.</p></div>
-          <div><Monitor size={18}/><h3>Turno e presença</h3><p>Iniciar, pausar e encerrar turno direto na lateral. O painel mostra quem está com cada criadora e avisa quando alguém já está atendendo.</p></div>
-          <div><Gauge size={18}/><h3>Fila, resposta e vendas</h3><p>Quantos fãs estão esperando e há quanto tempo, tempo de resposta por chatter e vendas confirmadas, tudo nas telas Operação e Vendas.</p></div>
+      <section className="ext-feat" data-testid="ext-features">
+        <div className="ext-feat-tag"><Sparkles size={14}/>O QUE VOCÊ TEM NO ALTA PULSE</div>
+        <h2 data-testid="ext-features-title">Muito mais que trocar de perfil.</h2>
+        <div className="ext-feat-steps">
+          <div><Users size={18}/><h3>Perfis e cofre de acessos</h3><p>Cada criadora com sessão própria, grupos, etiquetas e anotações. O gestor guarda login e senha; o chatter entra com um clique sem nunca ver a senha.</p></div>
+          <div><Monitor size={18}/><h3>Turno e presença</h3><p>Um botão de turno para todas as criadoras do chatter. O painel mostra quem está com cada perfil, há quanto tempo, e avisa turno esquecido aberto.</p></div>
+          <div><Gauge size={18}/><h3>Fila e tempo de resposta</h3><p>Balão com as conversas sem resposta, tempo de espera de cada fã e tempo médio de resposta por chatter, no app e no painel.</p></div>
+          <div><MousePointerClick size={18}/><h3>Cartão do fã</h3><p>Ao abrir uma conversa: quanto o fã já gastou, o que costuma comprar, ofertas pendentes, se a assinatura está ativa e as anotações da equipe.</p></div>
+          <div><Layers size={18}/><h3>Ofertas, vendas e qualidade</h3><p>Ofertas e vendas registradas sozinhas, filtros por dia, criadora e chatter, nota de atendimento de 0 a 100 e alertas do que precisa de atenção agora.</p></div>
+          <div><Sparkles size={18}/><h3>Alta Ajuda com IA</h3><p>O chatter escreve a ideia e recebe versões prontas no estilo da criadora, com a tabela de preços dela. Quem envia é sempre o chatter.</p></div>
         </div>
-        <p className="ext-lauth-note"><ShieldCheck size={14}/>O app não altera a identificação do navegador nem usa proxy. Ele é um Chromium comum com um perfil por criadora, instalado só para o seu usuário do Windows (não pede senha de administrador). As métricas só entram no painel com o armazenamento ativado em Configurações.</p>
+        <p className="ext-feat-note"><ShieldCheck size={14}/>O app não altera a identificação do navegador nem usa proxy. Ele é um Chromium comum com um perfil por criadora, instalado só para o seu usuário do Windows (não pede senha de administrador). As métricas só entram no painel com o armazenamento ativado em Configurações.</p>
       </section>
 
-      {installer && <p className="ext-lauth-note" data-testid="ext-advanced"><Puzzle size={14}/>Para quem prefere rodar pelo código-fonte (Node.js + Iniciar.bat): <button className="shift-link" data-testid="download-desktop" onClick={getZip}>baixar o pacote .zip{desktop?.zip_version ? ` v${desktop.zip_version}` : ''}</button></p>}
+      {installer && <p className="ext-feat-note" data-testid="ext-advanced"><Puzzle size={14}/>Para quem prefere rodar pelo código-fonte (Node.js + Iniciar.bat): <button className="shift-link" data-testid="download-desktop" onClick={getZip}>baixar o pacote .zip{desktop?.zip_version ? ` v${desktop.zip_version}` : ''}</button></p>}
 
       <div className="ext-divider" data-testid="ext-divider"><span>Ou, se preferir continuar no Google Chrome</span></div>
 

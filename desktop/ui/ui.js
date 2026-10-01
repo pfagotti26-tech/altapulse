@@ -147,7 +147,7 @@ function card(c) {
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
   const shiftBtn = '';
   const el = document.createElement('div');
-  // cards compactos (nome + status, como no Lauth); a criadora aberta na tela mostra os detalhes
+  // cards compactos (nome + status); a criadora aberta na tela mostra os detalhes
   const compact = S.active !== c.id;
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '') + (compact ? ' compact' : '');
   let inds = '';

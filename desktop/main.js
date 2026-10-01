@@ -1,4 +1,4 @@
-// Alta Pulse desktop — fase 1 (paridade com o Lauth)
+// Alta Pulse desktop
 //
 // Uma janela: lateral de criadoras à esquerda e, à direita, um perfil isolado por criadora
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da

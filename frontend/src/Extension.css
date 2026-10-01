@@ -54,19 +54,19 @@
   .ext-header, .ext-footer { padding-left: 22px; padding-right: 22px; }
 }
 
-.ext-lauth { background: #16161a; color: #fff; border-radius: 20px; padding: 34px 36px; margin-bottom: 34px; border: 1px solid #26262c; }
-.ext-lauth-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .12em; color: #ff5c78; background: rgba(196,30,58,.16); padding: 6px 12px; border-radius: 999px; margin-bottom: 16px; }
-.ext-lauth h2 { font-size: 26px; line-height: 1.15; margin: 0 0 10px; color: #fff; }
-.ext-lauth > p { color: #b7b7c0; max-width: 720px; margin: 0 0 26px; font-size: 15px; line-height: 1.6; }
-.ext-lauth-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
-.ext-lauth-steps > div { background: #1e1e24; border: 1px solid #2c2c34; border-radius: 14px; padding: 20px; }
-.ext-lauth-steps svg { color: #ff5c78; margin-bottom: 12px; }
-.ext-lauth-steps h3 { font-size: 14px; margin: 0 0 8px; color: #fff; }
-.ext-lauth-steps p { font-size: 13px; color: #a2a2ac; line-height: 1.55; margin: 0; }
-.ext-lauth-steps strong { color: #e6e6ea; }
-.ext-lauth-note { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #9a9aa4; margin: 0; }
-.ext-lauth-note svg { color: #4ade80; flex-shrink: 0; margin-top: 2px; }
+.ext-feat { background: #16161a; color: #fff; border-radius: 20px; padding: 34px 36px; margin-bottom: 34px; border: 1px solid #26262c; }
+.ext-feat-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .12em; color: #ff5c78; background: rgba(196,30,58,.16); padding: 6px 12px; border-radius: 999px; margin-bottom: 16px; }
+.ext-feat h2 { font-size: 26px; line-height: 1.15; margin: 0 0 10px; color: #fff; }
+.ext-feat > p { color: #b7b7c0; max-width: 720px; margin: 0 0 26px; font-size: 15px; line-height: 1.6; }
+.ext-feat-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
+.ext-feat-steps > div { background: #1e1e24; border: 1px solid #2c2c34; border-radius: 14px; padding: 20px; }
+.ext-feat-steps svg { color: #ff5c78; margin-bottom: 12px; }
+.ext-feat-steps h3 { font-size: 14px; margin: 0 0 8px; color: #fff; }
+.ext-feat-steps p { font-size: 13px; color: #a2a2ac; line-height: 1.55; margin: 0; }
+.ext-feat-steps strong { color: #e6e6ea; }
+.ext-feat-note { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #9a9aa4; margin: 0; }
+.ext-feat-note svg { color: #4ade80; flex-shrink: 0; margin-top: 2px; }
 .ext-divider { display: flex; align-items: center; text-align: center; color: #9a9aa4; font-size: 12px; letter-spacing: .04em; margin: 0 0 26px; }
 .ext-divider::before, .ext-divider::after { content: ''; flex: 1; height: 1px; background: #e6e6ea; }
 .ext-divider span { padding: 0 16px; }
-@media (max-width: 900px) { .ext-lauth-steps { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .ext-feat-steps { grid-template-columns: 1fr; } }
