@@ -141,7 +141,7 @@ function card(c) {
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
   // botão simples "Entrar"; some ao clicar (volta só se a tela de login continuar depois de 40 s)
   for (const p of loginList) if (vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000) continue;
-  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
+  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : ''; // sem acesso salvo: só a bolinha vermelha no chip (a dica explica)
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
   const mine = c.shift && c.shift.operator_id === S.user.id;
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
