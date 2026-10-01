@@ -54,13 +54,26 @@ async function photoMenu() {
   await p;
 }
 
+// boas-vindas: a cada login (e a cada vez que o app abre já logado), primeiro nome + frase motivacional
+let welcomedFor = null;
+function showWelcome() {
+  const old = document.getElementById('welcome'); if (old) old.remove();
+  const box = document.createElement('div'); box.id = 'welcome'; box.className = 'welcome';
+  const u = S.user; const ini = String(u.name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const photo = u.avatar ? `<img class="welcome-photo" src="${esc(u.avatar)}" alt="">` : `<div class="welcome-photo ini">${esc(ini)}</div>`;
+  box.innerHTML = `<div class="welcome-card">${photo}<div class="welcome-hi">${esc(window.altaGreeting(u.name))}</div><p>${esc(window.altaNextPhrase(u.id))}</p><div class="welcome-sign">${esc(window.ALTA_SIGNATURE)}</div><button class="primary">Bora!</button></div>`;
+  const close = () => { box.classList.add('out'); setTimeout(() => box.remove(), 250); };
+  box.querySelector('button').onclick = close; box.onclick = (e) => { if (e.target === box) close(); };
+  document.body.appendChild(box); setTimeout(close, 9000);
+}
 function apply(state) {
   S = state;
   const logged = !!(S && S.user);
   $('login').classList.toggle('hidden', logged);
   $('main').classList.toggle('hidden', !logged);
   $('origin').value = S.origin || '';
-  if (!logged) return;
+  if (!logged) { welcomedFor = null; return; }
+  if (welcomedFor !== S.user.id && window.altaNextPhrase) { welcomedFor = S.user.id; showWelcome(); }
   $('me-name').textContent = S.user.name;
   setAvatar($('me-avatar'), S.user.avatar, S.user.name);
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
@@ -147,7 +160,7 @@ function card(c) {
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
   const shiftBtn = '';
   const el = document.createElement('div');
-  // cards compactos (nome + status, como no Lauth); a criadora aberta na tela mostra os detalhes
+  // cards compactos (nome + status); a criadora aberta na tela mostra os detalhes
   const compact = S.active !== c.id;
   el.className = 'card' + (S.open.includes(c.id) ? ' open' : '') + (S.active === c.id ? ' active' : '') + (compact ? ' compact' : '');
   let inds = '';
@@ -158,7 +171,8 @@ function card(c) {
   el.dataset.id = c.id;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
-  el.innerHTML = `<div class="avatar ${esc(c.color)}">${esc(initials(c.name))}${bubble}</div>
+  const face = c.avatar && /^data:image\//.test(c.avatar) ? `<img class="creator-photo" src="${esc(c.avatar)}" alt="">` : esc(initials(c.name));
+  el.innerHTML = `<div class="avatar ${esc(c.color)}${c.avatar ? ' has-photo' : ''}">${face}${bubble}</div>
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
@@ -398,7 +412,7 @@ $('btn-logout').onclick = async () => {
   for (const c of mine) { try { await window.pulse.shiftAction(c.shift.id, 'end'); } catch {} }
   run(() => window.pulse.logout());
 };
-$('btn-refresh').onclick = () => run(() => window.pulse.getState());
+$('btn-refresh').onclick = () => { if (window.pulse.reloadActive) window.pulse.reloadActive(); run(() => window.pulse.getState()); };
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
 $('sort').addEventListener('change', renderList);
@@ -421,4 +435,10 @@ $('app-menu').addEventListener('click', async (e) => {
 
 window.pulse.onState(apply);
 window.pulse.onToast(toast);
+if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url }) => {
+  let bar = document.getElementById('portable-update');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'portable-update'; bar.className = 'portable-update'; document.body.prepend(bar); }
+  bar.innerHTML = `<span>Nova versão ${esc(version)} disponível</span><button>Baixar</button>`;
+  bar.querySelector('button').onclick = () => window.pulse.openExternal(url);
+});
 window.pulse.snapshot().then(apply);

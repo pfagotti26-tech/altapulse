@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('pulse', {
   login: (email, password) => ipcRenderer.invoke('auth:login', { email, password }),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getState: () => ipcRenderer.invoke('state:get'),
+  reloadActive: () => ipcRenderer.invoke('profile:reload-active'),
   snapshot: () => ipcRenderer.invoke('state:snapshot'),
 
   openProfile: (id, platform) => ipcRenderer.invoke('profile:open', id, platform),
@@ -43,4 +44,5 @@ contextBridge.exposeInMainWorld('pulse', {
   fanContacted: (taskId) => ipcRenderer.invoke('fan:contacted', taskId),
   taskOpen: (taskId) => ipcRenderer.invoke('task:open', taskId),
   onToast: (fn) => ipcRenderer.on('toast', (_e, m) => fn(m)),
+  onPortableUpdate: (fn) => ipcRenderer.on('portable-update', (_e, m) => fn(m)),
 });

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pymongo.errors import DuplicateKeyError
 from datetime import timedelta
 from core import db, now, iso, uid, current_user, manager, creator_access, lock, audit, expiration, clean_time
-from schemas import Creator, Operator, OperatorUpdate, ShiftStart, ShiftAction, ShiftCorrection, Reason
+from schemas import AvatarIn, Creator, Operator, OperatorUpdate, ShiftStart, ShiftAction, ShiftCorrection, Reason
 from auth_routes import hash_password
 from responses import UserOut, CreatorOut, ShiftOut
 
@@ -30,6 +30,17 @@ async def edit_creator(creator_id: str, body: Creator, user=Depends(manager)):
     old = await creator_access(creator_id, user)
     await db.creators.update_one({'id': creator_id}, {'$set': body.model_dump(exclude_unset=True)})
     await audit(user, 'Cadastro atualizado', old['name'])
+    return {'ok': True}
+# foto da criadora (bolinha no painel e no app): o gestor envia, ou o app pega a foto de perfil da plataforma
+@router.put('/creators/{creator_id}/avatar')
+async def creator_avatar(creator_id: str, body: AvatarIn, user=Depends(manager)):
+    await creator_access(creator_id, user)
+    await db.creators.update_one({'id': creator_id}, {'$set': {'avatar': body.image, 'avatar_source': 'manual'}})
+    return {'ok': True}
+@router.delete('/creators/{creator_id}/avatar')
+async def creator_avatar_delete(creator_id: str, user=Depends(manager)):
+    await creator_access(creator_id, user)
+    await db.creators.update_one({'id': creator_id}, {'$set': {'avatar': None, 'avatar_source': None}})
     return {'ok': True}
 @router.delete('/creators/{creator_id}')
 async def remove_creator(creator_id: str, body: Reason, user=Depends(manager)):

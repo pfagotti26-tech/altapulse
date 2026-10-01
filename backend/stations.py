@@ -108,6 +108,12 @@ async def ingest(body: Observation, source: dict):
     # venda do extrato tem instante próprio (não é observação da tela em tempo real): entra mesmo com turno pausado
     if shift and shift['paused'] and not (body.kind == 'sale' and body.sale_source == 'extrato'): raise HTTPException(409, 'Turno pausado.')
     row = body.model_dump(mode='json')
+    # OnlyFans paga em dólar: guarda o valor original e converte para reais pela cotação da agência (Configurações)
+    if body.currency == 'USD':
+        rate = float((await settings()).get('usd_brl_rate') or 5.0)
+        row['amount_usd_cents'] = body.amount_cents; row['commission_usd_cents'] = body.commission_cents; row['fx_rate'] = rate
+        if body.amount_cents is not None: row['amount_cents'] = round(body.amount_cents * rate)
+        if body.commission_cents is not None: row['commission_cents'] = round(body.commission_cents * rate)
     # nome do assinante só é guardado com a opção explícita da agência em Configurações
     if not (await settings()).get('fan_names_allowed'): row['fan_name'] = None
     for key in ['started_at', 'responded_at', 'confirmed_at', 'offered_at']:
@@ -130,7 +136,7 @@ async def ingest(body: Observation, source: dict):
         # a mesma venda do extrato lida por outro computador (chave de hash diferente) não entra de novo
         if not old and body.kind == 'sale' and body.sale_source == 'extrato' and row.get('confirmed_at'):
             twin = {'creator_id': body.creator_id, 'kind': 'sale', 'sale_source': 'extrato', 'confirmed_at': row['confirmed_at'],
-                    'amount_cents': body.amount_cents, 'sale_origin': body.sale_origin}
+                    'amount_cents': row['amount_cents'], 'sale_origin': body.sale_origin}
             if row.get('fan_name'): twin['fan_name'] = row['fan_name']
             if await db.events.find_one(twin, {'_id': 1}): return {'ok': True, 'deduplicated': True}
         await db.events.update_one({'creator_id': body.creator_id, 'event_ref': body.event_ref},
