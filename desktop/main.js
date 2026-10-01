@@ -16,7 +16,8 @@ const SNAPSHOT = require('./snapshot-page.js');
 const SUBS = require('./subscribers-page.js');
 const { ExtratoReader } = require('./extrato.js');
 const FF = require('./fatalfans-page.js');
-const { FatalFansReader } = require('./fatalfans.js');
+const { FatalFansReader, SalesReader } = require('./fatalfans.js');
+const CF = require('./closefans-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
@@ -38,7 +39,8 @@ const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cad
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
 const SUBS_MS = 6 * 60 * 60 * 1000;
-const FF_URL = 'https://fatalfans.com/creator/dashboard'; // FatalFans → Minhas vendas     // bloco D: lista de assinantes a cada 6 h
+const FF_URL = 'https://fatalfans.com/creator/dashboard'; // FatalFans → Minhas vendas
+const CF_URL = 'https://close.fans/sales-report';       // CloseFans → Vendas     // bloco D: lista de assinantes a cada 6 h
 const SAMPLE_MS = 30 * 60 * 1000;       // bloco E: no máximo uma amostra por conversa a cada 30 min
 const STATS_URL = 'https://privacy.com.br/myprivacystats';
 // A aba oculta precisa de tela de desktop de verdade: fora da janela o Chromium recorta para 0 px e a
@@ -113,6 +115,7 @@ async function syncHashKey() {
       for (const r of readers.values()) r.reader.secret = key;
       for (const x of extratos.values()) x.reader.secret = key;
       for (const x of ffs.values()) x.reader.secret = key;
+      for (const x of cfs.values()) x.reader.secret = key;
     }
   } catch { /* painel antigo: segue com a chave local */ }
 }
@@ -201,6 +204,7 @@ function publicState() {
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
     fatalfans: Object.fromEntries([...ffs].map(([id, x]) => [id, x.summary || null])),
+    closefans: Object.fromEntries([...cfs].map(([id, x]) => [id, x.summary || null])),
     platforms: PLATFORMS,
     credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
     loginPages: Object.fromEntries(loginPages),
@@ -365,6 +369,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   if (!opts.quiet) { pushState(); saveOpenTabs(); }
   if (platform === 'privacy') scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
   if (platform === 'fatalfans') scheduleFF(creatorId, EXTRATO_FIRST_MS);
+  if (platform === 'closefans') scheduleCF(creatorId, EXTRATO_FIRST_MS);
 }
 
 // Página que fica em branco no primeiro carregamento (acontece em instalação nova): recarrega sozinho até 3 vezes.
@@ -780,6 +785,76 @@ async function readFFNow(id, opts = {}) {
     if (ffTabOpen(id)) scheduleFF(id, EXTRATO_MS);
   }
 }
+// ---------- CloseFans: Vendas (extrato do mês atual, todas as páginas) ----------
+const cfs = new Map(); // creatorId -> { view, reader, summary, timer, busy }
+function cfFor(id) {
+  if (!cfs.has(id)) cfs.set(id, { view: null, reader: new SalesReader(id, secretFor(), readJson(`closefans-${id}.json`, null), { fanNames: !!state.fan_names_allowed }, 'closefans'), summary: null, timer: null, busy: false });
+  return cfs.get(id);
+}
+function cfView(id) {
+  const x = cfFor(id);
+  if (x.view && !x.view.webContents.isDestroyed()) return x.view;
+  const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  view.webContents.setUserAgent(UA); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
+  x.view = view; return view;
+}
+function closeCFView(id) { const x = cfs.get(id); if (!x) return; if (x.view && !x.view.webContents.isDestroyed()) { win.contentView.removeChildView(x.view); x.view.webContents.close(); } x.view = null; }
+function scheduleCF(id, ms) { const x = cfFor(id); clearTimeout(x.timer); x.timer = setTimeout(() => readCF(id).catch(() => {}), ms); }
+let cfChain = Promise.resolve();
+function readCF(id, opts = {}) { const p = cfChain.then(() => capped(readCFNow(id, opts))).catch(() => {}); cfChain = p; return p; }
+const cfTabOpen = (id) => !!(tabs.get(id) && tabs.get(id).has('closefans'));
+async function hasCFSession(id) { try { return (await session.fromPartition(partitionFor(id)).cookies.get({ url: 'https://close.fans' })).length > 0; } catch { return false; } }
+async function readCFNow(id, opts = {}) {
+  const x = cfFor(id);
+  if (!state.user || x.busy) return;
+  if (!cfTabOpen(id) && !opts.background) return;
+  x.busy = true;
+  const diag = (o) => { if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'closefans-ultima-leitura.json'), JSON.stringify({ at: new Date().toISOString(), ...o }, null, 1)); } catch {} };
+  try {
+    x.reader.options.fanNames = !!state.fan_names_allowed;
+    const view = cfView(id);
+    const run = (a) => runJs(view, CF.script(a), 10000).catch((e) => ({ error: String(e && e.message || e), rows: [] }));
+    await new Promise((resolve) => {
+      let timer = null;
+      const done = () => { clearTimeout(timer); const wc = view.webContents; if (wc && !wc.isDestroyed()) { wc.removeListener('did-finish-load', done); wc.removeListener('did-fail-load', done); } resolve(); };
+      view.webContents.once('did-finish-load', done); view.webContents.once('did-fail-load', done);
+      view.webContents.loadURL(CF_URL, { userAgent: UA }); timer = setTimeout(done, 25000);
+    });
+    await sleep(4000);
+    let d = await run('read');
+    for (let i = 0; i < 10 && !(d.rows || []).length && !d.loggedOut; i++) { await sleep(2000); d = await run('read'); }
+    if (!d.ok) { x.summary = { error: d.loggedOut ? 'login' : `sem extrato (${(d.url || '').slice(0, 80)})`, readAt: new Date().toISOString(), rows: 0 }; diag({ summary: x.summary, d: { ...d, rows: undefined } }); return; }
+    const all = [...(d.rows || [])]; let pages = 1; const first = { rows: all.length, page: d.page, pages: d.pages, hasNext: d.hasNext, heads: d.heads, count: d.count };
+    while (d.hasNext && pages < 60 && (!x.reader.s.backfilled || (d.rows || []).some((r) => !x.reader.known(r)))) {
+      const before = d.page; await run('next'); let moved = false;
+      for (let w = 0; w < 10; w++) { await sleep(1200); d = await run('read'); if (d.page !== before) { moved = true; break; } }
+      if (!moved) break; all.push(...(d.rows || [])); pages += 1;
+    }
+    const { events, summary } = x.reader.process(all, new Date());
+    x.summary = { ...summary, pages, sent: 0 };
+    diag({ first, total: all.length, pages, events: events.length, sample: all.slice(0, 3).map((r) => ({ ...r, name: r.name ? '•••' : '' })) });
+    if (events.length && state.storage_allowed) {
+      const accepted = [];
+      for (let i = 0; i < events.length; i += 150) {
+        const out = await api('POST', '/extension/observations', { events: events.slice(i, i + 150) });
+        for (const r of out.results || []) if (r.ok) accepted.push(r.event_ref);
+        const rejected = (out.results || []).filter((r) => !r.ok);
+        if (rejected.length) { x.summary.rejected = (x.summary.rejected || 0) + rejected.length; x.summary.lastReject = rejected[0].detail; }
+      }
+      x.reader.markSent(accepted); x.summary.sent = accepted.length;
+      if (all.length) x.reader.s.backfilled = true;
+    } else { x.reader.markSent([]); if (!state.storage_allowed) x.summary.dropped = events.length; }
+    writeJson(`closefans-${id}.json`, x.reader.s);
+  } catch (error) {
+    x.summary = { ...(x.summary || {}), error: /Extra inputs are not permitted/.test(error.message) ? 'painel desatualizado: publique a versão nova do Alta Pulse' : error.message, readAt: new Date().toISOString() };
+    diag({ summary: x.summary });
+  } finally {
+    x.busy = false; pushState(); closeCFView(id);
+    if (cfTabOpen(id)) scheduleCF(id, EXTRATO_MS);
+  }
+}
 // Vigia (gestor): a cada 10 min lê o extrato de TODAS as criadoras com sessão da Privacy salva neste
 // computador, mesmo sem aba aberta. Assim nenhuma venda fica sem registro quando ninguém está atendendo.
 let vigiaTimer = null;
@@ -793,6 +868,10 @@ async function vigia() {
   for (const c of state.creators || []) {
     if (ffTabOpen(c.id)) continue;
     if (await hasFFSession(c.id)) await readFF(c.id, { background: true });
+  }
+  for (const c of state.creators || []) {
+    if (cfTabOpen(c.id)) continue;
+    if (await hasCFSession(c.id)) await readCF(c.id, { background: true });
   }
 }
 function startVigia() { stopVigia(); if (state.user && state.user.role === 'manager') { vigiaTimer = setInterval(() => vigia().catch(() => {}), EXTRATO_MS); setTimeout(() => vigia().catch(() => {}), EXTRATO_FIRST_MS * 2); } }
@@ -847,7 +926,7 @@ ipcMain.handle('task:open', async (_e, taskId) => {
   if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
   return { found: !!cid, name: t.fan_name };
 });
-ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); if (ffTabOpen(id) || await hasFFSession(id)) await readFF(id, { background: true }); return publicState(); });
+ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); if (ffTabOpen(id) || await hasFFSession(id)) await readFF(id, { background: true }); if (cfTabOpen(id) || await hasCFSession(id)) await readCF(id, { background: true }); return publicState(); });
 // diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
 ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
   const x = extratoFor(id); const view = statsView(id); raiseStatsView(view);
@@ -950,7 +1029,7 @@ ipcMain.handle('profile:calibrate', async (_e, id) => {
   if (!view) throw new Error('Abra a criadora primeiro.');
   const url = view.webContents.getURL();
   const platform = platformOf(url);
-  if (!platform || !['privacy', 'fatalfans'].includes(platform)) throw new Error('Abra a Privacy ou o FatalFans da criadora antes de capturar.');
+  if (!platform || !['privacy', 'fatalfans', 'closefans'].includes(platform)) throw new Error('Abra a Privacy, o FatalFans ou o CloseFans da criadora antes de capturar.');
   const outline = await view.webContents.executeJavaScript(CALIBRATION_SCRIPT, true);
   if (!outline || outline.length < 200) throw new Error('A tela ainda não carregou. Espere aparecerem as mensagens e tente de novo.');
   // cópia local (mesmo conteúdo mascarado) para análise sem depender do banco do painel

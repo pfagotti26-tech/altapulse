@@ -4,7 +4,7 @@
 const PLATFORMS = {
   privacy:   { label: 'Privacy',     home: 'https://privacy.com.br/',         hosts: ['privacy.com.br'] },
   fatalfans: { label: 'FatalFans',   home: 'https://fatalfans.com/',          hosts: ['fatalfans.com'] },
-  closefans: { label: 'CloseFans',   home: 'https://closefans.com/',          hosts: ['closefans.com'] },
+  closefans: { label: 'CloseFans',   home: 'https://close.fans/',             hosts: ['close.fans', 'closefans.com'] },
   onlyfans:  { label: 'OnlyFans',    home: 'https://onlyfans.com/',           hosts: ['onlyfans.com'] },
   x:         { label: 'X (Twitter)', home: 'https://x.com/home',              hosts: ['x.com', 'twitter.com'] },
   instagram: { label: 'Instagram',   home: 'https://www.instagram.com/',      hosts: ['instagram.com'] },

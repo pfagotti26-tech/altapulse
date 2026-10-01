@@ -22,6 +22,7 @@ const cents = (s) => { const m = (s || '').replace(/\s/g, ' ').match(/(-?)R\$\s*
 function product(t) {
   const s = norm(t);
   if (/renova/.test(s)) return 'renewal';
+  if (/assinatura/.test(s) && /recorr|[2-9]\s*º|[2-9]o pagamento/.test(s)) return 'renewal';
   if (/assinatura/.test(s)) return 'subscription';
   if (/chat|mensagem|midia/.test(s)) return 'chat';
   if (/presente|mimo|gorjeta|tip/.test(s)) return 'tip';
@@ -34,15 +35,16 @@ function status(t) {
   if (/estorn|reembols|chargeback|devolv/.test(s)) return 'refunded';
   if (/cancel|recus|negad|falh/.test(s)) return 'cancelled';
   if (/pend|aguard|process|analise/.test(s)) return 'pending';
+  if (/aprovad|pag[oa]|conclu|confirm/.test(s)) return 'confirmed';
   return 'confirmed';
 }
 
-class FatalFansReader {
-  constructor(creatorId, secret, store, options = {}) {
-    this.creatorId = creatorId; this.secret = secret; this.options = options;
+class SalesReader {
+  constructor(creatorId, secret, store, options = {}, platform = 'fatalfans') {
+    this.platform = platform; this.creatorId = creatorId; this.secret = secret; this.options = options;
     this.s = store || { sent: {}, backfilled: false };
   }
-  ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, 'fatalfans', ...parts].join('|')).digest('hex'); }
+  ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, this.platform, ...parts].join('|')).digest('hex'); }
   fan(name) { return name ? { fan_ref: this.ref('fan', name), ...(this.options.fanNames ? { fan_name: name.slice(0, 80) } : {}) } : {}; }
   known(r, now = new Date()) { const at = parseWhen(r.when, now); return at ? !!this.s.sent[this.ref('sale', at.toISOString(), r.name, r.gross, r.product)] : false; }
   process(rows, now = new Date()) {
@@ -56,8 +58,9 @@ class FatalFansReader {
       const ref = this.ref('sale', at.toISOString(), r.name, r.gross, r.product);
       const sig = `${st}|${gross}|${net}`;
       if (this.s.sent[ref] === sig) continue;
-      events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'sale', platform: 'fatalfans', amount_cents: gross,
-        commission_cents: net != null && net <= gross ? net : null, // "Seu ganho": a parte da criadora, como a comissão do extrato da Privacy sale_origin: origin, sale_status: st, sale_source: 'extrato',
+      // "Seu ganho"/"Valor líquido" é a parte da criadora, como a comissão do extrato da Privacy
+      events.push({ creator_id: this.creatorId, event_ref: ref, kind: 'sale', platform: this.platform, amount_cents: gross,
+        commission_cents: net != null && net <= gross ? net : null, sale_origin: origin, sale_status: st, sale_source: 'extrato',
         payment_method: (r.payment || '').slice(0, 30) || null, confirmed_at: at.toISOString(), sequence_complete: true, ...this.fan(r.name) });
       this.s.pendingSig[ref] = sig;
     }
@@ -70,4 +73,5 @@ class FatalFansReader {
   }
 }
 
-module.exports = { FatalFansReader, parseWhen, cents, product, status };
+class FatalFansReader extends SalesReader { constructor(c, s, st, o) { super(c, s, st, o, 'fatalfans'); } }
+module.exports = { SalesReader, FatalFansReader, parseWhen, cents, product, status };
