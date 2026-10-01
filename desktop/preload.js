@@ -44,4 +44,5 @@ contextBridge.exposeInMainWorld('pulse', {
   fanContacted: (taskId) => ipcRenderer.invoke('fan:contacted', taskId),
   taskOpen: (taskId) => ipcRenderer.invoke('task:open', taskId),
   onToast: (fn) => ipcRenderer.on('toast', (_e, m) => fn(m)),
+  onPortableUpdate: (fn) => ipcRenderer.on('portable-update', (_e, m) => fn(m)),
 });

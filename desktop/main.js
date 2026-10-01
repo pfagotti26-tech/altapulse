@@ -889,8 +889,22 @@ app.on('window-all-closed', () => app.quit());
 // ---------- atualização automática (instalador) ----------
 // O app instalado pelo AltaPulse-Setup.exe busca versões novas nas releases do GitHub do projeto
 // (electron-updater). Baixa em silêncio e instala ao fechar o app; a lateral avisa quando está pronta.
+// Versão sem instalador (.zip): não tem como se atualizar sozinha; avisa na lateral quando sair versão nova.
+const isPortable = () => app.isPackaged && !fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Alta Pulse.exe'));
+const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+function setupPortableNotice() {
+  const check = async () => {
+    try {
+      const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar` });
+    } catch {}
+  };
+  setTimeout(check, 15000); setInterval(check, 3 * 60 * 60 * 1000);
+}
+
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
+  if (isPortable()) { setupPortableNotice(); return; }
   let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;

@@ -174,7 +174,7 @@ def installer_stream(name):
 async def desktop_release():
     installer = installer_info()
     return {'version': (installer or {}).get('version') or DESKTOP_VERSION, 'api_origin': ORIGIN, 'available': DESKTOP_VERSION is not None,
-        'installer': installer, 'filename': (installer or {}).get('filename') or f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip',
+        'installer': installer, 'portable': portable_info(), 'filename': (installer or {}).get('filename') or f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip',
         'zip_version': DESKTOP_VERSION, 'zip_filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip'}
 
 @router.get('/desktop/installer')
@@ -185,6 +185,24 @@ async def desktop_installer():
     if not installer: raise HTTPException(404, 'Instalador ainda não publicado. Use o pacote .zip.')
     return StreamingResponse(installer_stream(installer['filename']), media_type='application/octet-stream',
         headers={'Content-Disposition': f'attachment; filename="{installer["filename"]}"', 'Content-Length': str(installer['size'])})
+
+def portable_info():
+    """Versão sem instalador (.zip do app pronto), para PCs cujo antivírus bloqueia o instalador."""
+    inst = installer_info()
+    if not inst: return None
+    name = f"AltaPulse-{inst['version']}-sem-instalador.zip"
+    parts = sorted(DIST.glob(name + '.part*'))
+    if not parts and not (DIST / name).exists(): return None
+    size = sum(f.stat().st_size for f in parts) if parts else (DIST / name).stat().st_size
+    return {'version': inst['version'], 'filename': name, 'size': size, 'url': f'{ORIGIN}/api/desktop/portable'}
+
+@router.get('/desktop/portable')
+async def desktop_portable():
+    from fastapi.responses import StreamingResponse
+    info = portable_info()
+    if not info: raise HTTPException(404, 'Versão sem instalador ainda não publicada.')
+    return StreamingResponse(installer_stream(info['filename']), media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{info["filename"]}"', 'Content-Length': str(info['size'])})
 
 @router.get('/desktop/updates/{name}')
 async def desktop_updates(name: str):
