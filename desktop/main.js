@@ -356,8 +356,19 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
   view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
+  watchBlank(view);
   if (!opts.quiet) { pushState(); saveOpenTabs(); }
   if (platform === 'privacy') scheduleExtrato(creatorId, EXTRATO_FIRST_MS);
+}
+
+// Página que fica em branco no primeiro carregamento (acontece em instalação nova): recarrega sozinho até 3 vezes.
+function watchBlank(view, tries = 0) {
+  setTimeout(async () => {
+    if (!view || view.webContents.isDestroyed() || tries >= 3) return;
+    if (view.webContents.isLoading() && tries < 2) return watchBlank(view, tries + 1);
+    const n = await runJs(view, `(document.body ? document.body.innerText.trim().length + document.body.querySelectorAll('*').length : 0)`, 4000).catch(() => 0);
+    if (!n || n < 5) { view.webContents.reload(); watchBlank(view, tries + 1); }
+  }, 12000);
 }
 
 function closeTab(creatorId, platform) {
@@ -768,6 +779,7 @@ ipcMain.handle('auth:logout', async () => {
   return publicState();
 });
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
+ipcMain.handle('profile:reload-active', () => { const v = activeId && currentView(activeId); if (v && !v.webContents.isDestroyed()) { v.webContents.reload(); watchBlank(v); } return true; });
 ipcMain.handle('me:avatar', async (_e, image) => {
   if (image) await api('PUT', '/extension/avatar', { image }); else await api('DELETE', '/extension/avatar');
   await refreshState(); return publicState();

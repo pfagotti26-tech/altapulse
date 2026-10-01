@@ -398,7 +398,7 @@ $('btn-logout').onclick = async () => {
   for (const c of mine) { try { await window.pulse.shiftAction(c.shift.id, 'end'); } catch {} }
   run(() => window.pulse.logout());
 };
-$('btn-refresh').onclick = () => run(() => window.pulse.getState());
+$('btn-refresh').onclick = () => { if (window.pulse.reloadActive) window.pulse.reloadActive(); run(() => window.pulse.getState()); };
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
 $('sort').addEventListener('change', renderList);
