@@ -15,7 +15,7 @@ body { font: 13px/1.4 "Segoe UI", system-ui, sans-serif; background: var(--bg); 
 .screen { height: 100%; display: flex; flex-direction: column; }
 #login { padding: 40px 28px; gap: 8px; }
 .logo { display: block; height: auto; }
-.logo.small { width: 112px; }
+.logo.small { width: 170px; }
 .lead { margin: 14px 0 4px; }
 form label, details label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 12px; }
 input, select { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
