@@ -59,8 +59,9 @@ let welcomedFor = null;
 function showWelcome() {
   const old = document.getElementById('welcome'); if (old) old.remove();
   const box = document.createElement('div'); box.id = 'welcome'; box.className = 'welcome';
-  const first = window.altaGreetName ? window.altaGreetName(S.user.name) : String(S.user.name || '').split(' ')[0];
-  box.innerHTML = `<div class="welcome-card"><div class="welcome-hi">Oi, ${esc(first)}!</div><p>${esc(window.altaNextPhrase(S.user.id, S.user.name))}</p><button class="primary">Bora!</button></div>`;
+  const u = S.user; const ini = String(u.name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const photo = u.avatar ? `<img class="welcome-photo" src="${esc(u.avatar)}" alt="">` : `<div class="welcome-photo ini">${esc(ini)}</div>`;
+  box.innerHTML = `<div class="welcome-card">${photo}<div class="welcome-hi">${esc(window.altaGreeting(u.name))}</div><p>${esc(window.altaNextPhrase(u.id))}</p><div class="welcome-sign">${esc(window.ALTA_SIGNATURE)}</div><button class="primary">Bora!</button></div>`;
   const close = () => { box.classList.add('out'); setTimeout(() => box.remove(), 250); };
   box.querySelector('button').onclick = close; box.onclick = (e) => { if (e.target === box) close(); };
   document.body.appendChild(box); setTimeout(close, 9000);
