@@ -304,7 +304,7 @@ async def extension_sample(body: SampleIn, user=Depends(extension_user)):
 @router.post('/extension/creators/{creator_id}/avatar')
 async def extension_creator_avatar(creator_id: str, body: AvatarIn, user=Depends(extension_user)):
     """Foto de perfil da criadora lida pelo app na plataforma; não substitui uma foto escolhida pelo gestor."""
-    creator = await db.creators.find_one({'id': creator_id}, {'_id': 0, 'avatar_source': 1})
+    creator = await db.creators.find_one({'id': creator_id}, {'_id': 0, 'id': 1, 'avatar_source': 1})
     if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
     if user['role'] != 'manager' and creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
     if creator.get('avatar_source') == 'manual': return {'ok': True, 'kept': True}
