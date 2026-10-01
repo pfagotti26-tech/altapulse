@@ -14,6 +14,7 @@ from performance import router as performance
 from fans import router as fans
 from quality_ai import router as quality_ai
 from assist import router as assist
+from scorecard import router as scorecard
 
 @asynccontextmanager
 async def lifespan(app):
@@ -62,7 +63,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')

@@ -2,7 +2,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt); font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
 .hidden { display: none !important; }
-main { height: 100%; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; border-left: 1px solid var(--line); }
+main { height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); overflow: hidden; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+#body { display: flex; flex-direction: column; gap: 10px; }
 header { display: flex; align-items: center; gap: 8px; }
 .av { width: 34px; height: 34px; border-radius: 50%; background: #35222a; color: #f6b1bf; display: grid; place-items: center; font-weight: 700; font-size: 12px; flex: none; }
 .who { flex: 1; min-width: 0; }
@@ -45,19 +47,33 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .wait.late { color: #ff8a80; }
 .resp { color: var(--mut); font-size: 11px; line-height: 1.5; }
 .resp b { color: var(--txt); font-weight: 600; }
-.aj { border: 1px solid #3a2a4a; background: #1a1622; border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 7px; }
+
+/* seções que abrem e fecham */
+.sec-t { background: none; border: 0; padding: 2px 0; color: var(--mut); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; text-align: left; display: flex; align-items: center; gap: 5px; }
+.sec-t span { background: #26262c; border-radius: 8px; padding: 0 6px; font-size: 9.5px; letter-spacing: 0; }
+.sec-t:hover { color: #fff; }
+.sec-row { display: flex; justify-content: space-between; align-items: center; }
+.add-note { font-size: 10.5px; color: #d6b8ff; }
+
+/* Alta Ajuda fixa na base do painel */
+#assist { flex: none; max-height: 62%; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid #3a2a4a; background: #17141e; box-shadow: 0 -6px 14px rgba(0,0,0,.35); }
 .aj-head { display: flex; justify-content: space-between; align-items: center; }
-.aj-head b { color: #d6b8ff; letter-spacing: .02em; }
+.aj-head b { color: #d6b8ff; letter-spacing: .02em; font-size: 13px; }
+.aj-meta { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.aj-warn { color: #f0cf7a; border: 1px solid #5a4a1e; border-radius: 8px; padding: 0 6px; font-size: 10px; cursor: help; }
 .aj-q { font-size: 11px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid #3a2a4a; color: #d6b8ff; line-height: 16px; }
 .aj-help { font-size: 11px; color: #cfc2e6; background: #231c30; border-radius: 8px; padding: 7px 9px; line-height: 1.5; }
-.aj-levels { display: flex; gap: 4px; }
-.aj-lv { flex: 1; font-size: 10.5px; padding: 4px 0; border-radius: 6px; border: 1px solid #3a2a4a; background: transparent; color: var(--mut); }
-.aj-lv.on { background: #3a2a4a; color: #fff; }
-.aj .btn { background: #7b4bc4; }
-.aj textarea { border-color: #3a2a4a; min-height: 54px; }
-.aj textarea:focus { border-color: #7b4bc4; }
-.aj-note { font-size: 10px; }
-.aj-sug { background: var(--panel); border-radius: 8px; padding: 8px 9px; word-wrap: break-word; }
+.aj-out { overflow-y: auto; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.aj-sug { background: var(--panel); border-radius: 8px; padding: 8px 9px; word-wrap: break-word; line-height: 1.45; }
 .aj-tone { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: #b99ae8; margin-bottom: 3px; }
 .aj-act { margin-top: 6px; display: flex; justify-content: flex-end; }
-.aj-act .btn { padding: 4px 12px; font-size: 11px; }
+.aj-act .btn { padding: 4px 14px; font-size: 11px; }
+#assist textarea { flex: none; min-height: 84px; max-height: 180px; resize: none; border: 1px solid #3a2a4a; border-style: solid; background: #120f18; font-size: 12.5px; line-height: 1.45; padding: 9px 10px; }
+#assist textarea:focus { border-color: #7b4bc4; }
+.aj-bar { display: flex; flex-direction: column; gap: 6px; }
+.aj-levels { display: flex; gap: 4px; }
+.aj-lv { flex: 1; font-size: 10.5px; padding: 6px 0; border-radius: 6px; border: 1px solid #3a2a4a; background: transparent; color: var(--mut); }
+.aj-lv.on { background: #3a2a4a; color: #fff; }
+#assist .btn { background: #7b4bc4; }
+.aj-go { width: 100%; padding: 9px 12px; font-size: 12.5px; }
+.aj-note { font-size: 10px; }
