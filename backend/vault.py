@@ -21,7 +21,7 @@ router = APIRouter()
 PLATFORMS = {
     'privacy':   {'label': 'Privacy',   'home': 'https://privacy.com.br/', 'login': 'https://privacy.com.br/auth?route=sign-in', 'hosts': ['privacy.com.br']},
     'fatalfans': {'label': 'FatalFans', 'home': 'https://fatalfans.com/',  'login': 'https://fatalfans.com/login', 'hosts': ['fatalfans.com']},
-    'closefans': {'label': 'CloseFans', 'home': 'https://closefans.com/',  'login': 'https://closefans.com/login', 'hosts': ['closefans.com']},
+    'closefans': {'label': 'CloseFans', 'home': 'https://close.fans/',  'login': 'https://close.fans/login', 'hosts': ['close.fans', 'closefans.com']},
     'onlyfans':  {'label': 'OnlyFans',  'home': 'https://onlyfans.com/',   'login': 'https://onlyfans.com/', 'hosts': ['onlyfans.com']},
     'x':         {'label': 'X (Twitter)', 'home': 'https://x.com/home',    'login': 'https://x.com/i/flow/login', 'hosts': ['x.com', 'twitter.com']},
     'instagram': {'label': 'Instagram', 'home': 'https://www.instagram.com/', 'login': 'https://www.instagram.com/accounts/login/', 'hosts': ['instagram.com']},

@@ -41,6 +41,7 @@ class CreatorOut(Public):
     review: dict[str, Any] | None = None
     shift: ShiftOut | None = None
     browser: dict[str, Any] | None = None
+    avatar: str | None = None
 
 class SettingsOut(Public):
     id: str = 'main'
@@ -50,6 +51,7 @@ class SettingsOut(Public):
     storage_allowed: bool
     fan_names_allowed: bool = False
     quality_ai_allowed: bool = False
+    usd_brl_rate: float = 5.0
 
 class MeOut(Public):
     user: UserOut

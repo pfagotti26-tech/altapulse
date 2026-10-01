@@ -5,7 +5,7 @@ Só gestor. Sem texto de mensagem: nome, valores, datas e produtos.
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import re
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException
 from core import db, now, iso, uid, manager, settings, clean_time, audit
@@ -23,6 +23,7 @@ class SubscriberRow(Strict):
     duration: str = Field(default='', max_length=40)
 class SubscribersIn(Strict):
     creator_id: str
+    platform: Optional[Literal['privacy', 'fatalfans', 'closefans', 'onlyfans']] = None
     taken_at: datetime
     total_label: str = Field(default='', max_length=40)
     revenue_cents: Optional[int] = Field(default=None, ge=0)
@@ -41,8 +42,9 @@ async def save_subscribers(body: SubscribersIn, user):
     for r in body.rows:
         await db.subscribers.update_one({'creator_id': body.creator_id, 'fan_ref': r.fan_ref},
             {'$set': {'fan_name': r.fan_name if names else None, 'status': r.status, 'active': is_active(r.status), 'price_cents': r.price_cents,
-                'duration': r.duration, 'seen_at': seen, 'expires_at': now() + timedelta(days=400)}, '$setOnInsert': {'first_seen_at': seen}}, upsert=True)
-    await db.creators.update_one({'id': body.creator_id}, {'$set': {'subscribers_read_at': seen, 'subscribers_label': body.total_label}})
+                'duration': r.duration, 'platform': body.platform or 'privacy', 'seen_at': seen, 'expires_at': now() + timedelta(days=400)}, '$setOnInsert': {'first_seen_at': seen}}, upsert=True)
+    label_key = 'subscribers_label' if (body.platform or 'privacy') == 'privacy' else f'subscribers_label_{body.platform}'
+    await db.creators.update_one({'id': body.creator_id}, {'$set': {'subscribers_read_at': seen, label_key: body.total_label}})
     return {'ok': True, 'saved': len(body.rows)}
 
 @router.get('/fans')
