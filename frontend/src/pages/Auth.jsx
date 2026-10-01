@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 export default function Auth({ setup, onLogin }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   async function submit(e) { e.preventDefault(); setBusy(true); setError(''); const data = Object.fromEntries(new FormData(e.currentTarget));
-    try { await api.post(setup ? '/auth/setup' : '/auth/login', data); await onLogin(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+    try { await api.post(setup ? '/auth/setup' : '/auth/login', data); try { sessionStorage.setItem('alta-welcome', '1'); } catch {} await onLogin(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
   return <div className="auth-page"><header className="auth-header"><Brand variant="white"/><span data-testid="auth-header-tag">UM PRODUTO ALTA AGENCY</span></header><div className="auth-main">
     <section className="auth-intro"><Brand variant="white" stacked id="auth-product-brand"/><span className="eyebrow" data-testid="auth-eyebrow">PESSOAS. CONTEXTO. RESULTADOS.</span><h1 data-testid="auth-headline">Sua operação.<br/><em>No centro.</em></h1><p data-testid="auth-subtitle">O ponto de encontro entre suas criadoras,<br className="desktop-br"/> sua equipe e cada resultado.</p>

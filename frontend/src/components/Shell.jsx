@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { nextPhrase } from '../lib/motivation';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { Layers3, Activity, ChartNoAxesCombined, TrendingUp, ClipboardCheck, UsersRound, FileChartColumn, Settings2, LogOut, ChevronDown, Menu, X, ArrowUpRight, ShieldCheck, Bell, CircleHelp, Puzzle, Camera } from 'lucide-react';
 import { useApp } from '../App';
@@ -9,8 +10,11 @@ import { CreatorSidebar } from './CreatorSidebar';
 const nav = [['/', 'Criadoras', Layers3], ['/operacao', 'Operação', Activity], ['/vendas', 'Vendas', ChartNoAxesCombined], ['/desempenho', 'Desempenho', TrendingUp], ['/assinantes', 'Assinantes', UsersRound], ['/qualidade', 'Qualidade', ClipboardCheck], ['/equipe', 'Equipe e turnos', UsersRound], ['/relatorios', 'Relatórios', FileChartColumn]];
 export const Shell = ({ children }) => {
   const { user, config, creators, logout } = useApp(); const [mobile, setMobile] = useState(false), [help, setHelp] = useState(false), [alerts, setAlerts] = useState(false);
+  // boas-vindas logo depois do login: primeiro nome + frase motivacional (some em 9 s ou no "Bora!")
+  const [welcome, setWelcome] = useState(null);
+  useEffect(() => { let flag = null; try { flag = sessionStorage.getItem('alta-welcome'); sessionStorage.removeItem('alta-welcome'); } catch {} if (flag && user) { setWelcome(nextPhrase(user.id, user.name)); const t = setTimeout(() => setWelcome(null), 9000); return () => clearTimeout(t); } }, [user?.id]);
   const route = useLocation().pathname; const active = nav.find(n => n[0] === route)?.[1] || (route === '/minha-conta' ? 'Minha conta' : 'Configurações');
-  return <div className="app-shell"><aside className={`sidebar ${mobile ? 'open' : ''}`}><div className="brand-row"><Link data-testid="brand-home" to="/" aria-label="Alta Pulse — início" onClick={() => setMobile(false)}><Brand variant="white"/></Link><button className="mobile-close icon-btn" aria-label="Fechar menu" data-testid="close-menu" onClick={() => setMobile(false)}><X size={20}/></button></div>
+  return <div className="app-shell">{welcome && <div className="welcome-overlay" data-testid="welcome" onClick={() => setWelcome(null)}><div className="welcome-card" onClick={e => e.stopPropagation()}><div className="welcome-hi">Oi, {String(user.name || '').trim().split(/\s+/)[0]}!</div><p>{welcome}</p><button onClick={() => setWelcome(null)}>Bora!</button></div></div>}<aside className={`sidebar ${mobile ? 'open' : ''}`}><div className="brand-row"><Link data-testid="brand-home" to="/" aria-label="Alta Pulse — início" onClick={() => setMobile(false)}><Brand variant="white"/></Link><button className="mobile-close icon-btn" aria-label="Fechar menu" data-testid="close-menu" onClick={() => setMobile(false)}><X size={20}/></button></div>
     <div className="workspace"><div className="workspace-icon">{initials(config?.agency_name)}</div><div><strong data-testid="workspace-name">{config?.agency_name}</strong><small data-testid="workspace-caption">Workspace da agência</small></div><ChevronDown size={14}/></div>
     <span className="nav-caption" data-testid="nav-caption">WORKSPACE</span><nav>{nav.filter(n => user.role === 'manager' || ['/', '/equipe'].includes(n[0])).map(([path, label, Icon]) => <NavLink data-testid={`nav-${path === '/' ? 'creators' : path.slice(1)}`} key={path} end to={path} onClick={() => setMobile(false)} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}><Icon size={19}/><span>{label}</span>{path === '/' && <span className="nav-count" data-testid="nav-creator-count">{creators.length}</span>}</NavLink>)}</nav>
     <CreatorSidebar creators={creators} onNavigate={() => setMobile(false)}/>

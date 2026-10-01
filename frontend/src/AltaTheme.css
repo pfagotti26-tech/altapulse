@@ -322,3 +322,10 @@ tbody tr:hover { background: #fdfbfc; }
 .creator-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 .creator-photo-pick { cursor: pointer; position: relative; overflow: hidden; }
 .creator-photo-pick:hover::after { content: 'foto'; position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); color: #fff; font-size: 10px; font-weight: 600; border-radius: 50%; }
+.welcome-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(12, 10, 14, .55); display: grid; place-items: center; padding: 20px; animation: welcomeIn .25s ease-out; }
+.welcome-overlay .welcome-card { max-width: 440px; width: 100%; background: linear-gradient(160deg, #2a0f16, #17171c 75%); border: 1px solid #5a2430; border-radius: 18px; padding: 30px 28px 24px; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.welcome-overlay .welcome-hi { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 12px; }
+.welcome-overlay p { font-size: 17px; line-height: 1.55; color: #ffd9df; margin: 0 0 22px; }
+.welcome-overlay button { width: 100%; border: 0; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: 700; color: #fff; background: #c41e3a; cursor: pointer; }
+.welcome-overlay button:hover { background: #a8172f; }
+@keyframes welcomeIn { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
