@@ -29,12 +29,21 @@ function allowedUrl(url) {
 function fillScript(login, password) {
   return String.raw`(() => {
     const LOGIN = ${JSON.stringify(login)}; const PASS = ${JSON.stringify(password)};
+    const OPEN_LOGIN = /^(entrar|login|log in|fazer login|acessar|acessar conta|sign in)$/i;
     const roots = []; (function walk(root, depth) { if (depth > 6) return; roots.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0);
     const all = (sel) => roots.flatMap((r) => [...r.querySelectorAll(sel)]);
     const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
     const set = (el, value) => { const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); el.focus(); d.set.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.blur(); };
     const pass = all('input[type="password"]').find(visible);
-    if (!pass) return { ok: false, reason: 'sem campo de senha' };
+    if (!pass) {
+      // páginas que só mostram o formulário depois de clicar em "Entrar" (ex.: CloseFans): abre e tenta de novo
+      const area = (b) => { const r = b.getBoundingClientRect(); return r.width * r.height; };
+      const opens = all('button, a').filter(visible).filter((b) => OPEN_LOGIN.test((b.textContent || '').trim())).sort((a, b) => area(b) - area(a)); // o maior primeiro (botão principal); se não abrir, tenta o próximo
+      const k = window.__altaLoginTry || 0; window.__altaLoginTry = k + 1;
+      const open = opens.length ? opens[k % opens.length] : null;
+      if (open) { open.click(); return { ok: false, retry: true, reason: 'abrindo o login' }; }
+      return { ok: false, reason: 'sem campo de senha' };
+    }
     const user = all('input').filter(visible).find((i) => i !== pass && ['text', 'email', 'tel', ''].includes((i.getAttribute('type') || '').toLowerCase()) && !/search|busca|code|codigo|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder));
     if (user) set(user, LOGIN);
     set(pass, PASS);
@@ -58,8 +67,11 @@ function fillScript(login, password) {
 // Sonda leve: a página atual tem um campo de senha visível? (roda dentro da página)
 const LOGIN_PROBE = String.raw`(() => {
   const roots = []; (function walk(root, depth) { if (depth > 6) return; roots.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0);
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const inputs = roots.flatMap((r) => [...r.querySelectorAll('input[type="password"]')]);
-  return inputs.some((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+  if (inputs.some(vis)) return true;
+  // deslogada, com o formulário escondido atrás de um botão "Entrar" (CloseFans)
+  return roots.flatMap((r) => [...r.querySelectorAll('button, a')]).some((b) => vis(b) && /^(entrar|login|log in|fazer login|acessar conta|sign in)$/i.test((b.textContent || '').trim()));
 })()`;
 
 module.exports = { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE };

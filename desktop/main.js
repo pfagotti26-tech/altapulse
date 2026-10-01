@@ -1134,7 +1134,11 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
   const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
   let result;
-  try { result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); } finally { data.password = null; }
+  try {
+    result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true);
+    // formulário atrás de um botão "Entrar": o script abriu; espera aparecer e preenche
+    for (let i = 0; i < 4 && result && result.retry; i++) { await sleep(1200); result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); }
+  } finally { data.password = null; }
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
