@@ -4,7 +4,7 @@
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
-const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -654,6 +654,40 @@ function startVigia() { stopVigia(); if (state.user && state.user.role === 'mana
 function stopVigia() { clearInterval(vigiaTimer); vigiaTimer = null; }
 ipcMain.handle('fan:collapse', (_e, collapsed) => { if (collapsed === 'auto') fanUi = { mode: 'auto', collapsed: false }; else fanUi = { mode: 'manual', collapsed: !!collapsed }; writeJson('painel-fa.json', fanUi); layout(); pushFan(); return true; });
 ipcMain.handle('fan:refresh', async () => { await loadFanCard(true); return true; });
+
+// ---------- Alta Ajuda (sugestões da Grok, só quando o chatter pede) ----------
+// Só o texto que o chatter escreve vai ao painel, que chama a API da xAI. Nada da conversa com o fã.
+const assistCache = new Map(); // creatorId -> { at, data }
+ipcMain.handle('assist:status', async (_e, force) => {
+  const id = fan.creatorId; if (!id) return null;
+  const c = assistCache.get(id);
+  if (!force && c && Date.now() - c.at < 60000) return c.data;
+  try { const data = await api('GET', `/extension/assist/status?creator_id=${encodeURIComponent(id)}`); assistCache.set(id, { at: Date.now(), data }); return data; }
+  catch (error) { return { enabled: false, error: /404|Not Found/i.test(error.message) ? 'O painel ainda não tem a Alta Ajuda (publicação pendente).' : error.message }; }
+});
+ipcMain.handle('assist:run', async (_e, { level, draft }) => {
+  // só o rascunho escrito pelo chatter; a conversa com o fã não é lida nem enviada
+  const id = fan.creatorId; if (!id) throw new Error('Abra a conversa de uma criadora primeiro.');
+  const out = await api('POST', '/extension/assist', { creator_id: id, fan_ref: fan.fanRef || null, level, draft: String(draft || '').slice(0, 1000) });
+  const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
+  return out;
+});
+// "Usar": coloca o texto na caixa de mensagem da Privacy (o chatter confere e envia) e copia para a área de transferência
+const FILL_SCRIPT = (text) => `(() => {
+  const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+  let ta = null; for (const r of roots) { ta = r.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
+  if (!ta) return false;
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  set.call(ta, ${JSON.stringify(text)}); ta.dispatchEvent(new Event('input', { bubbles: true, composed: true })); ta.focus();
+  return true;
+})()`;
+ipcMain.handle('assist:use', async (_e, text) => {
+  const t = String(text || '').slice(0, 2000); clipboard.writeText(t);
+  const view = fan.creatorId && views.get(fan.creatorId);
+  let filled = false;
+  if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
+  return { filled };
+});
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });

@@ -142,3 +142,9 @@ footer { border-top: 1px solid var(--line); padding: 10px 12px; }
 .avatar { position: relative; }
 .bubble { position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #e53935; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
 .bubble-total { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: #e53935; color: #fff; font-size: 12px; font-weight: 700; line-height: 22px; text-align: center; align-self: center; cursor: default; }
+
+/* convite para a foto de perfil */
+.me .uavatar { position: relative; overflow: visible; }
+.me .uavatar img { border-radius: 50%; }
+.me .uavatar.nophoto::after { content: '+'; position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%; background: #e53935; color: #fff; font-size: 12px; font-weight: 700; line-height: 13px; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+.photo-nudge { color: #f6b1bf; text-decoration: underline; cursor: pointer; }

@@ -1,15 +1,30 @@
 from datetime import datetime, timedelta
 from statistics import mean, median
 from fastapi import HTTPException
-from core import db, now, assign_shift, settings
+from core import db, now, settings
 
 async def report_data(creator_id=None, operator_id=None, start=None, end=None):
     config = await settings()
     if start and end and start > end: raise HTTPException(422, 'O início deve ser anterior ao fim do período.')
     query = {'expires_at': {'$gt': now()}}
     if creator_id: query['creator_id'] = creator_id
+    # o registro é sempre observado depois do instante do evento: observed_at >= início do período é filtro seguro no banco
+    if start: query['observed_at'] = {'$gte': start}
     rows = await db.events.find(query, {'_id': 0, 'expires_at': 0}).sort('observed_at', -1).to_list(10000) if config['storage_allowed'] else []
     creators = {c['id']: c['name'] for c in await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(1000)}
+    # turnos carregados uma vez e atribuídos em memória (antes: 2 a 3 consultas ao banco por registro)
+    shift_q = {'creator_id': creator_id} if creator_id else {}
+    if end: shift_q['started_at'] = {'$lt': end}
+    all_shifts = await db.shifts.find(shift_q, {'_id': 0}).to_list(50000)
+    if end: all_shifts += [sh for sh in await db.shifts.find({**({'creator_id': creator_id} if creator_id else {}), 'active': True}, {'_id': 0}).to_list(1000) if sh['started_at'] >= end]
+    by_creator, by_id, active = {}, {}, {}
+    for sh in all_shifts:
+        by_creator.setdefault(sh['creator_id'], []).append(sh); by_id[sh['id']] = sh
+        if sh.get('active'): active[sh['creator_id']] = sh
+    async def assign_shift(cid, at):
+        if not at: return None
+        hits = [sh for sh in by_creator.get(cid, []) if sh['started_at'] <= at and (not sh.get('ended_at') or sh['ended_at'] > at)]
+        return hits[0] if len(hits) == 1 else None
     responses, pending, sales, offers, incomplete = [], [], [], [], 0
     for row in rows:
         at = row.get('confirmed_at') if row['kind'] == 'sale' else row.get('offered_at') if row['kind'] == 'offer' else row.get('responded_at') or row.get('started_at')
@@ -25,7 +40,7 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
             row['eligible'] = row.get('sale_origin') == 'chat' and bool(row.get('confirmed_at')) and row.get('sale_status') in ['confirmed', 'pending', 'refunded', 'cancelled']
             if not row['eligible']: row.update({'operator_id': None, 'operator_name': 'Sem atribuição', 'shift_id': None})
             if row.get('manual_assignment') is not None:
-                chosen = await db.shifts.find_one({'id': row['manual_assignment'].get('shift_id')}, {'_id': 0})
+                chosen = by_id.get(row['manual_assignment'].get('shift_id')) or await db.shifts.find_one({'id': row['manual_assignment'].get('shift_id')}, {'_id': 0})
                 row.update({'operator_id': chosen['operator_id'] if chosen else None, 'operator_name': chosen['operator_name'] if chosen else 'Sem atribuição', 'shift_id': chosen['id'] if chosen else None, 'assignment_type': 'manual'})
             else: row['assignment_type'] = 'shift_time'
             if operator_id and row['operator_id'] != operator_id: continue
@@ -41,7 +56,7 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
             row['seconds'] = ((datetime.fromisoformat(row['responded_at']) if row.get('responded_at') else now()) - begin).total_seconds()
             row['late'] = row['seconds'] > config['sla_minutes'] * 60
             begin_shift = await assign_shift(row['creator_id'], row['started_at'])
-            current_shift = shift if row['kind'] == 'response' else await db.shifts.find_one({'creator_id': row['creator_id'], 'active': True}, {'_id': 0})
+            current_shift = shift if row['kind'] == 'response' else active.get(row['creator_id'])
             row['inherited'] = bool(current_shift and (not begin_shift or begin_shift['id'] != current_shift['id']))
             (responses if row['kind'] == 'response' else pending).append(row)
     eligible = [s for s in sales if s['eligible']]
@@ -74,6 +89,8 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         if o.get('offer_status') == 'paid': cell['paid'] += 1; cell['paid_cents'] += o['amount_cents']
     for cell in offers_by_operator.values(): cell['conversion'] = round(cell['paid'] / cell['sent'] * 100) if cell['sent'] else None
     times = [r['seconds'] for r in responses]
+    op_ids = {r.get('operator_id') for r in responses + pending + sales + offers if r.get('operator_id')}
+    operator_avatars = {u['id']: u.get('avatar') for u in await db.users.find({'id': {'$in': list(op_ids)}}, {'_id': 0, 'id': 1, 'avatar': 1}).to_list(500) if u.get('avatar')} if op_ids else {}
     # tempo de resposta por chatter (operador do turno no momento da resposta)
     response_by_operator = {}
     for r in responses:
@@ -97,6 +114,6 @@ async def report_data(creator_id=None, operator_id=None, start=None, end=None):
         'gross_cents': sum(s['amount_cents'] for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
         'commission_cents': sum(s.get('commission_cents') or 0 for s in sales if s['sale_status'] not in ['refunded', 'cancelled']) if sales else None,
         'by_origin': by_origin, 'by_payment': by_payment, 'by_operator': by_operator, 'extrato_count': extrato_count,
-        'offers_sent': len(offers), 'offers_paid': sum(o.get('offer_status') == 'paid' for o in offers), 'offers_by_operator': offers_by_operator, 'response_by_operator': response_by_operator,
+        'offers_sent': len(offers), 'offers_paid': sum(o.get('offer_status') == 'paid' for o in offers), 'offers_by_operator': offers_by_operator, 'response_by_operator': response_by_operator, 'operator_avatars': operator_avatars,
         'last_observed_at': max((r['observed_at'] for r in responses + pending + sales), default=None),
         'coverage': 'partial' if has_sample or sales else 'no_data', 'storage_allowed': config['storage_allowed']}}
