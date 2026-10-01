@@ -139,7 +139,9 @@ function card(c) {
   if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · use o botão Entrar com o acesso salvo' : 'Tela de login · sem acesso salvo no cofre') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
-  for (const p of loginList) queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Preenche login e senha salvos pelo gestor (a senha não é exibida)">Entrar com o acesso salvo · ${esc(labelOf(p))}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
+  // botão simples "Entrar"; some ao clicar (volta só se a tela de login continuar depois de 40 s)
+  for (const p of loginList) if (vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000) continue;
+  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : `<div class="queue" title="Peça ao gestor para cadastrar o acesso no painel (ícone de chave no card da criadora)">${esc(labelOf(p))}: tela de login · sem acesso salvo</div>`;
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
   const mine = c.shift && c.shift.operator_id === S.user.id;
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
@@ -166,7 +168,9 @@ function card(c) {
   return el;
 }
 
+const vaultPending = new Map();
 async function vaultLogin(c, platform) {
+  vaultPending.set(`${c.id}|${platform}`, Date.now()); renderList();
   if (platform) await run(() => window.pulse.showProfile(c.id, platform));
   const r = await run(() => window.pulse.vaultUse(c.id, platform));
   if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
