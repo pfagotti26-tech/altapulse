@@ -68,6 +68,8 @@ class SettingsUpdate(Strict):
     fan_names_allowed: bool = False
     # bloco E: amostras anonimizadas da conversa para análise por IA (tarefa agendada do Claude)
     quality_ai_allowed: bool = False
+    # cotação usada para converter as vendas do OnlyFans (em dólar) para reais na entrada
+    usd_brl_rate: float = Field(default=5.0, ge=1, le=20)
 class ReviewStart(Strict):
     acknowledge_read: Literal[True]
 class Review(Strict):
