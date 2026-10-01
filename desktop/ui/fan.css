@@ -45,3 +45,19 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .wait.late { color: #ff8a80; }
 .resp { color: var(--mut); font-size: 11px; line-height: 1.5; }
 .resp b { color: var(--txt); font-weight: 600; }
+.aj { border: 1px solid #3a2a4a; background: #1a1622; border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 7px; }
+.aj-head { display: flex; justify-content: space-between; align-items: center; }
+.aj-head b { color: #d6b8ff; letter-spacing: .02em; }
+.aj-q { font-size: 11px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid #3a2a4a; color: #d6b8ff; line-height: 16px; }
+.aj-help { font-size: 11px; color: #cfc2e6; background: #231c30; border-radius: 8px; padding: 7px 9px; line-height: 1.5; }
+.aj-levels { display: flex; gap: 4px; }
+.aj-lv { flex: 1; font-size: 10.5px; padding: 4px 0; border-radius: 6px; border: 1px solid #3a2a4a; background: transparent; color: var(--mut); }
+.aj-lv.on { background: #3a2a4a; color: #fff; }
+.aj .btn { background: #7b4bc4; }
+.aj textarea { border-color: #3a2a4a; min-height: 54px; }
+.aj textarea:focus { border-color: #7b4bc4; }
+.aj-note { font-size: 10px; }
+.aj-sug { background: var(--panel); border-radius: 8px; padding: 8px 9px; word-wrap: break-word; }
+.aj-tone { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: #b99ae8; margin-bottom: 3px; }
+.aj-act { margin-top: 6px; display: flex; justify-content: flex-end; }
+.aj-act .btn { padding: 4px 12px; font-size: 11px; }

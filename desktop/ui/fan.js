@@ -11,6 +11,15 @@ const ORIGIN = { chat: 'Chat', subscription: 'Assinatura', renewal: 'Renovação
 const TIER = { baleia: ['Baleia', 'gold'], spender: ['Spender', 'green'] };
 const TAG = { esfriando: ['Esfriando', 'amber'], dormente: ['Dormente', ''], novo_sem_compra: ['Novo sem compra', 'green'], assinatura_inativa: ['Assinatura inativa', 'red'] };
 let F = null; let draft = '';
+// Alta Ajuda: o chatter escreve o que quer dizer e recebe versões prontas (nada da conversa é enviado)
+const LV = [['leve', 'Leve'], ['picante', 'Picante'], ['explicito', 'Explícito']];
+const AJ_HELP = 'Como usar: escreva com suas palavras o que quer dizer ao fã (ex.: "ele perguntou o preço do vídeo, quero provocar antes de falar que é 79,90"). Escolha o nível e clique em Criar mensagem. Você recebe 3 versões no estilo da criadora; clique em Usar para colocar na caixa da Privacy, revise e envie. A conversa com o fã não é lida nem enviada: só o que você escreve aqui.';
+let AS = null, asFor = null, aj = { fan: null, busy: false, res: null, err: null, level: null, draft: '', help: false };
+async function loadAssist(force) {
+  const key = F && F.creatorId; if (!key) return;
+  if (!force && asFor === key && AS) return;
+  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render();
+}
 
 function render() {
   const collapsed = !!(F && F.collapsed);
@@ -58,6 +67,7 @@ function render() {
   if (c.suggestion) h += `<div class="tip"><b>Sugestão:</b> ${esc(c.suggestion)}</div>`;
   const OT = { request: 'Solicitação de mídia', ppv: 'Mídia paga' }; const MT = { photo: 'foto', video: 'vídeo', mixed: 'foto e vídeo' };
   for (const o of c.pending_offers || []) h += `<div class="pend">${OT[o.offer_type] || 'Oferta'}${MT[o.media_type] ? ` (${MT[o.media_type]})` : ''} de ${money(o.amount_cents)} ainda não paga · enviada ${day(o.offered_at)}</div>`;
+  h += assistHtml();
   if (c.task) h += `<div class="sub">Na sua lista${c.task.reason ? `: ${esc(c.task.reason)}` : ''}.<br><button class="btn" id="contacted" style="width:100%;margin-top:6px">Marcar como contatado</button></div>`;
   if ((c.recent || []).length) { h += '<div class="sec">Últimas compras</div>'; for (const r of c.recent) h += `<div class="row"><span>${day(r.at)} · ${ORIGIN[r.origin] || 'Outro'}</span>${money(r.amount_cents)}</div>`; }
   h += '<div class="sec">Anotações da equipe</div>';
@@ -78,7 +88,47 @@ function render() {
     try { await window.pulse.fanNoteAdd(text); draft = ''; } catch (err) { alertLine(err.message); } finally { ta.disabled = false; }
   });
   b.querySelectorAll('[data-del]').forEach((x) => x.addEventListener('click', () => window.pulse.fanNoteDel(x.dataset.del).catch((err) => alertLine(err.message))));
+  bindAssist();
   const ct = $('contacted'); if (ct) ct.addEventListener('click', () => window.pulse.fanContacted(c.task.id).catch((err) => alertLine(err.message)));
+}
+function assistHtml() {
+  if (!AS || !AS.enabled) return '';
+  if (aj.fan !== F.fanRef) aj = { fan: F.fanRef, busy: false, res: null, err: null, level: aj.level, draft: '', help: aj.help };
+  const max = Math.max(0, LV.findIndex(([v]) => v === AS.max_level));
+  const lv = aj.level && LV.findIndex(([v]) => v === aj.level) <= max ? aj.level : LV[max][0];
+  let h = `<div class="aj"><div class="aj-head"><b>Alta Ajuda</b><span><span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span> <button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
+  if (aj.help) h += `<div class="aj-help">${esc(AJ_HELP)}</div>`;
+  h += `<textarea id="aj-draft" maxlength="1000" placeholder="O que você quer dizer ao fã? Ex.: ele perguntou o preço, quero provocar antes de falar o valor" title="Escreva a ideia com suas palavras. A Alta Ajuda transforma em mensagem pronta.">${esc(aj.draft)}</textarea>`;
+  h += `<div class="aj-levels" title="Quão quente a mensagem pode ser. O máximo é definido pelo gestor no perfil da criadora.">${LV.slice(0, max + 1).map(([v, l]) => `<button class="aj-lv ${v === lv ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
+  h += `<button class="btn" id="aj-go" ${aj.busy ? 'disabled' : ''} title="Gera 3 versões: provocante, carinhosa e vendedora">${aj.busy ? 'Criando…' : 'Criar mensagem'}</button>`;
+  if (!AS.has_prices) h += '<div class="muted aj-note" title="Sem tabela, a Alta Ajuda não inventa valores">Sem tabela de preços desta criadora: valores que não estão no seu texto aparecem como [preço].</div>';
+  if (aj.err) h += `<div class="pend">${esc(aj.err)}</div>`;
+  const r = aj.res;
+  if (r && r.alert) h += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
+  else if (r) {
+    (r.suggestions || []).forEach((s, i) => { h += `<div class="aj-sug"><span class="aj-tone">${esc(s.tone)}</span><div>${esc(s.text)}</div><div class="aj-act"><button class="btn" data-use="${i}" title="Coloca na caixa de mensagem da Privacy. Revise antes de enviar.">Usar</button></div></div>`; });
+    if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela foi trocado por [preço]. Complete antes de enviar.</div>';
+  }
+  return h + '</div>';
+}
+function bindAssist() {
+  const help = $('aj-help'); if (help) help.addEventListener('click', () => { aj.help = !aj.help; render(); });
+  document.querySelectorAll('[data-lv]').forEach((b) => b.addEventListener('click', () => { aj.level = b.dataset.lv; render(); }));
+  const ta = $('aj-draft'); if (ta) ta.addEventListener('input', () => { aj.draft = ta.value; });
+  const go = $('aj-go'); if (go) go.addEventListener('click', async () => {
+    if ((aj.draft || '').trim().length < 3) { aj.err = 'Escreva primeiro o que você quer dizer ao fã.'; render(); return; }
+    const max = Math.max(0, LV.findIndex(([v]) => v === AS.max_level));
+    const level = aj.level && LV.findIndex(([v]) => v === aj.level) <= max ? aj.level : LV[max][0];
+    const fanAt = F.fanRef; aj.busy = true; aj.err = null; render();
+    try { const res = await window.pulse.assistRun({ level, draft: aj.draft }); if (F.fanRef === fanAt) { aj.res = res; if (res.remaining != null) AS.remaining = res.remaining; } }
+    catch (err) { if (F.fanRef === fanAt) aj.err = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+    finally { aj.busy = false; render(); }
+  });
+  document.querySelectorAll('[data-use]').forEach((b) => b.addEventListener('click', async () => {
+    const s = aj.res && aj.res.suggestions[+b.dataset.use]; if (!s) return;
+    const r = await window.pulse.assistUse(s.text).catch(() => ({ filled: false }));
+    b.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
+  }));
 }
 function alertLine(msg) { const d = document.createElement('div'); d.className = 'pend'; d.textContent = String(msg).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); $('body').prepend(d); setTimeout(() => d.remove(), 5000); }
 
@@ -87,9 +137,9 @@ $('collapsed').addEventListener('click', () => window.pulse.fanCollapse(false));
 $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'));
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
-  const typing = document.activeElement && document.activeElement.id === 'note' && F && f.fanRef === F.fanRef;
+  const typing = document.activeElement && ['note', 'aj-draft'].includes(document.activeElement.id) && F && f.fanRef === F.fanRef;
   if (!F || f.fanRef !== F.fanRef) draft = '';
-  F = f; if (!typing) render();
+  F = f; if (!typing) render(); loadAssist();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação

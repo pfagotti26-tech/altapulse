@@ -64,6 +64,9 @@ function apply(state) {
   $('me-name').textContent = S.user.name;
   setAvatar($('me-avatar'), S.user.avatar, S.user.name);
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
+  // sem foto: sinal de + na bolinha e convite ao lado do cargo
+  $('me-avatar').classList.toggle('nophoto', !S.user.avatar);
+  if (!S.user.avatar) { const a = document.createElement('a'); a.href = '#'; a.className = 'photo-nudge'; a.textContent = 'Colocar sua foto'; a.onclick = (e) => { e.preventDefault(); photoMenu(); }; $('me-role').append(' · ', a); }
   const warn = S.warning || (S.open.length && !S.storage_allowed ? 'Métricas desligadas no painel: ative "armazenamento" em Configurações para registrar tempo de resposta e vendas.' : '');
   $('warning').textContent = warn; $('warning').classList.toggle('hidden', !warn);
   const openTasks = (S.tasks || []).filter((t) => t.status === 'open');

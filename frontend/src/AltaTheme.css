@@ -276,3 +276,10 @@ tbody tr:hover { background: #fdfbfc; }
 .fan-card-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.fan-card-kpis div{background:#f7f3f5;border-radius:6px;padding:10px}.fan-card-kpis span{display:block;font-size:10px;color:#8a7782}.fan-card-kpis strong{font-size:16px}
 .fan-note{position:relative;background:#faf8f9;border:1px solid #efe7eb;border-radius:6px;padding:9px 34px 9px 11px}.fan-note p{font-size:12px}.fan-note small{font-size:10px;color:#9a8b94}.fan-note .icon-btn{position:absolute;right:4px;top:4px}
 .fan-note-form{display:flex;gap:8px}.fan-note-form input{flex:1;height:36px;border:1px solid #e2dce0;border-radius:5px;padding:0 10px;font-size:12px}
+
+/* convite para a foto de perfil (topo) */
+.photo-nudge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:#ae344b;background:#fbeef1;border:1px dashed #e4a9b6;border-radius:14px;padding:5px 11px;white-space:nowrap}
+.photo-nudge:hover{background:#f6e3e7}
+.person-cell .avatar{font-size:9px}
+.assist-textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:9px 11px;font:inherit;font-size:12px;resize:vertical;background:#fff}
+.assist-textarea:focus{outline:none;border-color:#c98a97}

@@ -13,6 +13,7 @@ from vault import router as vault
 from performance import router as performance
 from fans import router as fans
 from quality_ai import router as quality_ai
+from assist import router as assist
 
 @asynccontextmanager
 async def lifespan(app):
@@ -33,6 +34,15 @@ async def lifespan(app):
     await db.fan_tasks.create_index([('assigned_to', 1), ('status', 1)])
     await db.subscribers.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.samples.create_index([('creator_id', 1), ('fan_ref', 1), ('day', 1)], unique=True)
+    # velocidade da Operação, do cartão do fã e das listas
+    await db.events.create_index([('observed_at', -1)])
+    await db.events.create_index([('creator_id', 1), ('kind', 1), ('fan_ref', 1)])
+    await db.events.create_index([('kind', 1), ('creator_id', 1)])
+    await db.shifts.create_index([('creator_id', 1), ('started_at', 1)])
+    await db.assist_usage.create_index('expires_at', expireAfterSeconds=0)
+    await db.assist_usage.create_index([('user_id', 1), ('day', 1)])
+    await db.assist_alerts.create_index('expires_at', expireAfterSeconds=0)
+    await db.assist_profiles.create_index('creator_id', unique=True)
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     yield
     client.close()
@@ -52,7 +62,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')
