@@ -20,6 +20,7 @@ const { FatalFansReader, SalesReader } = require('./fatalfans.js');
 const CF = require('./closefans-page.js');
 const OF = require('./onlyfans-page.js');
 const AVATAR_SCRIPT = require('./avatar-page.js').script;
+const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
@@ -173,8 +174,9 @@ async function refreshState() {
     for (const c of data.creators) {
       if (c.group === undefined) continue; // painel antigo, sem os campos: fica só local
       const l = local.creators[c.id] || {};
-      const gid = c.group ? groupIdFor(c.group) : '';
-      if (l.group !== gid || l.tag !== (c.tag || '') || l.notes !== (c.notes || '')) { local.creators[c.id] = { ...l, group: gid, tag: c.tag || '', notes: c.notes || '' }; changed = true; }
+      const names = Array.isArray(c.groups) ? c.groups : (c.group ? [c.group] : []);
+      const gids = names.map(groupIdFor);
+      if (JSON.stringify(l.groups || []) !== JSON.stringify(gids) || l.tag !== (c.tag || '') || l.notes !== (c.notes || '')) { local.creators[c.id] = { ...l, groups: gids, group: gids[0] || '', tag: c.tag || '', notes: c.notes || '' }; changed = true; }
     }
     if (changed) saveLocal();
   } catch (error) {
@@ -243,7 +245,7 @@ let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, lo
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
 function fanPanelWidth() {
-  if (!state.user || !activeId || activeTab.get(activeId) !== 'privacy' || !tabs.has(activeId)) return 0;
+  if (!state.user || !activeId || !['privacy', 'onlyfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
   return fanCollapsed() ? FAN_MIN : FAN_W;
 }
 function pushFan() {
@@ -261,17 +263,18 @@ async function loadFanCard(force = false) {
   } catch (error) { fan.error = /404|Not Found/i.test(error.message) ? 'O painel ainda não tem o cartão do fã (publicação pendente).' : error.message; }
   fan.loading = false; pushFan();
 }
-function setFanFromChat(id, open) {
+function setFanFromChat(id, open, platform = 'privacy') {
   if (!open || !open.name) {
     if (fan.creatorId !== id || fan.fanRef) { const before = fanCollapsed(); fan = { creatorId: id, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 }; if (fanCollapsed() !== before) layout(); pushFan(); }
     return;
   }
-  const ref = readerFor(id).reader.roomKey(open.name);
-  if (open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
+  // OnlyFans: mesma referência das vendas do extrato de Renda (para o cartão juntar as compras do fã)
+  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
+  if (platform === 'privacy' && open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
   // fã que mandou mensagem hoje/ontem está com acesso ao chat: não mostrar "assinatura inativa" da lista antiga
   const chatting = (open.msgs || []).some((m) => !m.ours && /^(hoje|ontem)$/i.test(String(m.date || '').trim()));
   // subAtiva: true/false vindo do aviso da Privacy ("não poderá responder, pois não é seu assinante"); null enquanto carrega
-  const subAtiva = open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
+  const subAtiva = platform !== 'privacy' || open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
   // esperando resposta: da primeira mensagem do fã depois da nossa última até agora
   let waitSince = null;
   { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
@@ -287,8 +290,14 @@ function setFanFromChat(id, open) {
 }
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
+  if (id === activeId && activeTab.get(id) === 'onlyfans') return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
   try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
+}
+// Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
+async function quickFanOF(id) {
+  const t = tabs.get(id); const view = t && t.get('onlyfans'); if (!view || view.webContents.isDestroyed()) return;
+  try { const data = await runJs(view, OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, 'onlyfans'); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -360,7 +369,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
       if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
     });
   }
-  view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy') setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -445,11 +454,12 @@ async function readAllNow() {
     }
     if (found.length) loginPages.set(id, found); else loginPages.delete(id);
   }
+  if (activeId && activeTab.get(activeId) === 'onlyfans') await quickFanOF(activeId);
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
     try { if (view.webContents.isDestroyed()) continue; data = await runJs(view, READER_SCRIPT, 8000); } catch { continue; }
-    if (id === activeId) setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
+    if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary;
@@ -1160,9 +1170,11 @@ ipcMain.handle('shift:start', async (_e, creatorId) => { await api('POST', '/ext
 ipcMain.handle('shift:action', async (_e, { shiftId, action }) => { await api('POST', `/extension/shifts/${shiftId}/action`, { action }); return refreshState().then(publicState); });
 
 ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
+  if ('groups' in patch) patch = { ...patch, group: patch.groups[0] || '' };
   local.creators[id] = { ...(local.creators[id] || {}), ...patch }; saveLocal(); pushState();
   const meta = {};
-  if ('group' in patch) meta.group = groupName(patch.group);
+  if ('groups' in patch) meta.groups = patch.groups.map(groupName).filter(Boolean);
+  else if ('group' in patch) meta.group = groupName(patch.group);
   if ('tag' in patch) meta.tag = patch.tag || '';
   if ('notes' in patch) meta.notes = patch.notes || '';
   if (Object.keys(meta).length && token) {
@@ -1174,7 +1186,8 @@ ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
 ipcMain.handle('local:setGroups', async (_e, groups) => {
   const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });
   local.groups = groups; saveLocal(); pushState();
-  for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (l.group === g.id && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { group: g.name }); } catch {} }
+  const groupsOfLocal = (l) => l.groups || (l.group ? [l.group] : []);
+  for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (groupsOfLocal(l).includes(g.id) && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { groups: groupsOfLocal(l).map(groupName).filter(Boolean) }); } catch {} }
   return local;
 });
 ipcMain.handle('local:setTags', (_e, tags) => { local.tags = tags; saveLocal(); pushState(); return local; });

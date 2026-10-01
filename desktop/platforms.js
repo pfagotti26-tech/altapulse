@@ -38,9 +38,20 @@ function fillScript(login, password) {
     const user = all('input').filter(visible).find((i) => i !== pass && ['text', 'email', 'tel', ''].includes((i.getAttribute('type') || '').toLowerCase()) && !/search|busca|code|codigo|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder));
     if (user) set(user, LOGIN);
     set(pass, PASS);
-    const btn = all('button, input[type="submit"]').filter(visible).find((b) => /entrar|log ?in|sign ?in|acessar|continuar|next|avan/i.test((b.textContent || b.value || '').trim()) && !/google|apple|facebook|x\b|twitter|cadast|sign ?up|criar/i.test((b.textContent || b.value || '')));
-    if (btn) { setTimeout(() => btn.click(), 250); }
-    else { const form = pass.closest('form'); if (form) setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 250); }
+    // "Lembrar de mim" ligado, para o login durar neste computador
+    const keep = all('input[type="checkbox"]').find((c) => { const l = c.closest('label') || (c.id && document.querySelector('label[for="' + c.id + '"]')); return l && /lembrar|manter|remember|keep me/i.test(l.textContent || ''); });
+    if (keep && !keep.checked) keep.click();
+    // botão de enviar DO FORMULÁRIO da senha (o primeiro "Entrar" da página pode ser o do topo ou a aba do
+    // modal, e clicar nele recria o formulário vazio, como no CloseFans): mesmo form, type=submit, e depois da senha
+    const okText = (b) => { const t = (b.textContent || b.value || '').trim(); return /entrar|log ?in|sign ?in|acessar|continuar|next|avan/i.test(t) && !/google|apple|facebook|x\b|twitter|cadast|sign ?up|criar/i.test(t); };
+    const after = (b) => !!(pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const form = pass.closest('form');
+    const cands = all('button, input[type="submit"]').filter(visible).filter((b) => !b.disabled || b.type === 'submit');
+    const btn = (form && cands.find((b) => form.contains(b) && (b.type === 'submit' || okText(b))))
+      || cands.find((b) => after(b) && b.type === 'submit' && okText(b))
+      || cands.find((b) => after(b) && okText(b));
+    if (btn) { setTimeout(() => btn.click(), 400); }
+    else if (form) setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 400);
     return { ok: true, user: !!user, clicked: !!btn };
   })()`;
 }

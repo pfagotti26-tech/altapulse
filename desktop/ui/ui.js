@@ -118,7 +118,7 @@ function renderList() {
   const list = $('list'); list.innerHTML = '';
   if (!rows.length) { list.innerHTML = `<p class="empty">${S.creators.length ? 'Nenhuma criadora com esse filtro.' : 'Nenhuma criadora liberada para você. Cadastre no painel ou peça acesso ao gestor.'}</p>`; return; }
   for (const g of groups) {
-    const items = rows.filter((c) => (localOf(c.id).group || '') === g.id);
+    const items = rows.filter((c) => { const gs = groupsOf(c.id); return g.id ? gs.includes(g.id) : !gs.length; });
     if (!items.length && g.id === '') continue;
     const el = document.createElement('div');
     el.className = 'group' + (closedGroups.has(g.id) ? ' closed' : '');
@@ -307,7 +307,7 @@ function creatorMenu(c, anchor) {
   if (mine || (c.shift && S.user.role === 'manager')) items.push(['Encerrar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.')]);
   items.push('-');
   items.push(['Anotações', () => notesDialog(c)]);
-  items.push(['Mover para grupo', () => groupDialog(c)]);
+  items.push(['Grupos', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
   items.push('-');
   if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
@@ -345,11 +345,15 @@ function notesDialog(c) {
   dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="dlg-notes">${esc(cur)}</textarea><p>Ficam só neste computador nesta fase.</p>`, okText: 'Salvar',
     onOk: () => window.pulse.setCreatorLocal(c.id, { notes: $('dlg-notes').value }) });
 }
+// grupos da criadora (pode estar em vários); local antigo tinha só 'group'
+function groupsOf(id) { const l = localOf(id); return Array.isArray(l.groups) ? l.groups : (l.group ? [l.group] : []); }
 function groupDialog(c) {
-  const cur = localOf(c.id).group || '';
-  const opts = [{ id: '', name: 'Sem grupo' }, ...S.local.groups].map((g) => `<button class="ghost choice ${g.id === cur ? 'sel' : ''}" data-g="${esc(g.id)}">${esc(g.name)}</button>`).join('');
-  dialog({ title: `Grupo · ${c.name}`, body: opts || '<p>Crie um grupo primeiro.</p>', hideOk: true }).then(() => {});
-  $('dialog-body').querySelectorAll('.choice').forEach((b) => b.onclick = async () => { await window.pulse.setCreatorLocal(c.id, { group: b.dataset.g }); $('dialog').classList.add('hidden'); });
+  if (!S.local.groups.length) { dialog({ title: `Grupos · ${c.name}`, body: '<p>Crie um grupo primeiro em “+ Novo grupo”.</p>', hideOk: true }); return; }
+  const cur = new Set(groupsOf(c.id));
+  const opts = S.local.groups.map((g) => `<label class="ghost choice multi ${cur.has(g.id) ? 'sel' : ''}"><input type="checkbox" data-g="${esc(g.id)}" ${cur.has(g.id) ? 'checked' : ''}> ${esc(g.name)}</label>`).join('');
+  dialog({ title: `Grupos · ${c.name}`, body: `<p>Marque um ou mais grupos.</p>${opts}`, okText: 'Salvar',
+    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); await window.pulse.setCreatorLocal(c.id, { groups }); } });
+  $('dialog-body').querySelectorAll('input[type=checkbox]').forEach((i) => i.onchange = () => i.closest('label').classList.toggle('sel', i.checked));
 }
 function tagDialog(c) {
   const cur = localOf(c.id).tag || '';
@@ -367,10 +371,10 @@ function groupMenu(gid, anchor) {
   const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { hideMenus(); fn(); }; m.appendChild(b); };
   add('Renomear grupo', () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
     onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }));
-  add('Excluir grupo (criadoras ficam sem grupo)', async () => {
+  add('Excluir grupo (as criadoras não são apagadas)', async () => {
     const ok = await dialog({ title: 'Excluir grupo', body: `<p>Excluir <b>${esc(g.name)}</b>? As criadoras não são apagadas, só perdem o grupo.</p>`, okText: 'Excluir' });
     if (!ok) return;
-    for (const [id, l] of Object.entries(S.local.creators || {})) if (l.group === gid) await window.pulse.setCreatorLocal(id, { group: '' });
+    for (const id of Object.keys(S.local.creators || {})) { const gs = groupsOf(id); if (gs.includes(gid)) await window.pulse.setCreatorLocal(id, { groups: gs.filter((x) => x !== gid) }); }
     await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
   }, 'danger');
   place(m, anchor);

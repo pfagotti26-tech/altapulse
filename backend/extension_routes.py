@@ -142,9 +142,16 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
     creator = await creator_access(creator_id, user)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if user['role'] != 'manager': patch = {k: v for k, v in patch.items() if k == 'notes'}
+    if 'groups' in patch:
+        names = []
+        for g in patch['groups']:
+            g = str(g).strip()[:40]
+            if g and g not in names: names.append(g)
+        patch['groups'] = names; patch['group'] = names[0] if names else ''
+    elif 'group' in patch: patch['groups'] = [patch['group']] if patch['group'] else []
     if not patch: raise HTTPException(422, 'Nada para alterar.')
     await db.creators.update_one({'id': creator_id}, {'$set': patch})
-    if 'group' in patch or 'tag' in patch: await audit(user, 'Organização da criadora alterada', creator['name'], {k: v for k, v in patch.items() if k != 'notes'})
+    if 'group' in patch or 'groups' in patch or 'tag' in patch: await audit(user, 'Organização da criadora alterada', creator['name'], {k: v for k, v in patch.items() if k != 'notes'})
     return {'ok': True, **patch}
 
 # Instalador Windows (.exe) hospedado pelo próprio painel em backend/desktop_dist (partes < 100 MB por
