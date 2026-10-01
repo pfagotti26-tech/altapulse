@@ -102,8 +102,10 @@ export const PHRASES = [
  "Bem-vindo de volta, {nome}! O sucesso tava te esperando.",
  "{nome}, respira fundo: hoje vai ser surreal!"
 ];
+// conta da agência ("Admin ...") é tratada como "Time Alta"; nas demais, o primeiro nome
+export const greetName = (name) => { const n = String(name || '').trim(); if (/^admin\b/i.test(n)) return 'Time Alta'; if (/^time\b/i.test(n)) return n; return n.split(/\s+/)[0] || 'você'; };
 export function nextPhrase(userId, name) {
-  const first = String(name || '').trim().split(/\s+/)[0] || 'você';
+  const first = greetName(name);
   const key = `alta-frases-${userId || 'anon'}`;
   let st = null; try { st = JSON.parse(localStorage.getItem(key) || 'null'); } catch {}
   if (!st || !Array.isArray(st.order) || st.order.length !== PHRASES.length || st.i >= PHRASES.length) {

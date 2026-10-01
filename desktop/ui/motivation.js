@@ -101,8 +101,9 @@ window.ALTA_PHRASES = [
  "Bem-vindo de volta, {nome}! O sucesso tava te esperando.",
  "{nome}, respira fundo: hoje vai ser surreal!"
 ];
+window.altaGreetName = function (name) { const n = String(name || '').trim(); if (/^admin\b/i.test(n)) return 'Time Alta'; if (/^time\b/i.test(n)) return n; return n.split(/\s+/)[0] || 'você'; };
 window.altaNextPhrase = function (userId, name) {
-  const P = window.ALTA_PHRASES; const first = String(name || '').trim().split(/\s+/)[0] || 'você';
+  const P = window.ALTA_PHRASES; const first = window.altaGreetName(name);
   const key = 'alta-frases-' + (userId || 'anon'); let st = null;
   try { st = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
   if (!st || !Array.isArray(st.order) || st.order.length !== P.length || st.i >= P.length) {
