@@ -55,13 +55,15 @@ function fillScript(login, password) {
     const okText = (b) => { const t = (b.textContent || b.value || '').trim(); return /entrar|log ?in|sign ?in|acessar|continuar|next|avan/i.test(t) && !/google|apple|facebook|x\b|twitter|cadast|sign ?up|criar/i.test(t); };
     const after = (b) => !!(pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     const form = pass.closest('form');
-    const cands = all('button, input[type="submit"]').filter(visible).filter((b) => !b.disabled || b.type === 'submit');
+    // botões desativados também contam: a página só libera depois de validar os campos (o clique espera liberar)
+    const cands = all('button, input[type="submit"]').filter(visible);
     const btn = (form && cands.find((b) => form.contains(b) && (b.type === 'submit' || okText(b))))
       || cands.find((b) => after(b) && b.type === 'submit' && okText(b))
       || cands.find((b) => after(b) && okText(b));
-    if (btn) { setTimeout(() => btn.click(), 400); }
+    // espera o botão habilitar (a página valida os campos depois de preenchidos) e clica; até 4 s
+    if (btn) { let n = 0; const tryClick = () => { const off = btn.disabled || /disabled/i.test(btn.className || ''); if (!off || n >= 16) { btn.click(); return; } n += 1; setTimeout(tryClick, 250); }; setTimeout(tryClick, 400); }
     else if (form) setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 400);
-    return { ok: true, user: !!user, clicked: !!btn };
+    return { ok: true, user: !!user, clicked: !!btn, btn: btn ? ((btn.textContent || btn.value || '').trim().slice(0, 20) + (btn.disabled ? ' (desativado)' : '')) : null, inForm: !!(form && btn && form.contains(btn)) };
   })()`;
 }
 // Sonda leve: a página atual tem um campo de senha visível? (roda dentro da página)

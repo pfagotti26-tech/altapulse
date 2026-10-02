@@ -1144,6 +1144,8 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
       if (!result) result = { ok: false, retry: true, reason: 'carregando o login' };
     }
   } finally { data.password = null; }
+  // diagnóstico (sem login/senha): o que aconteceu no último "Entrar"
+  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], result }, null, 1)); } catch {}
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
   return { ok: true, clicked: result.clicked, user: result.user };
