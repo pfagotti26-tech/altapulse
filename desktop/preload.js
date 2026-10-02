@@ -50,4 +50,6 @@ contextBridge.exposeInMainWorld('pulse', {
   taskOpen: (taskId) => ipcRenderer.invoke('task:open', taskId),
   onToast: (fn) => ipcRenderer.on('toast', (_e, m) => fn(m)),
   onPortableUpdate: (fn) => ipcRenderer.on('portable-update', (_e, m) => fn(m)),
+  portableUpdate: () => ipcRenderer.invoke('portable:update'),
+  onMenusHide: (fn) => ipcRenderer.on('menus:hide', () => fn()),
 });

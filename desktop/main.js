@@ -263,6 +263,7 @@ let activeId = null;
 const tabsOf = (id) => { if (!tabs.has(id)) tabs.set(id, new Map()); return tabs.get(id); };
 const currentView = (id) => { const t = tabs.get(id); return t ? t.get(activeTab.get(id)) || [...t.values()][0] : null; };
 
+function hideSidebarMenus() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('menus:hide'); }
 function pushState() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('state', publicState()); }
 function publicState() {
   return {
@@ -367,7 +368,7 @@ async function quickFan(id) {
 async function quickFanOF(id) {
   const platform = activeTab.get(id) === 'fatalfans' ? 'fatalfans' : 'onlyfans';
   const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
-  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); } catch {}
+  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); if (data && data.page === 'chat' && data.open && data.open.cid) sampleConversation(id, view, null, data.open, platform).catch(() => {}); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -548,7 +549,7 @@ async function readAllNow() {
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
     // bloco E: amostra anonimizada da conversa aberta, só no turno do próprio usuário e com a opção ligada
-    if (mine && state.storage_allowed && state.quality_ai_allowed && data.open && data.open.cid) sampleConversation(id, view, r, data.open).catch(() => {});
+    if (data.open && data.open.cid) sampleConversation(id, view, r, data.open, 'privacy').catch(() => {});
     if (!events.length) continue;
     // evento não enviado (sem turno próprio ou falha) volta a ficar pendente: é reenviado na próxima leitura
     // (antes ficava marcado como enviado e a oferta/espera se perdia para sempre)
@@ -566,19 +567,45 @@ async function readAllNow() {
 }
 
 // ---------- amostras de conversa (bloco E) ----------
+// Privacy, OnlyFans e FatalFans. Só no turno do próprio usuário e com a IA de qualidade ligada no painel.
+// Cada tentativa fica registrada no diagnóstico enviado ao painel (Qualidade → Apps da equipe): nada falha em silêncio.
+const SAMPLE_OTHER = require('./sample-other-page.js');
 const samples = new Map(); // creatorId|cid -> { at, count }
-async function sampleConversation(id, view, r, open) {
+const diag = { sample_ok_at: null, sample_error: '', sample_error_at: null, sample_skip: '', samples_sent: 0, day: '' };
+function skip(reason) { if (diag.sample_skip !== reason) { diag.sample_skip = reason; } }
+async function sampleConversation(id, view, r, open, platform = 'privacy') {
+  if (!state.storage_allowed || !state.quality_ai_allowed) return skip('IA de qualidade desligada no painel');
+  const creator = (state.creators || []).find((c) => c.id === id); const sh = creator && creator.shift;
+  if (!sh || sh.operator_id !== (state.user && state.user.id)) return skip('sem turno próprio nesta criadora');
+  if (sh.paused) return skip('turno pausado');
   const key = `${id}|${open.cid}`; const last = samples.get(key);
   const count = (open.msgs || []).length;
   if (last && (Date.now() - last.at < SAMPLE_MS || last.count === count)) return;
   samples.set(key, { at: Date.now(), count });
-  const data = await view.webContents.executeJavaScript(SAMPLE_SCRIPT, true);
-  if (!data || !data.msgs || data.msgs.length < 3) return;
-  const now = new Date();
-  const when = (m) => { if (!m.date || !m.time) return null; const d = parseDateLabel(m.date, now); if (!d) return null; const [h, mi] = m.time.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString(); };
-  const fan = r.reader.fan(data.name); if (!fan.fan_ref) return;
-  await api('POST', '/extension/samples', { creator_id: id, fan_ref: fan.fan_ref, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
-  r.summary.sampled = (r.summary.sampled || 0) + 1;
+  try {
+    const data = await runJs(view, platform === 'privacy' ? SAMPLE_SCRIPT : SAMPLE_OTHER[platform], 6000);
+    if (!data || !data.msgs) return skip(`${platform}: conversa sem mensagens legíveis`);
+    if (data.msgs.length < 3) return skip(`${platform}: conversa com menos de 3 mensagens`);
+    const now = new Date();
+    const when = (m) => { try { const t = m.date && m.time ? msgAt(m.date, m.time, now) : null; return t && !isNaN(t) ? t.toISOString() : null; } catch { return null; } };
+    const fanRef = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', data.name) : platform === 'fatalfans' ? ffFor(id).reader.ref('fan', data.name) : r.reader.fan(data.name).fan_ref;
+    if (!fanRef) return skip(`${platform}: sem nome do fã no cabeçalho`);
+    await api('POST', '/extension/samples', { creator_id: id, fan_ref: fanRef, platform, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
+    const today = now.toISOString().slice(0, 10); if (diag.day !== today) { diag.day = today; diag.samples_sent = 0; }
+    diag.samples_sent += 1; diag.sample_ok_at = now.toISOString(); diag.sample_skip = '';
+    if (r && r.summary) r.summary.sampled = (r.summary.sampled || 0) + 1;
+  } catch (error) {
+    samples.delete(key); // tenta de novo na próxima leitura
+    diag.sample_error = `${platform}: ${String(error.message || error).slice(0, 240)}`; diag.sample_error_at = new Date().toISOString();
+    sendDiag(true);
+  }
+}
+let diagSentAt = 0;
+async function sendDiag(force) {
+  if (!token || !state.user || (!force && Date.now() - diagSentAt < 4 * 60 * 1000)) return;
+  diagSentAt = Date.now();
+  try { await api('POST', '/extension/diag', { version: app.getVersion(), quality_ai: !!state.quality_ai_allowed, storage: !!state.storage_allowed,
+    sample_ok_at: diag.sample_ok_at, sample_error: diag.sample_error, sample_error_at: diag.sample_error_at, sample_skip: diag.sample_skip, samples_sent: diag.samples_sent }); } catch {}
 }
 
 // ---------- extrato (bloco A) ----------
@@ -1395,11 +1422,15 @@ app.whenReady().then(async () => {
   setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(checkShiftClock, 15000); setTimeout(checkShiftClock, 5000);
+  setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
+  setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
   setInterval(readAll, READ_MS);
 });
 
 app.on('window-all-closed', () => app.quit());
+// clique em qualquer outra área (aba da plataforma, cartão do fã): fecha os menus abertos na lateral
+app.on('web-contents-created', (_e, wc) => { wc.on('focus', () => { if (!sidebar || wc !== sidebar.webContents) hideSidebarMenus(); }); wc.on('before-mouse-event', (_ev, m) => { if (m && m.type === 'mouseDown' && (!sidebar || wc !== sidebar.webContents)) hideSidebarMenus(); }); });
 
 // ---------- atualização automática (instalador) ----------
 // O app instalado pelo AltaPulse-Setup.exe busca versões novas nas releases do GitHub do projeto
@@ -1411,11 +1442,29 @@ function setupPortableNotice() {
   const check = async () => {
     try {
       const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar` });
+      // atualização rápida: mesma versão do Electron → só troca o app.asar (2-3 MB) e reinicia
+      const quick = !!(d && d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
+      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick });
     } catch {}
   };
   setTimeout(check, 15000); setInterval(check, 3 * 60 * 60 * 1000);
 }
+
+// troca o app.asar da versão sem instalador e reinicia (o original-fs não trata .asar como pasta)
+ipcMain.handle('portable:update', async () => {
+  const ofs = require('original-fs'); const crypto = require('crypto');
+  const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+  if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
+  const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
+  const target = path.join(process.resourcesPath, 'app.asar');
+  ofs.writeFileSync(target + '.novo', buf);
+  try { ofs.copyFileSync(target, target + '.anterior'); } catch {}
+  ofs.renameSync(target + '.novo', target);
+  setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
+  return true;
+});
 
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
