@@ -4,7 +4,7 @@
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
-const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -21,6 +21,7 @@ const CF = require('./closefans-page.js');
 const OF = require('./onlyfans-page.js');
 const AVATAR_SCRIPT = require('./avatar-page.js').script;
 const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
+const FF_CHAT_SCRIPT = require('./fatalfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
@@ -187,6 +188,72 @@ async function refreshState() {
   return state;
 }
 
+// ---------- relógio do turno (10h–19h e 19h–03h) ----------
+// 5 min depois do fim previsto pelo painel (ends_at), pergunta por cima de tudo: "Vai continuar?".
+// Sim → "Até que horas?" (o turno passa a terminar nesse horário). Não, ou 1 min sem resposta em qualquer
+// das duas perguntas → encerra os turnos de TODAS as criadoras do chatter. App fechado: o painel encerra sozinho.
+const ASK_AFTER_MS = 5 * 60e3, ANSWER_MS = 60e3;
+let shiftPrompt = null, shiftView = null, shiftTimer = null, shiftBusy = false;
+function myShifts() { return state.user ? (state.creators || []).filter((c) => c.shift && c.shift.active !== false && c.shift.operator_id === state.user.id) : []; }
+function shiftEnds(list) { const t = list.map((c) => Date.parse(c.shift.ends_at || '')).filter(Number.isFinite); return t.length ? Math.min(...t) : null; }
+function pushShiftPrompt() { if (shiftView && !shiftView.webContents.isDestroyed() && shiftPrompt) shiftView.webContents.send('shiftclock:prompt', { ...shiftPrompt, total: ANSWER_MS }); }
+function toast(text) { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', text); }
+function checkShiftClock() {
+  if (shiftPrompt && !shiftBusy && !myShifts().length) closeShiftPrompt(); // o gestor encerrou pelo painel
+  if (shiftPrompt || shiftBusy || !win) return;
+  const mine = myShifts(); const ends = shiftEnds(mine);
+  if (!mine.length || ends == null || Date.now() < ends + ASK_AFTER_MS) return;
+  shiftPrompt = { stage: 'ask', deadline: Date.now() + ANSWER_MS, endsAt: new Date(ends).toISOString(), creators: mine.map((c) => c.name), error: '' };
+  api('POST', '/extension/shifts/prompt', {}).catch(() => {}); // o painel espera a resposta antes de encerrar sozinho
+  shiftView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  shiftView.setBackgroundColor('#00000000');
+  win.contentView.addChildView(shiftView); // por último: fica por cima das abas e do cartão do fã
+  shiftView.webContents.loadFile(path.join(__dirname, 'ui', 'shift.html'));
+  layout();
+  try { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.flashFrame(true); } catch {}
+  try { if (Notification.isSupported()) new Notification({ title: 'Alta Pulse · fim do turno', body: `Seu turno terminou. Você vai continuar trabalhando? Responda em 1 minuto.` }).show(); } catch {}
+  clearInterval(shiftTimer);
+  shiftTimer = setInterval(() => { if (shiftPrompt && Date.now() >= shiftPrompt.deadline) endMyShifts('sem_resposta'); }, 1000);
+}
+function closeShiftPrompt() {
+  clearInterval(shiftTimer); shiftTimer = null; shiftPrompt = null;
+  if (shiftView) { try { win.contentView.removeChildView(shiftView); shiftView.webContents.close(); } catch {} shiftView = null; }
+  try { win.flashFrame(false); } catch {}
+}
+async function endMyShifts(reason) {
+  if (shiftBusy) return; shiftBusy = true; closeShiftPrompt();
+  try {
+    const out = await api('POST', '/extension/shifts/end-mine', { reason });
+    const names = (out && out.ended) || [];
+    toast(names.length ? `Turno encerrado${reason === 'sem_resposta' ? ' automaticamente (sem resposta)' : ''}: ${names.join(', ')}.` : 'Nenhum turno ativo para encerrar.');
+  } catch (error) { toast(`Não consegui encerrar agora (${error.message}). O painel encerra sozinho em alguns minutos.`); }
+  finally { shiftBusy = false; await refreshState(); }
+}
+function untilFrom(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || ''); if (!m) return null;
+  const d = new Date(); d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1); // 02:00 digitado às 23h = amanhã
+  return d;
+}
+ipcMain.handle('shiftclock:answer', async (_e, a) => {
+  if (!shiftPrompt) return false;
+  if (a.answer === 'ready') { pushShiftPrompt(); return true; }
+  if (a.answer === 'no') { await endMyShifts('nao'); return true; }
+  if (a.answer === 'yes') { shiftPrompt = { ...shiftPrompt, stage: 'until', deadline: Date.now() + ANSWER_MS, error: '' }; pushShiftPrompt(); return true; }
+  if (a.answer === 'until') {
+    const until = untilFrom(a.time);
+    if (!until) { shiftPrompt.error = 'Informe o horário (ex.: 21:30).'; pushShiftPrompt(); return false; }
+    if (until.getTime() - Date.now() > 12 * 3600e3) { shiftPrompt.error = 'No máximo 12 horas a partir de agora.'; pushShiftPrompt(); return false; }
+    try {
+      const out = await api('POST', '/extension/shifts/extend', { until: until.toISOString() });
+      for (const c of myShifts()) c.shift.ends_at = out.ends_at; // evita perguntar de novo antes do próximo refresh
+      closeShiftPrompt(); toast(`Turno continua até ${a.time}. Vou perguntar de novo 5 min depois.`); refreshState();
+      return true;
+    } catch (error) { shiftPrompt.error = error.message; pushShiftPrompt(); return false; }
+  }
+  return false;
+});
+
 // ---------- janela, lateral e perfis ----------
 let win, sidebar;
 const views = new Map(); // creatorId -> aba da PRIVACY (leitor, extrato e presença usam esta)
@@ -247,7 +314,7 @@ let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, lo
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
 function fanPanelWidth() {
-  if (!state.user || !activeId || !['privacy', 'onlyfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
+  if (!state.user || !activeId || !['privacy', 'onlyfans', 'fatalfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
   return fanCollapsed() ? FAN_MIN : FAN_W;
 }
 function pushFan() {
@@ -271,7 +338,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
     return;
   }
   // OnlyFans: mesma referência das vendas do extrato de Renda (para o cartão juntar as compras do fã)
-  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
+  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : platform === 'fatalfans' ? ffFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
   if (platform === 'privacy' && open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
   // fã que mandou mensagem hoje/ontem está com acesso ao chat: não mostrar "assinatura inativa" da lista antiga
   const chatting = (open.msgs || []).some((m) => !m.ours && /^(hoje|ontem)$/i.test(String(m.date || '').trim()));
@@ -292,14 +359,15 @@ function setFanFromChat(id, open, platform = 'privacy') {
 }
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
-  if (id === activeId && activeTab.get(id) === 'onlyfans') return quickFanOF(id);
+  if (id === activeId && (activeTab.get(id) === 'onlyfans' || activeTab.get(id) === 'fatalfans')) return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
   try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
 }
 // Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
 async function quickFanOF(id) {
-  const t = tabs.get(id); const view = t && t.get('onlyfans'); if (!view || view.webContents.isDestroyed()) return;
-  try { const data = await runJs(view, OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, 'onlyfans'); } catch {}
+  const platform = activeTab.get(id) === 'fatalfans' ? 'fatalfans' : 'onlyfans';
+  const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
+  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -319,6 +387,7 @@ function layout() {
   // a faixa de 2 px da aba oculta do extrato fica ENTRE a Privacy e o painel do fã (não coberta)
   if (fanView) { fanView.setBounds({ x: w - pw, y: 0, width: pw, height: h }); fanView.setVisible(pw > 0); }
   for (const x of extratos.values()) if (x.view && !x.shown && !x.view.webContents.isDestroyed()) x.view.setBounds(hiddenBounds());
+  if (shiftView) shiftView.setBounds({ x: 0, y: 0, width: w, height: h });
 }
 
 function partitionFor(creatorId) { return `persist:creator-${creatorId}`; }
@@ -372,7 +441,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
       if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
     });
   }
-  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -457,7 +526,7 @@ async function readAllNow() {
     }
     if (found.length) loginPages.set(id, found); else loginPages.delete(id);
   }
-  if (activeId && activeTab.get(activeId) === 'onlyfans') await quickFanOF(activeId);
+  if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) await quickFanOF(activeId);
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
@@ -686,17 +755,25 @@ async function readExtratoNow(id, opts = {}) {
   }
 }
 // ---------- foto da criadora: pega a foto de perfil na plataforma (aba oculta já logada) ----------
-// Só quando a criadora ainda não tem foto no painel; uma tentativa por plataforma por sessão do app.
-const avatarTried = new Set();
+// Só quando a criadora ainda não tem foto no painel. Se não deu (página ainda carregando, aba escondida,
+// download bloqueado), tenta de novo na próxima leitura, no máximo a cada 1 min e até 8 vezes por sessão.
+const avatarTried = new Map(); // `${id}|${platform}` -> { n, at, done }
+const avatarLog = {}; // diagnóstico por criadora (portátil)
 async function grabAvatar(id, view, platform) {
-  // diagnóstico da foto (só no portátil): em que etapa parou
-  const step = (stage, extra) => { if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-etapa.json`), JSON.stringify({ at: new Date().toISOString(), creator: id.slice(0, 6), stage, ...(extra || {}) }, null, 1)); } catch {} };
+  const key = `${id}|${platform}`;
+  const c0 = (state.creators || []).find((x) => x.id === id);
+  const step = (stage, extra) => {
+    const t = avatarTried.get(key) || { n: 0 }; if (stage === 'ok' || stage === 'painel recusou') t.done = true; avatarTried.set(key, t);
+    if (isPortable()) try { avatarLog[`${platform} · ${c0 ? c0.name : id.slice(0, 6)}`] = { at: new Date().toISOString(), stage, ...(extra || {}) }; fs.writeFileSync(path.join(calibDir(), 'fotos-etapas.json'), JSON.stringify(avatarLog, null, 1)); } catch {}
+  };
   try {
-    const c = (state.creators || []).find((x) => x.id === id);
-    if (!c || c.avatar || avatarTried.has(`${id}|${platform}`) || !state.user) return;
-    avatarTried.add(`${id}|${platform}`);
+    const c = c0;
+    if (!c || c.avatar || !state.user) return;
+    const t = avatarTried.get(key) || { n: 0, at: 0 };
+    if (t.done || t.n >= 8 || Date.now() - (t.at || 0) < 60000) return;
+    t.n += 1; t.at = Date.now(); avatarTried.set(key, t);
     const list = await runJs(view, AVATAR_SCRIPT, 8000);
-    if (!Array.isArray(list) || !list.length) return;
+    if (!Array.isArray(list) || !list.length) return step('sem foto na tela (ainda carregando?)');
     const [w] = win.getContentSize();
     let pick = null;
     if (platform === 'fatalfans') pick = list.filter((a) => a.y < 600).sort((a, b) => b.w - a.w)[0];               // card do perfil no painel da criadora
@@ -1304,6 +1381,7 @@ app.whenReady().then(async () => {
   restoreOpenTabs(); startVigia();
   setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
+  setInterval(checkShiftClock, 15000); setTimeout(checkShiftClock, 5000);
   setInterval(heartbeats, HEARTBEAT_MS);
   setInterval(readAll, READ_MS);
 });

@@ -150,9 +150,37 @@ async def ingest_insight(request: Request, key: str = '', payload: str = '', use
     row = await store_insight(body, user)
     return {'ok': True, 'id': row['id'], 'samples_marked': row['samples_marked']}
 
+def _period(start, end, field_start, field_end):
+    q = {}
+    if start: q[field_end] = {'$gte': clean_time(start)}
+    if end: q.setdefault(field_start, {})['$lt'] = clean_time(end)
+    return q
+
 @router.get('/quality/insights')
-async def list_insights(user=Depends(manager)):
-    return await db.insights.find({}, {'_id': 0}).sort('created_at', -1).to_list(30)
+async def list_insights(start: Optional[datetime] = None, end: Optional[datetime] = None, user=Depends(manager)):
+    """Análises cujo período de conversas cruza o período escolhido (ex.: 'Ontem' mostra a análise de ontem, feita hoje)."""
+    return await db.insights.find(_period(start, end, 'period_start', 'period_end'), {'_id': 0}).sort('created_at', -1).to_list(100)
+
+BRT = timedelta(hours=-3)
+@router.get('/quality/samples/summary')
+async def samples_summary(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', user=Depends(manager)):
+    """Quantas conversas cada chatter teve capturadas para a IA, por dia (horário de Brasília). Só contagem, sem texto."""
+    q = _period(start, end, 'captured_at', 'captured_at')
+    if creator_id: q['creator_id'] = creator_id
+    rows = await db.samples.find(q, {'_id': 0, 'captured_at': 1, 'operator_id': 1, 'operator_name': 1, 'creator_name': 1, 'analyzed_at': 1, 'sent_by': 1}).to_list(10000)
+    chatters, senders = {}, {}
+    for r in rows:
+        day = (datetime.fromisoformat(r['captured_at']) + BRT).strftime('%Y-%m-%d')
+        c = chatters.setdefault(r.get('operator_id') or r['operator_name'], {'operator_id': r.get('operator_id'), 'name': r['operator_name'], 'count': 0, 'pending': 0, 'days': {}, 'creators': set(), 'last_at': ''})
+        c['count'] += 1; c['pending'] += 0 if r.get('analyzed_at') else 1; c['days'][day] = c['days'].get(day, 0) + 1
+        c['creators'].add(r['creator_name']); c['last_at'] = max(c['last_at'], r['captured_at'])
+        s = senders.setdefault(r.get('sent_by') or '', {'count': 0, 'last_at': ''}); s['count'] += 1; s['last_at'] = max(s['last_at'], r['captured_at'])
+    names = {u['id']: u['name'] for u in await db.users.find({'id': {'$in': list(senders)}}, {'_id': 0, 'id': 1, 'name': 1}).to_list(500)}
+    out = sorted(({**c, 'creators': sorted(c['creators'])} for c in chatters.values()), key=lambda c: -c['count'])
+    last = await db.samples.find_one({}, {'_id': 0, 'captured_at': 1}, sort=[('captured_at', -1)])
+    return {'total': len(rows), 'pending': sum(c['pending'] for c in out), 'chatters': out, 'keep_days': SAMPLE_DAYS,
+        'senders': sorted(({'name': names.get(k, 'Desconhecido'), **v} for k, v in senders.items()), key=lambda s: s['last_at'], reverse=True),
+        'last_sample_at': last['captured_at'] if last else None}
 
 @router.delete('/quality/insights/{insight_id}')
 async def delete_insight(insight_id: str, user=Depends(manager)):

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>Turno</title>
+<link rel="stylesheet" href="shift.css">
+</head>
+<body>
+<div class="veil">
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="title">
+    <div class="clock"><svg viewBox="0 0 44 44"><circle class="track" cx="22" cy="22" r="19"/><circle id="ring" class="ring" cx="22" cy="22" r="19"/></svg><b id="secs">60</b></div>
+    <h1 id="title">Seu turno terminou</h1>
+    <p id="sub" class="sub"></p>
+    <section id="ask">
+      <p class="q">Você vai continuar trabalhando?</p>
+      <div class="actions"><button id="yes" class="primary">Sim</button><button id="no" class="ghost">Não, encerrar</button></div>
+    </section>
+    <section id="until" class="hidden">
+      <p class="q">Até que horas?</p>
+      <form id="until-form"><input id="time" type="time" required><button class="primary" type="submit">Confirmar</button></form>
+      <p id="err" class="err"></p>
+    </section>
+    <p class="foot">Sem resposta, os turnos de todas as suas criadoras são encerrados quando o relógio zerar.</p>
+  </div>
+</div>
+<script src="shift.js"></script>
+</body>
+</html>

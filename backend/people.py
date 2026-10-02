@@ -9,13 +9,15 @@ from responses import UserOut, CreatorOut, ShiftOut
 router = APIRouter()
 @router.get('/creators', response_model=list[CreatorOut])
 async def creators(user=Depends(current_user)):
+    from shift_clock import sweep_soon, decorate
+    await sweep_soon()
     query = {} if user['role'] == 'manager' else {'id': {'$in': user['creator_ids']}}
     rows = await db.creators.find(query, {'_id': 0}).sort('created_at', 1).to_list(1000)
     avatars = {u['id']: u.get('avatar') for u in await db.users.find({'avatar': {'$ne': None}}, {'_id': 0, 'id': 1, 'avatar': 1}).to_list(500)}
     for row in rows:
         row['groups'] = row.get('groups') or ([row['group']] if row.get('group') else [])
         row['shift'] = await db.shifts.find_one({'creator_id': row['id'], 'active': True}, {'_id': 0, 'expires_at': 0})
-        if row['shift']: row['shift']['operator_avatar'] = avatars.get(row['shift']['operator_id'])
+        if row['shift']: row['shift']['operator_avatar'] = avatars.get(row['shift']['operator_id']); decorate(row['shift'])
         row['browser'] = await db.browsers.find_one({'creator_id': row['id']}, {'_id': 0})
         if row['browser'] and row['browser'].get('last_seen', '') < (now() - timedelta(seconds=30)).isoformat():
             row['browser']['state'] = 'interrupted'
@@ -82,7 +84,10 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager))
     return {'ok': True}
 @router.get('/shifts', response_model=list[ShiftOut])
 async def shifts(user=Depends(current_user)):
-    return await db.shifts.find({} if user['role'] == 'manager' else {'operator_id': user['id']}, {'_id': 0, 'expires_at': 0}).sort('started_at', -1).to_list(1000)
+    from shift_clock import sweep_soon, decorate
+    await sweep_soon()
+    rows = await db.shifts.find({} if user['role'] == 'manager' else {'operator_id': user['id']}, {'_id': 0, 'expires_at': 0}).sort('started_at', -1).to_list(1000)
+    return [decorate(r) for r in rows]
 @router.post('/shifts', status_code=201, response_model=ShiftOut)
 async def start_shift(body: ShiftStart, user=Depends(current_user)):
     creator = await creator_access(body.creator_id, user)
