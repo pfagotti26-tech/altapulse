@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('pulse', {
 
   startShift: (creatorId) => ipcRenderer.invoke('shift:start', creatorId),
   shiftAction: (shiftId, action) => ipcRenderer.invoke('shift:action', { shiftId, action }),
+  shiftAnswer: (a) => ipcRenderer.invoke('shiftclock:answer', a),
+  onShiftPrompt: (fn) => ipcRenderer.on('shiftclock:prompt', (_e, p) => fn(p)),
 
   setCreatorLocal: (id, patch) => ipcRenderer.invoke('local:setCreator', { id, patch }),
   setGroups: (groups) => ipcRenderer.invoke('local:setGroups', groups),

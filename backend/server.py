@@ -45,7 +45,12 @@ async def lifespan(app):
     await db.assist_alerts.create_index('expires_at', expireAfterSeconds=0)
     await db.assist_profiles.create_index('creator_id', unique=True)
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
+    await db.shifts.create_index([('active', 1), ('operator_id', 1)])
+    import asyncio
+    from shift_clock import sweep_loop
+    clock = asyncio.create_task(sweep_loop())  # encerra turnos esquecidos (app fechado)
     yield
+    clock.cancel()
     client.close()
 
 app = FastAPI(title='Alta Pulse • Gestão de operações', lifespan=lifespan)

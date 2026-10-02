@@ -111,6 +111,18 @@ async def extension_shift_action(shift_id: str, body: ShiftAction, user=Depends(
     async with lock:
         return await change_shift(shift_id, body, user)
 
+# relógio do turno (pergunta 'vai continuar?' 5 min depois do fim)
+from shift_clock import ExtendIn, EndMineIn, prompt_shown, extend_mine, end_mine, sweep_soon
+@router.post('/extension/shifts/prompt')
+async def extension_shift_prompt(user=Depends(extension_user)):
+    return await prompt_shown(user)
+@router.post('/extension/shifts/extend')
+async def extension_shift_extend(body: ExtendIn, user=Depends(extension_user)):
+    return await extend_mine(body, user)
+@router.post('/extension/shifts/end-mine')
+async def extension_shift_end_mine(body: EndMineIn, user=Depends(extension_user)):
+    return await end_mine(body, user)
+
 @router.post('/extension/heartbeat')
 async def heartbeat(body: HeartbeatIn, user=Depends(extension_user)):
     from core import creator_access

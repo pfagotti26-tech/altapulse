@@ -28,6 +28,10 @@ class ShiftOut(Public):
     active: bool
     paused: bool
     operator_avatar: Optional[str] = None
+    ends_at: Optional[str] = None
+    extended_until: Optional[str] = None
+    prompt_at: Optional[str] = None
+    ended_reason: Optional[str] = None
 
 class CreatorOut(Public):
     id: str
