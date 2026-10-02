@@ -61,7 +61,7 @@ function fillScript(login, password) {
       || cands.find((b) => after(b) && b.type === 'submit' && okText(b))
       || cands.find((b) => after(b) && okText(b));
     // espera o botão habilitar (a página valida os campos depois de preenchidos) e clica; até 4 s
-    if (btn) { let n = 0; const tryClick = () => { const off = btn.disabled || /disabled/i.test(btn.className || ''); if (!off || n >= 16) { btn.click(); return; } n += 1; setTimeout(tryClick, 250); }; setTimeout(tryClick, 400); }
+    if (btn) { let n = 0; const tryClick = () => { const off = btn.disabled || /disabled/i.test(btn.className || ''); if (!off || n >= 40) { btn.click(); return; } n += 1; setTimeout(tryClick, 100); }; setTimeout(tryClick, 150); }
     else if (form) setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 400);
     return { ok: true, user: !!user, clicked: !!btn, btn: btn ? ((btn.textContent || btn.value || '').trim().slice(0, 20) + (btn.disabled ? ' (desativado)' : '')) : null, inForm: !!(form && btn && form.contains(btn)) };
   })()`;

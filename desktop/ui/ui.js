@@ -148,11 +148,13 @@ function card(c) {
   const loginList = (S.loginPages && S.loginPages[c.id]) || [];
   const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
   const hasCred = (p) => (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === p);
-  // tela de login + acesso salvo: o próprio chip vira o "Entrar" (e o clique no card também entra); some por 40 s depois do clique
-  const pending = (p) => vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000;
-  const canEnter = (p) => loginList.includes(p) && hasCred(p) && !pending(p);
+  // tela de login + acesso salvo: o próprio chip vira o "Entrar" (e o clique no card também entra)
+  const ent = S.entering && S.entering[c.id];
+  const canEnter = (p) => loginList.includes(p) && hasCred(p) && !ent;
+  const verr = S.vaultErrors && S.vaultErrors[c.id];
+  if (verr && !ent && S.open.includes(c.id)) queue += `<div class="queue late" title="${esc(verr.reason)}">${esc(labelOf(verr.platform))}: não entrou · ${esc(verr.reason.split(':')[0])}</div>`;
   let chips = '';
-  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}${canEnter(p) ? ' enter' : ''}" data-plat="${esc(p)}" title="${canEnter(p) ? `Clique para entrar na ${esc(labelOf(p))} com o acesso salvo (a senha não aparece)` : loginList.includes(p) ? (hasCred(p) ? 'Entrando…' : 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}${canEnter(p) ? '<i class="chip-enter">Entrar</i>' : ''}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
+  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}${canEnter(p) || ent === p ? ' enter' : ''}${ent === p ? ' entering' : ''}" data-plat="${esc(p)}" title="${ent === p ? 'Entrando com o acesso salvo…' : canEnter(p) ? `Clique para entrar na ${esc(labelOf(p))} com o acesso salvo (a senha não aparece)` : loginList.includes(p) && !hasCred(p) ? 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)' : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}${ent === p ? '<i class="chip-enter">Entrando…</i>' : canEnter(p) ? '<i class="chip-enter">Entrar</i>' : ''}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
@@ -178,30 +180,31 @@ function card(c) {
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => {
     if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return;
-    // clique no card: se a plataforma que está na tela (ou a única na tela de login) pede login e há acesso salvo, entra
-    const target = cur && loginList.includes(cur) ? cur : (loginList.length === 1 ? loginList[0] : null);
-    if (S.open.includes(c.id) && target && canEnter(target)) return vaultLogin(c, target);
-    openCreator(c);
+    // clique no card: abre/mostra a plataforma e, se ela estiver na tela de login e houver acesso salvo, já entra
+    const target = cur && loginList.includes(cur) ? cur : (loginList.length === 1 ? loginList[0] : cur);
+    if (S.open.includes(c.id) && target) return enterPlatform(c, target);
+    openCreator(c).then(() => { if (S.open.includes(c.id)) enterPlatform(c, (S.activeTab && S.activeTab[c.id]) || 'privacy', true); });
   });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
     const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
     const p = ch.dataset.plat; if (p === '+') return platformDialog(c);
-    if (canEnter(p)) return vaultLogin(c, p);
-    run(() => window.pulse.showProfile(c.id, p));
+    enterPlatform(c, p);
   }));
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
   return el;
 }
 
-const vaultPending = new Map();
-async function vaultLogin(c, platform) {
-  vaultPending.set(`${c.id}|${platform}`, Date.now()); renderList();
-  if (platform) await run(() => window.pulse.showProfile(c.id, platform));
-  const r = await run(() => window.pulse.vaultUse(c.id, platform));
-  if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
+// um clique: mostra a plataforma e, se a página estiver (ou carregar) na tela de login com acesso salvo, entra
+async function enterPlatform(c, platform, quietShow) {
+  if (!quietShow) await run(() => window.pulse.showProfile(c.id, platform));
+  const hasCred = (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === platform);
+  if (!hasCred) return;
+  const r = await run(() => window.pulse.vaultEnter(c.id, platform));
+  if (r && r.ok && !r.already) toast(r.clicked ? 'Login enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
 }
+const vaultLogin = (c, platform) => enterPlatform(c, platform);
 async function openCreator(c, platform) {
   if (S.open.includes(c.id) && !platform) return run(() => window.pulse.showProfile(c.id));
   if (c.shift && c.shift.operator_id !== S.user.id) {
@@ -215,7 +218,7 @@ async function platformDialog(c) {
   const plats = S.platforms || {}; const creds = (S.credentials || []).filter((x) => x.creator_id === c.id);
   const body = `<p>Abrir no perfil isolado de <b>${esc(c.name)}</b>:</p><div class="plat-list">${Object.keys(plats).map((id) => `<button class="plat" data-plat="${esc(id)}">${esc(plats[id].label)}${creds.some((x) => x.platform === id) ? ' <span class="plat-ok" title="acesso salvo no cofre">🔑</span>' : ''}</button>`).join('')}</div>`;
   const p = dialog({ title: 'Abrir plataforma', body, hideOk: true });
-  $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); openCreator(c, b.dataset.plat); }));
+  $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); const pl = b.dataset.plat; openCreator(c, pl).then(() => { if (S.tabs && (S.tabs[c.id] || []).includes(pl)) enterPlatform(c, pl, true); }); }));
   await p;
 }
 async function shiftClick(c, action) {

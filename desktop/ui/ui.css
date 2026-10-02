@@ -217,3 +217,6 @@ footer { padding: 12px 16px 14px; }
 .chip.enter.on{background:#2e7d4f}
 .chip.enter::before{background:#7dffb0;box-shadow:0 0 0 2px rgba(125,255,176,.25)}
 .chip-enter{font-style:normal;font-weight:700;margin-left:4px;padding-left:5px;border-left:1px solid rgba(255,255,255,.3)}
+.chip.entering{opacity:.85;cursor:progress}
+.chip.entering .chip-enter{animation:entPulse 1s ease-in-out infinite}
+@keyframes entPulse{0%,100%{opacity:1}50%{opacity:.35}}

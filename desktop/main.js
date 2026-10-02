@@ -215,6 +215,8 @@ function publicState() {
     platforms: PLATFORMS,
     credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
     loginPages: Object.fromEntries(loginPages),
+    entering: Object.fromEntries(entering),
+    vaultErrors: Object.fromEntries(vaultErrors),
     tasks: myTasks,
     probeInfo: Object.fromEntries(probeInfo),
   };
@@ -358,6 +360,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     return { action: 'deny' };
   });
   view.webContents.on('did-navigate', () => pushState());
+  view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
     view.webContents.on('before-input-event', (event, input) => {
@@ -369,7 +372,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
       if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
     });
   }
-  view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -1144,27 +1147,78 @@ ipcMain.handle('state:snapshot', () => publicState());
 ipcMain.handle('profile:open', (_e, id, platform) => { openProfile(id, platform || 'privacy'); return publicState(); });
 // cofre: pede login/senha ao painel (auditado) e preenche o formulário da plataforma aberta. A senha
 // não passa pela lateral: vai do painel para o processo principal e daí para a página, e é descartada.
-ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
-  const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId);
-  const view = t && t.get(platform); if (!view) throw new Error('Abra a criadora primeiro.');
+// ---------- cofre: entrar com um clique ----------
+// Preenche login e senha na tela de login da plataforma (a senha vem do painel, auditada, e é descartada).
+const entering = new Map(); // creatorId -> plataforma em que está entrando agora (a lateral mostra "Entrando…")
+const vaultErrors = new Map(); // creatorId -> { platform, reason } do último Entrar que não passou da tela de login
+function setLogin(id, platform, on) {
+  const list = (loginPages.get(id) || []).filter((p) => p !== platform); if (on) list.push(platform);
+  if (list.length) loginPages.set(id, list); else loginPages.delete(id);
+}
+async function probeLogin(view) { try { return !!(await runJs(view, LOGIN_PROBE, 2500)); } catch { return false; } }
+// sonda logo depois de carregar (o chip fica verde em ~1 s, sem esperar a varredura de 10 s)
+function probeSoon(creatorId, platform, view) {
+  setTimeout(async () => { if (view.webContents.isDestroyed()) return; const was = (loginPages.get(creatorId) || []).includes(platform); const on = await probeLogin(view); if (on !== was) { setLogin(creatorId, platform, on); pushState(); } }, 700);
+}
+async function vaultFill(creatorId, platform, view) {
   const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
   if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
+  const t0 = Date.now();
   const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
+  const tApi = Date.now() - t0;
   let result;
   try {
-    result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true);
-    // formulário atrás de um botão "Entrar": o script abriu; espera aparecer e preenche
-    // (o botão pode trocar de página, como no FatalFans: durante o carregamento o script falha e tenta de novo)
-    for (let i = 0; i < 8 && result && result.retry; i++) {
-      await sleep(1200);
+    try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
+    // formulário atrás de um botão "Entrar" (CloseFans) ou em outra página (FatalFans): espera aparecer e preenche
+    for (let i = 0; i < 16 && result && result.retry; i++) {
+      await sleep(600);
       try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
       if (!result) result = { ok: false, retry: true, reason: 'carregando o login' };
     }
   } finally { data.password = null; }
-  // diagnóstico (sem login/senha): o que aconteceu no último "Entrar"
-  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], result }, null, 1)); } catch {}
+  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], ms_painel: tApi, ms_total: Date.now() - t0, result }, null, 1)); } catch {}
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
-  loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
+  return result;
+}
+// depois de enviar: confere se saiu da tela de login; se não, avisa o motivo provável e libera o botão de novo
+async function vaultCheck(creatorId, platform, view) {
+  for (let i = 0; i < 12; i++) { await sleep(700); if (view.webContents.isDestroyed()) return; if (!(await probeLogin(view))) { setLogin(creatorId, platform, false); vaultErrors.delete(creatorId); pushState(); return; } }
+  vaultErrors.set(creatorId, { platform, reason: 'continua na tela de login: senha recusada, verificação ou código pedido pela plataforma' });
+  setLogin(creatorId, platform, true); pushState();
+  if (sidebar) sidebar.webContents.send('toast', `${PLATFORMS[platform].label}: ainda na tela de login. Veja se a plataforma pediu código ou verificação.`);
+}
+// um clique: mostra a plataforma; se a página carregar na tela de login e houver acesso salvo, entra
+ipcMain.handle('vault:enter', async (_e, creatorId, platformArg) => {
+  const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId) || 'privacy';
+  const view = t && t.get(platform); if (!view) return { ok: false, reason: 'aba fechada' };
+  if (!credentials.some((c) => c.creator_id === creatorId && c.platform === platform)) return { ok: false, reason: 'sem acesso salvo' };
+  if (entering.has(creatorId)) return { ok: false, reason: 'já entrando' };
+  // página pronta: uma sonda só (logada = só mostra, sem esperar). Carregando (aba recém-aberta): espera até ~8 s
+  const fresh = view.webContents.isLoading() || !view.webContents.getURL();
+  let login = false;
+  for (let i = 0, after = 0; i < 60; i++) {
+    if (view.webContents.isDestroyed()) return { ok: false };
+    if (!view.webContents.isLoading()) { login = await probeLogin(view); after += 1; if (login || !fresh || after >= 15) break; }
+    await sleep(200);
+  }
+  if (!login) { setLogin(creatorId, platform, false); pushState(); return { ok: true, already: true }; }
+  setLogin(creatorId, platform, true);
+  entering.set(creatorId, platform); pushState();
+  try {
+    const result = await vaultFill(creatorId, platform, view);
+    vaultCheck(creatorId, platform, view).catch(() => {});
+    return { ok: true, clicked: result.clicked, user: result.user };
+  } catch (error) {
+    vaultErrors.set(creatorId, { platform, reason: error.message });
+    throw error;
+  } finally { entering.delete(creatorId); pushState(); }
+});
+// compatibilidade (menu ⋮ "Entrar com o acesso salvo")
+ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
+  const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId);
+  const view = t && t.get(platform); if (!view) throw new Error('Abra a criadora primeiro.');
+  const result = await vaultFill(creatorId, platform, view);
+  vaultCheck(creatorId, platform, view).catch(() => {});
   return { ok: true, clicked: result.clicked, user: result.user };
 });
 ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); pushFan(); quickFan(id); } return publicState(); });
