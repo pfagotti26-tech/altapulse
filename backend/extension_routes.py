@@ -202,10 +202,26 @@ def installer_stream(name):
         with open(part, 'rb') as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b''): yield chunk
 
+def asar_info():
+    """Só o app.asar da versão atual (2-3 MB): a versão sem instalador se atualiza sozinha trocando este arquivo."""
+    inst = installer_info()
+    if not inst: return None
+    meta = DIST / f"app-{inst['version']}.json"; asar = DIST / f"app-{inst['version']}.asar"
+    if not meta.exists() or not asar.exists(): return None
+    data = json.loads(meta.read_text(encoding='utf-8'))
+    return {'version': inst['version'], 'size': asar.stat().st_size, 'sha512': data.get('sha512'), 'electron': data.get('electron'), 'url': f'{ORIGIN}/api/desktop/asar'}
+
+@router.get('/desktop/asar')
+async def desktop_asar():
+    from fastapi.responses import FileResponse
+    info = asar_info()
+    if not info: raise HTTPException(404, 'Atualização rápida indisponível.')
+    return FileResponse(DIST / f"app-{info['version']}.asar", media_type='application/octet-stream', filename='app.asar')
+
 @router.get('/desktop/release')
 async def desktop_release():
     installer = installer_info()
-    return {'version': (installer or {}).get('version') or DESKTOP_VERSION, 'api_origin': ORIGIN, 'available': DESKTOP_VERSION is not None,
+    return {'asar': asar_info(), 'version': (installer or {}).get('version') or DESKTOP_VERSION, 'api_origin': ORIGIN, 'available': DESKTOP_VERSION is not None,
         'installer': installer, 'portable': portable_info(), 'filename': (installer or {}).get('filename') or f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip',
         'zip_version': DESKTOP_VERSION, 'zip_filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip'}
 
@@ -327,6 +343,11 @@ async def extension_avatar(body: AvatarIn, user=Depends(extension_user)):
 async def extension_avatar_delete(user=Depends(extension_user)):
     from auth_routes import set_avatar
     await set_avatar(user, None); return {'ok': True}
+
+from quality_ai import DiagIn, save_diag
+@router.post('/extension/diag')
+async def extension_diag(body: DiagIn, user=Depends(extension_user)):
+    return await save_diag(body, user)
 
 @router.post('/extension/samples')
 async def extension_sample(body: SampleIn, user=Depends(extension_user)):

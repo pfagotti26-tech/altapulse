@@ -13,6 +13,11 @@ async function run(fn, okMsg) {
 }
 function hideMenus() { $('app-menu').classList.add('hidden'); $('creator-menu').classList.add('hidden'); }
 document.addEventListener('click', (e) => { if (!e.target.closest('.popover') && !e.target.closest('.cmenu') && !e.target.closest('#btn-menu') && !e.target.closest('.gmenu')) hideMenus(); });
+// fora da lateral (página da plataforma, cartão do fã), Esc, rolagem ou janela sem foco: fecha os menus
+window.addEventListener('blur', hideMenus);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenus(); });
+document.addEventListener('scroll', (e) => { if (!(e.target.closest && e.target.closest('.popover'))) hideMenus(); }, true);
+if (window.pulse.onMenusHide) window.pulse.onMenusHide(hideMenus);
 
 function dialog({ title, body, okText = 'OK', onOk, hideOk = false }) {
   return new Promise((resolve) => {
@@ -492,10 +497,16 @@ $('app-menu').addEventListener('click', async (e) => {
 
 window.pulse.onState(apply);
 window.pulse.onToast(toast);
-if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url }) => {
+if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url, quick }) => {
   let bar = document.getElementById('portable-update');
   if (!bar) { bar = document.createElement('div'); bar.id = 'portable-update'; bar.className = 'portable-update'; document.body.prepend(bar); }
-  bar.innerHTML = `<span>Nova versão ${esc(version)} disponível</span><button>Baixar</button>`;
-  bar.querySelector('button').onclick = () => window.pulse.openExternal(url);
+  bar.innerHTML = `<span>Nova versão ${esc(version)} disponível</span><button>${quick ? 'Atualizar' : 'Baixar'}</button>`;
+  const btn = bar.querySelector('button');
+  btn.onclick = async () => {
+    if (!quick || !window.pulse.portableUpdate) return window.pulse.openExternal(url);
+    btn.disabled = true; btn.textContent = 'Atualizando…';
+    try { await window.pulse.portableUpdate(); bar.querySelector('span').textContent = 'Reiniciando o Alta Pulse…'; }
+    catch (err) { btn.disabled = false; btn.textContent = 'Baixar'; btn.onclick = () => window.pulse.openExternal(url); toast(`Não deu para atualizar aqui: ${err.message}`, 7000); }
+  };
 });
 window.pulse.snapshot().then(apply);

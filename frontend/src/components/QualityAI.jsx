@@ -13,7 +13,7 @@ const shortDay = (iso) => iso ? dayLabel(ymd(iso)) : '—';
 const covers = (i) => { const a = shortDay(i.period_start), b = shortDay(i.period_end); return a === b ? a : `${a} a ${b}`; };
 
 export function QualityAI({ filters, reloadKey }) {
-  const [insights, setInsights] = useState([]), [summary, setSummary] = useState(null), [status, setStatus] = useState(null), [open, setOpen] = useState(null);
+  const [insights, setInsights] = useState([]), [summary, setSummary] = useState(null), [status, setStatus] = useState(null), [open, setOpen] = useState(null), [apps, setApps] = useState([]);
   const { start, end } = periodRange(filters);
   const q = new URLSearchParams(); if (start) q.set('start', start.toISOString()); if (end) q.set('end', end.toISOString());
   const range = q.toString(); if (filters.creator_id) q.set('creator_id', filters.creator_id);
@@ -22,6 +22,7 @@ export function QualityAI({ filters, reloadKey }) {
     api.get(`/quality/insights?${range}`).then(r => setInsights(r.data)).catch(() => {}),
     api.get(`/quality/samples/summary?${query}`).then(r => setSummary(r.data)).catch(() => setSummary(null)),
     api.get('/quality/status').then(r => setStatus(r.data)).catch(() => {}),
+    api.get('/quality/apps').then(r => setApps(r.data)).catch(() => setApps([])),
   ]), [range, query, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
   const remove = async (i) => { if (!window.confirm('Apagar esta análise?')) return; try { await api.delete(`/quality/insights/${i.id}`); load(); } catch (e) { toast.error(errorText(e)); } };
@@ -44,11 +45,16 @@ export function QualityAI({ filters, reloadKey }) {
       <span><Clock3 size={14}/>Última conversa capturada: {summary?.last_sample_at ? dateTime(summary.last_sample_at) : 'nenhuma'}</span>
     </div>
 
+    <h3 className="ai-sub">Apps da equipe</h3>
+    {apps.length ? <div className="table-scroll"><table><thead><tr><th>Pessoa</th><th>Versão do app</th><th>Visto por último</th><th>IA ligada no app</th><th>Última conversa enviada</th><th>Problema</th></tr></thead><tbody>
+      {apps.map(a => <tr key={a.user_id}><td><strong>{a.user_name}</strong>{a.role === 'manager' ? <span className="body-muted"> · gestor</span> : ''}</td><td className="tabular">{a.version}</td><td>{dateTime(a.last_seen)}</td><td>{a.quality_ai && a.storage ? 'sim' : <span className="ai-bad">não</span>}</td><td>{a.sample_ok_at ? `${dateTime(a.sample_ok_at)} · ${a.samples_sent} hoje` : '—'}</td><td>{a.sample_error ? <span className="ai-bad" title={dateTime(a.sample_error_at)}>{a.sample_error}</span> : a.sample_skip ? <span className="body-muted">{a.sample_skip}</span> : '—'}</td></tr>)}
+    </tbody></table></div> : <div className="inline-empty">Nenhum app informou ainda. Os apps a partir da versão 1.4.2 aparecem aqui sozinhos em até 5 minutos.</div>}
+
     <h3 className="ai-sub">Conversas capturadas para a IA no período</h3>
     {chatters.length ? <div className="table-scroll"><table className="ai-days"><thead><tr><th>Chatter</th><th>Criadoras</th>{shownDays.map(d => <th key={d}>{dayLabel(d)}</th>)}<th>Total</th><th>Aguardando</th></tr></thead>
       <tbody>{chatters.map(c => <tr key={c.operator_id || c.name}><td><strong>{c.name}</strong></td><td className="body-muted">{c.creators.join(', ')}</td>{shownDays.map(d => <td key={d} className={c.days[d] ? 'has' : 'zero'}>{c.days[d] || '·'}</td>)}<td><strong>{c.count}</strong></td><td>{c.pending}</td></tr>)}</tbody></table></div>
       : <div className="ai-empty"><Info size={15}/><div><strong>Nenhuma conversa capturada {filters.operator_id ? 'deste chatter ' : ''}neste período.</strong>
-        <p>A captura acontece no app Alta Pulse do chatter quando: o turno dele está ativo (não pausado), a opção "Análise de qualidade por IA" está ligada em Configurações, o app está atualizado e há uma conversa aberta na Privacy com pelo menos 3 mensagens. OnlyFans e FatalFans ainda não enviam conversas para a IA. As amostras ficam guardadas {summary?.keep_days || 14} dias.</p>
+        <p>A captura acontece no app Alta Pulse do chatter quando: o turno dele está ativo (não pausado), a opção "Análise de qualidade por IA" está ligada em Configurações, o app está atualizado e há uma conversa aberta (Privacy, OnlyFans ou FatalFans) com pelo menos 3 mensagens. A tabela "Apps da equipe" acima mostra o motivo quando não chega nada. As amostras ficam guardadas {summary?.keep_days || 14} dias.</p>
         {summary?.senders?.length ? <p>Quem enviou por último: {summary.senders.slice(0, 4).map(s => `${s.name} (${dateTime(s.last_at)})`).join(' · ')}</p> : null}</div></div>}
 
     <h3 className="ai-sub">Análises</h3>

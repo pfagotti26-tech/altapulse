@@ -27,6 +27,7 @@ class SampleIn(Strict):
     creator_id: str
     fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
     captured_at: datetime
+    platform: str = Field(default='privacy', pattern=r'^(privacy|onlyfans|fatalfans|closefans)$')
     messages: list[SampleMessage] = Field(min_length=3, max_length=MAX_MESSAGES)
 class InsightItem(Strict):
     operator_name: str = Field(default='', max_length=80)
@@ -82,7 +83,7 @@ async def save_sample(body: SampleIn, user):
     messages = [m for m in messages if m['text']][-MAX_MESSAGES:]
     if len(messages) < 3: return {'ok': True, 'skipped': 'curta'}
     day = captured[:10]
-    row = {'creator_id': body.creator_id, 'creator_name': creator['name'], 'fan_ref': body.fan_ref, 'day': day, 'captured_at': captured,
+    row = {'creator_id': body.creator_id, 'creator_name': creator['name'], 'fan_ref': body.fan_ref, 'day': day, 'captured_at': captured, 'platform': body.platform,
         'operator_id': shift['operator_id'] if shift else None, 'operator_name': shift['operator_name'] if shift else 'Sem turno',
         'sent_by': user['id'], 'messages': messages, 'analyzed_at': None, 'expires_at': now() + timedelta(days=SAMPLE_DAYS)}
     # uma amostra por conversa por dia: a mais recente substitui (a conversa cresceu)
@@ -111,7 +112,7 @@ async def samples_text(request: Request, key: str = '', part: int = 1, user=Depe
     rows = await db.samples.find({'analyzed_at': None, 'expires_at': {'$gt': now()}}, {'_id': 0}).sort('captured_at', 1).to_list(2000)
     blocks = []
     for r in rows:
-        lines = [f"### Amostra {r['id']} · criadora: {r['creator_name']} · chatter: {r['operator_name']} · capturada em {r['captured_at'][:16]}"]
+        lines = [f"### Amostra {r['id']} · criadora: {r['creator_name']} · plataforma: {r.get('platform', 'privacy')} · chatter: {r['operator_name']} · capturada em {r['captured_at'][:16]}"]
         for m in r['messages']:
             who = 'CHATTER (em nome da criadora)' if m['ours'] else 'FÃ'
             lines.append(f"[{(m['at'] or '')[11:16]}] {who}: {m['text']}")
@@ -185,3 +186,24 @@ async def samples_summary(start: Optional[datetime] = None, end: Optional[dateti
 @router.delete('/quality/insights/{insight_id}')
 async def delete_insight(insight_id: str, user=Depends(manager)):
     await db.insights.delete_one({'id': insight_id}); return {'ok': True}
+
+# ---------- diagnóstico dos apps (por que uma amostra não chegou) ----------
+class DiagIn(Strict):
+    version: str = Field(max_length=20)
+    quality_ai: bool = False
+    storage: bool = False
+    sample_ok_at: Optional[str] = Field(default=None, max_length=40)
+    sample_error: str = Field(default='', max_length=300)
+    sample_error_at: Optional[str] = Field(default=None, max_length=40)
+    sample_skip: str = Field(default='', max_length=200)
+    samples_sent: int = Field(default=0, ge=0)
+
+async def save_diag(body: DiagIn, user):
+    row = {'user_id': user['id'], 'user_name': user['name'], 'role': user['role'], **body.model_dump(), 'last_seen': iso()}
+    await db.app_status.update_one({'user_id': user['id']}, {'$set': row}, upsert=True)
+    return {'ok': True}
+
+@router.get('/quality/apps')
+async def apps(user=Depends(manager)):
+    """Uma linha por pessoa: versão do app, se a IA está ligada para ela, última amostra enviada e último erro."""
+    return await db.app_status.find({}, {'_id': 0}).sort('last_seen', -1).to_list(200)
