@@ -686,6 +686,8 @@ async function readExtratoNow(id, opts = {}) {
 // Só quando a criadora ainda não tem foto no painel; uma tentativa por plataforma por sessão do app.
 const avatarTried = new Set();
 async function grabAvatar(id, view, platform) {
+  // diagnóstico da foto (só no portátil): em que etapa parou
+  const step = (stage, extra) => { if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-etapa.json`), JSON.stringify({ at: new Date().toISOString(), creator: id.slice(0, 6), stage, ...(extra || {}) }, null, 1)); } catch {} };
   try {
     const c = (state.creators || []).find((x) => x.id === id);
     if (!c || c.avatar || avatarTried.has(`${id}|${platform}`) || !state.user) return;
@@ -699,26 +701,32 @@ async function grabAvatar(id, view, platform) {
     else pick = list.filter((a) => a.head && a.y < 140).sort((a, b) => b.x - a.x)[0];                                // canto do cabeçalho (Privacy, CloseFans)
     if (!pick) pick = list.filter((a) => a.y < 700).sort((a, b) => b.w - a.w)[0];
     if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-candidatas.json`), JSON.stringify(list.map((a) => ({ ...a, src: a.src.slice(0, 60) })), null, 1)); } catch {}
-    if (!pick) return;
-    const res = await session.fromPartition(partitionFor(id)).fetch(pick.src);
-    if (!res.ok) return;
-    const buf = Buffer.from(await res.arrayBuffer());
-    let img = nativeImage.createFromBuffer(buf);
+    if (!pick) return step('sem candidata');
+    // como o navegador: com a página de origem (Referer) e o mesmo navegador; sem isso a Privacy responde 403
+    let origin = ''; try { origin = new URL(view.webContents.getURL()).origin + '/'; } catch {}
+    const res = await session.fromPartition(partitionFor(id)).fetch(pick.src, { headers: { ...(origin ? { Referer: origin } : {}), 'User-Agent': UA, Accept: 'image/avif,image/webp,image/png,image/jpeg,*/*' } });
+    let img, buf = Buffer.alloc(0);
+    if (res.ok) { buf = Buffer.from(await res.arrayBuffer()); img = nativeImage.createFromBuffer(buf); }
+    else {
+      // download bloqueado: "fotografa" a bolinha na própria tela (só funciona com a aba visível)
+      try { const z = view.webContents.getZoomFactor() || 1; const shot = await view.webContents.capturePage({ x: Math.round(pick.x * z), y: Math.round(pick.y * z), width: Math.round(pick.w * z), height: Math.round(pick.h * z) }); if (!shot.isEmpty()) img = shot; } catch {}
+      if (!img) return step('download falhou', { status: res.status });
+    }
     // a Privacy entrega a foto em WebP, que o nativeImage não lê: converte na lateral (Chromium lê WebP) para PNG
-    if (img.isEmpty() && sidebar && !sidebar.webContents.isDestroyed()) {
+    if (img.isEmpty() && buf.length && sidebar && !sidebar.webContents.isDestroyed()) {
       const mime = (res.headers.get('content-type') || 'image/webp').split(';')[0];
       const png = await runJs(sidebar, `new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; c.getContext('2d').drawImage(i, 0, 0); ok(c.toDataURL('image/png')); }; i.onerror = () => ok(null); i.src = 'data:${mime};base64,${buf.toString('base64')}'; })`, 8000);
       if (png) img = nativeImage.createFromDataURL(png);
     }
-    if (img.isEmpty()) return;
+    if (img.isEmpty()) return step('imagem ilegível', { type: res.headers.get('content-type'), bytes: buf.length });
     const { width, height } = img.getSize(); const side = Math.min(width, height);
     const square = img.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side }).resize({ width: 160, height: 160, quality: 'best' });
     const image = 'data:image/jpeg;base64,' + square.toJPEG(82).toString('base64');
-    if (image.length > 118000) return;
+    if (image.length > 118000) return step('grande demais', { size: image.length });
     if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), `foto-${platform}-${c.name.replace(/[^\w]+/g, '_')}.jpg`), square.toJPEG(82)); } catch {}
-    await api('POST', `/extension/creators/${id}/avatar`, { image });
-    c.avatar = image; pushState();
-  } catch {}
+    try { await api('POST', `/extension/creators/${id}/avatar`, { image }); } catch (error) { return step('painel recusou', { error: String(error.message).slice(0, 200) }); }
+    c.avatar = image; pushState(); step('ok');
+  } catch (error) { step('erro', { error: String(error && error.message).slice(0, 200) }); }
 }
 
 // ---------- FatalFans: Minhas vendas (transações e assinantes) ----------
