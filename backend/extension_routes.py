@@ -344,6 +344,11 @@ async def extension_avatar_delete(user=Depends(extension_user)):
     from auth_routes import set_avatar
     await set_avatar(user, None); return {'ok': True}
 
+from quality_ai import DiagIn, save_diag
+@router.post('/extension/diag')
+async def extension_diag(body: DiagIn, user=Depends(extension_user)):
+    return await save_diag(body, user)
+
 @router.post('/extension/samples')
 async def extension_sample(body: SampleIn, user=Depends(extension_user)):
     from quality_ai import save_sample

@@ -9,9 +9,9 @@ Regras (decisão do usuário, 30/09/2026):
   banco inteiro consegue abrir. Recomendação: definir VAULT_KEY no ambiente do servidor.
 """
 import os
-from typing import Optional, Literal
+from typing import Optional, Literal, Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import Field
+from pydantic import Field, StringConstraints
 from cryptography.fernet import Fernet, InvalidToken
 from core import db, now, iso, uid, current_user, manager, creator_access, audit, lock
 from schemas import Strict
@@ -46,8 +46,9 @@ async def fernet():
 class CredentialIn(Strict):
     creator_id: str
     platform: Platform
-    login: str = Field(min_length=1, max_length=120)
-    password: Optional[str] = Field(default=None, min_length=1, max_length=200)  # ausente = mantém a senha atual
+    login: str = Field(min_length=1, max_length=320)
+    # senha exatamente como digitada (sem cortar espaços nas pontas) e longa o bastante para senhas geradas
+    password: Optional[Annotated[str, StringConstraints(strip_whitespace=False, min_length=1, max_length=1024)]] = None  # ausente = mantém a senha atual
     note: Optional[str] = Field(default=None, max_length=300)
 
 def public(row, user):

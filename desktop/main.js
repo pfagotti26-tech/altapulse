@@ -368,7 +368,7 @@ async function quickFan(id) {
 async function quickFanOF(id) {
   const platform = activeTab.get(id) === 'fatalfans' ? 'fatalfans' : 'onlyfans';
   const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
-  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); } catch {}
+  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); if (data && data.page === 'chat' && data.open && data.open.cid) sampleConversation(id, view, null, data.open, platform).catch(() => {}); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -549,7 +549,7 @@ async function readAllNow() {
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
     // bloco E: amostra anonimizada da conversa aberta, só no turno do próprio usuário e com a opção ligada
-    if (mine && state.storage_allowed && state.quality_ai_allowed && data.open && data.open.cid) sampleConversation(id, view, r, data.open).catch(() => {});
+    if (data.open && data.open.cid) sampleConversation(id, view, r, data.open, 'privacy').catch(() => {});
     if (!events.length) continue;
     // evento não enviado (sem turno próprio ou falha) volta a ficar pendente: é reenviado na próxima leitura
     // (antes ficava marcado como enviado e a oferta/espera se perdia para sempre)
@@ -567,19 +567,45 @@ async function readAllNow() {
 }
 
 // ---------- amostras de conversa (bloco E) ----------
+// Privacy, OnlyFans e FatalFans. Só no turno do próprio usuário e com a IA de qualidade ligada no painel.
+// Cada tentativa fica registrada no diagnóstico enviado ao painel (Qualidade → Apps da equipe): nada falha em silêncio.
+const SAMPLE_OTHER = require('./sample-other-page.js');
 const samples = new Map(); // creatorId|cid -> { at, count }
-async function sampleConversation(id, view, r, open) {
+const diag = { sample_ok_at: null, sample_error: '', sample_error_at: null, sample_skip: '', samples_sent: 0, day: '' };
+function skip(reason) { if (diag.sample_skip !== reason) { diag.sample_skip = reason; } }
+async function sampleConversation(id, view, r, open, platform = 'privacy') {
+  if (!state.storage_allowed || !state.quality_ai_allowed) return skip('IA de qualidade desligada no painel');
+  const creator = (state.creators || []).find((c) => c.id === id); const sh = creator && creator.shift;
+  if (!sh || sh.operator_id !== (state.user && state.user.id)) return skip('sem turno próprio nesta criadora');
+  if (sh.paused) return skip('turno pausado');
   const key = `${id}|${open.cid}`; const last = samples.get(key);
   const count = (open.msgs || []).length;
   if (last && (Date.now() - last.at < SAMPLE_MS || last.count === count)) return;
   samples.set(key, { at: Date.now(), count });
-  const data = await view.webContents.executeJavaScript(SAMPLE_SCRIPT, true);
-  if (!data || !data.msgs || data.msgs.length < 3) return;
-  const now = new Date();
-  const when = (m) => { if (!m.date || !m.time) return null; const d = parseDateLabel(m.date, now); if (!d) return null; const [h, mi] = m.time.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString(); };
-  const fan = r.reader.fan(data.name); if (!fan.fan_ref) return;
-  await api('POST', '/extension/samples', { creator_id: id, fan_ref: fan.fan_ref, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
-  r.summary.sampled = (r.summary.sampled || 0) + 1;
+  try {
+    const data = await runJs(view, platform === 'privacy' ? SAMPLE_SCRIPT : SAMPLE_OTHER[platform], 6000);
+    if (!data || !data.msgs) return skip(`${platform}: conversa sem mensagens legíveis`);
+    if (data.msgs.length < 3) return skip(`${platform}: conversa com menos de 3 mensagens`);
+    const now = new Date();
+    const when = (m) => { try { const t = m.date && m.time ? msgAt(m.date, m.time, now) : null; return t && !isNaN(t) ? t.toISOString() : null; } catch { return null; } };
+    const fanRef = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', data.name) : platform === 'fatalfans' ? ffFor(id).reader.ref('fan', data.name) : r.reader.fan(data.name).fan_ref;
+    if (!fanRef) return skip(`${platform}: sem nome do fã no cabeçalho`);
+    await api('POST', '/extension/samples', { creator_id: id, fan_ref: fanRef, platform, captured_at: now.toISOString(), messages: data.msgs.map((m) => ({ ours: !!m.ours, at: when(m), text: m.text })) });
+    const today = now.toISOString().slice(0, 10); if (diag.day !== today) { diag.day = today; diag.samples_sent = 0; }
+    diag.samples_sent += 1; diag.sample_ok_at = now.toISOString(); diag.sample_skip = '';
+    if (r && r.summary) r.summary.sampled = (r.summary.sampled || 0) + 1;
+  } catch (error) {
+    samples.delete(key); // tenta de novo na próxima leitura
+    diag.sample_error = `${platform}: ${String(error.message || error).slice(0, 240)}`; diag.sample_error_at = new Date().toISOString();
+    sendDiag(true);
+  }
+}
+let diagSentAt = 0;
+async function sendDiag(force) {
+  if (!token || !state.user || (!force && Date.now() - diagSentAt < 4 * 60 * 1000)) return;
+  diagSentAt = Date.now();
+  try { await api('POST', '/extension/diag', { version: app.getVersion(), quality_ai: !!state.quality_ai_allowed, storage: !!state.storage_allowed,
+    sample_ok_at: diag.sample_ok_at, sample_error: diag.sample_error, sample_error_at: diag.sample_error_at, sample_skip: diag.sample_skip, samples_sent: diag.samples_sent }); } catch {}
 }
 
 // ---------- extrato (bloco A) ----------
@@ -1396,6 +1422,8 @@ app.whenReady().then(async () => {
   setupAutoUpdate();
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(checkShiftClock, 15000); setTimeout(checkShiftClock, 5000);
+  setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
+  setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
   setInterval(readAll, READ_MS);
 });

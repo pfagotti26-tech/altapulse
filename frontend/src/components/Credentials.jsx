@@ -35,8 +35,8 @@ export default function Credentials({ creator, isManager }) {
     <div className="section-heading"><div><h2><KeyRound size={16}/> Acessos das plataformas</h2><p>{isManager ? 'Só gestores cadastram e veem senhas. Cada visualização fica na auditoria.' : 'Você entra pelo Alta Pulse desktop com um clique; a senha não é exibida.'}</p></div>{isManager && !editing && <Button variant="outline" data-testid="vault-add" onClick={() => { setEditing({}); setError(''); }}><Pencil size={14}/>Cadastrar acesso</Button>}</div>
     {editing && isManager && <form className="form-stack vault-form" onSubmit={save} data-testid="vault-form">
       <Field id="vault-platform" label="Plataforma"><Select id="vault-platform" name="platform" defaultValue={editing.platform || 'privacy'} disabled={!!editing.id}>{platforms.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></Field>
-      <Field id="vault-login" name="login" label="Login (e-mail, usuário ou CPF)" defaultValue={editing.login || ''} required maxLength={120} autoComplete="off"/>
-      <Field id="vault-password" name="password" label={editing.id ? 'Nova senha (deixe em branco para manter)' : 'Senha'} type="password" required={!editing.id} maxLength={200} autoComplete="new-password"/>
+      <Field id="vault-login" name="login" label="Login (e-mail, usuário ou CPF)" defaultValue={editing.login || ''} required maxLength={320} autoComplete="off"/>
+      <Field id="vault-password" name="password" label={editing.id ? 'Nova senha (deixe em branco para manter)' : 'Senha'} type="password" required={!editing.id} maxLength={1024} autoComplete="new-password"/>
       <Field id="vault-note" name="note" label="Observação (opcional)" defaultValue={editing.note || ''} placeholder="Ex.: 2FA no celular da criadora" maxLength={300}/>
       <FormError error={error}/>
       <div className="form-actions"><Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancelar</Button><Submit busy={busy} id="vault-save">Salvar no cofre</Submit></div>
