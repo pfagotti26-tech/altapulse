@@ -70,8 +70,10 @@ const LOGIN_PROBE = String.raw`(() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const inputs = roots.flatMap((r) => [...r.querySelectorAll('input[type="password"]')]);
   if (inputs.some(vis)) return true;
-  // deslogada, com o formulário escondido atrás de um botão "Entrar" (CloseFans)
-  return roots.flatMap((r) => [...r.querySelectorAll('button, a')]).some((b) => vis(b) && /^(entrar|login|log in|fazer login|acessar conta|sign in)$/i.test((b.textContent || '').trim()));
+  // deslogada, com o formulário escondido atrás de um botão "Entrar" (CloseFans, FatalFans). Só vale se também
+  // houver "Cadastre-se"/"Criar conta" na tela: logada, a página não oferece cadastro (evita botão falso)
+  const btns = roots.flatMap((r) => [...r.querySelectorAll('button, a')]).filter(vis).map((b) => (b.textContent || '').trim());
+  return btns.some((t) => /^(entrar|login|log in|fazer login|acessar conta|sign in)$/i.test(t)) && btns.some((t) => /^(cadastre-se|cadastrar|criar conta|crie sua conta|sign up|registre-se|cadastre-se gr[aá]tis)$/i.test(t));
 })()`;
 
 module.exports = { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE };

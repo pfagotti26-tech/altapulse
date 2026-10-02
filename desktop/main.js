@@ -1137,7 +1137,12 @@ ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   try {
     result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true);
     // formulário atrás de um botão "Entrar": o script abriu; espera aparecer e preenche
-    for (let i = 0; i < 4 && result && result.retry; i++) { await sleep(1200); result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); }
+    // (o botão pode trocar de página, como no FatalFans: durante o carregamento o script falha e tenta de novo)
+    for (let i = 0; i < 8 && result && result.retry; i++) {
+      await sleep(1200);
+      try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
+      if (!result) result = { ok: false, retry: true, reason: 'carregando o login' };
+    }
   } finally { data.password = null; }
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
   loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
