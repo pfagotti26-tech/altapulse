@@ -35,6 +35,7 @@ class CreatorOut(Public):
     handle: str
     color: str
     group: str = ''
+    groups: list[str] = []
     tag: str = ''
     notes: str = ''
     created_at: str

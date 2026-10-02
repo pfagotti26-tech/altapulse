@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('pulse', {
 
   openProfile: (id, platform) => ipcRenderer.invoke('profile:open', id, platform),
   vaultUse: (id, platform) => ipcRenderer.invoke('vault:use', id, platform),
+  vaultEnter: (id, platform) => ipcRenderer.invoke('vault:enter', id, platform),
   showProfile: (id, platform) => ipcRenderer.invoke('profile:show', id, platform),
   closeTab: (id, platform) => ipcRenderer.invoke('profile:closeTab', id, platform),
   closeProfile: (id) => ipcRenderer.invoke('profile:close', id),

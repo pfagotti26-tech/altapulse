@@ -42,10 +42,13 @@ class Creator(Strict):
     handle: str = Field(default='', max_length=60)
     color: Literal['green', 'rose', 'blue', 'amber', 'lavender'] = 'green'
     group: str = Field(default='', max_length=40)
+    groups: list[str] = Field(default_factory=list, max_length=20)
     tag: str = Field(default='', max_length=30)
     notes: str = Field(default='', max_length=2000)
 class CreatorMeta(Strict):
     group: Optional[str] = Field(default=None, max_length=40)
+    # vários grupos (a mesma criadora pode estar em mais de um); 'group' fica com o primeiro, para apps antigos
+    groups: Optional[list[str]] = Field(default=None, max_length=20)
     tag: Optional[str] = Field(default=None, max_length=30)
     notes: Optional[str] = Field(default=None, max_length=2000)
 class Reason(Strict):
