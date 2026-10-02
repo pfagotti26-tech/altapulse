@@ -1111,6 +1111,11 @@ ipcMain.handle('assist:status', async (_e, force) => {
   try { const data = await api('GET', `/extension/assist/status?creator_id=${encodeURIComponent(id)}`); assistCache.set(id, { at: Date.now(), data }); return data; }
   catch (error) { return { enabled: false, error: /404|Not Found/i.test(error.message) ? 'O painel ainda não tem a Alta Ajuda (publicação pendente).' : error.message }; }
 });
+ipcMain.handle('assist:profile', async () => {
+  const id = fan.creatorId; if (!id) throw new Error('Abra a conversa de uma criadora primeiro.');
+  try { return await api('GET', `/extension/assist/profile?creator_id=${encodeURIComponent(id)}`); }
+  catch (error) { throw new Error(/404|Not Found/i.test(error.message) ? 'O painel ainda não tem a ficha da criadora (publicação pendente).' : error.message); }
+});
 ipcMain.handle('assist:run', async (_e, { level, draft }) => {
   // só o rascunho escrito pelo chatter; a conversa com o fã não é lida nem enviada
   const id = fan.creatorId; if (!id) throw new Error('Abra a conversa de uma criadora primeiro.');
@@ -1341,6 +1346,14 @@ ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
     catch (error) { if (sidebar) sidebar.webContents.send('toast', /404|Not Found/i.test(error.message) ? 'Salvo só neste computador (painel ainda sem sincronização).' : `Salvo aqui, mas o painel recusou: ${error.message}`); }
   }
   return local;
+});
+// ordem das criadoras (arrastar ou setas): salva no painel, por usuário; vale em qualquer computador
+ipcMain.handle('order:set', async (_e, order) => {
+  if (!state.user || !Array.isArray(order)) return false;
+  state.user = { ...state.user, creator_order: order }; local.order = order; saveLocal(); pushState();
+  try { const out = await api('PUT', '/extension/me/order', { order }); state.user.creator_order = out.creator_order; }
+  catch (error) { toast(/404|Not Found/i.test(error.message) ? 'Ordem salva só neste computador (painel ainda sem essa opção).' : `Ordem salva aqui, mas o painel recusou: ${error.message}`); }
+  return true;
 });
 ipcMain.handle('local:setGroups', async (_e, groups) => {
   const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });

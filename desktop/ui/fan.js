@@ -114,11 +114,12 @@ function renderAssist() {
   const show = !!(AS && AS.enabled && F && F.active && F.fanRef && !F.collapsed);
   box.classList.toggle('hidden', !show);
   if (!show) { box.innerHTML = ''; return; }
-  if (aj.fan !== F.fanRef) aj = { fan: F.fanRef, busy: false, res: null, err: null, level: aj.level, draft: '', help: aj.help };
+  if (aj.fan !== F.fanRef) aj = { fan: F.fanRef, busy: false, res: null, err: null, level: aj.level, draft: '', help: aj.help, sheet: aj.sheet && aj.sheetFor === F.creatorId, sheetData: aj.sheetFor === F.creatorId ? aj.sheetData : null, sheetFor: F.creatorId };
   const max = Math.max(0, LV.findIndex(([v]) => v === AS.max_level));
   const lv = aj.level && LV.findIndex(([v]) => v === aj.level) <= max ? aj.level : LV[max][0];
-  let h = `<div class="aj-head"><b>Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores que não estão no seu texto aparecem como [preço]. O gestor cadastra em Configurações → Alta Ajuda.">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
+  let h = `<div class="aj-head"><b>Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores que não estão no seu texto aparecem como [preço]. O gestor preenche na ficha da criadora (painel → Criadoras).">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-sheet${aj.sheet ? ' on' : ''}" id="aj-sheet" title="Ficha da criadora: persona, limites e tabela de preços">▦</button><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
   if (aj.help) h += `<div class="aj-help">${esc(AJ_HELP)}</div>`;
+  if (aj.sheet) h += sheetHtml();
   const r = aj.res;
   let out = '';
   if (r && r.alert) out += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
@@ -136,7 +137,25 @@ function renderAssist() {
   grow();
   bindAssist();
 }
+// ficha da criadora (preenchida pelo gestor no painel): preços primeiro, depois limites e persona
+const brl = (c) => 'R$ ' + (c / 100).toFixed(2).replace('.', ',').replace(',00', '');
+function sheetHtml() {
+  const p = aj.sheetData;
+  if (!p) return '<div class="aj-sheetbox muted">Carregando a ficha…</div>';
+  if (p.error) return `<div class="aj-sheetbox pend">${esc(p.error)}</div>`;
+  let s = '<div class="aj-sheetbox">';
+  if ((p.prices || []).length) s += `<div class="aj-st">Preços mínimos</div><table class="aj-prices">${p.prices.map((x) => `<tr><td>${esc(x.item)}</td><td>${brl(x.cents)}</td></tr>${x.obs ? `<tr><td colspan="2" class="muted">${esc(x.obs)}</td></tr>` : ''}`).join('')}</table>`;
+  else s += '<div class="muted">Sem tabela de preços.</div>';
+  if (p.limits) s += `<div class="aj-st">Não faz</div><div>${esc(p.limits)}</div>`;
+  for (const f of p.fields || []) s += `<div class="aj-st">${esc(f.label)}</div><div>${esc(f.value)}</div>`;
+  if (!(p.fields || []).length && !p.limits) s += '<div class="muted">A ficha ainda não foi preenchida no painel.</div>';
+  return s + '</div>';
+}
 function bindAssist() {
+  const sh = $('aj-sheet'); if (sh) sh.addEventListener('click', async () => {
+    aj.sheet = !aj.sheet; if (aj.sheet) { aj.sheetData = null; renderAssist(); try { aj.sheetData = await window.pulse.assistProfile(); } catch (err) { aj.sheetData = { error: err.message }; } }
+    renderAssist();
+  });
   const help = $('aj-help'); if (help) help.addEventListener('click', () => { aj.help = !aj.help; renderAssist(); });
   document.querySelectorAll('[data-lv]').forEach((b) => b.addEventListener('click', () => { aj.level = b.dataset.lv; renderAssist(); }));
   const ta = $('aj-draft');
