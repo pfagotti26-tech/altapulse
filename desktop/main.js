@@ -263,6 +263,7 @@ let activeId = null;
 const tabsOf = (id) => { if (!tabs.has(id)) tabs.set(id, new Map()); return tabs.get(id); };
 const currentView = (id) => { const t = tabs.get(id); return t ? t.get(activeTab.get(id)) || [...t.values()][0] : null; };
 
+function hideSidebarMenus() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('menus:hide'); }
 function pushState() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('state', publicState()); }
 function publicState() {
   return {
@@ -1400,6 +1401,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
+// clique em qualquer outra área (aba da plataforma, cartão do fã): fecha os menus abertos na lateral
+app.on('web-contents-created', (_e, wc) => { wc.on('focus', () => { if (!sidebar || wc !== sidebar.webContents) hideSidebarMenus(); }); wc.on('before-mouse-event', (_ev, m) => { if (m && m.type === 'mouseDown' && (!sidebar || wc !== sidebar.webContents)) hideSidebarMenus(); }); });
 
 // ---------- atualização automática (instalador) ----------
 // O app instalado pelo AltaPulse-Setup.exe busca versões novas nas releases do GitHub do projeto
@@ -1411,11 +1414,29 @@ function setupPortableNotice() {
   const check = async () => {
     try {
       const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar` });
+      // atualização rápida: mesma versão do Electron → só troca o app.asar (2-3 MB) e reinicia
+      const quick = !!(d && d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
+      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick });
     } catch {}
   };
   setTimeout(check, 15000); setInterval(check, 3 * 60 * 60 * 1000);
 }
+
+// troca o app.asar da versão sem instalador e reinicia (o original-fs não trata .asar como pasta)
+ipcMain.handle('portable:update', async () => {
+  const ofs = require('original-fs'); const crypto = require('crypto');
+  const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+  if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
+  const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
+  const target = path.join(process.resourcesPath, 'app.asar');
+  ofs.writeFileSync(target + '.novo', buf);
+  try { ofs.copyFileSync(target, target + '.anterior'); } catch {}
+  ofs.renameSync(target + '.novo', target);
+  setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
+  return true;
+});
 
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
