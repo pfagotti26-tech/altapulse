@@ -686,17 +686,25 @@ async function readExtratoNow(id, opts = {}) {
   }
 }
 // ---------- foto da criadora: pega a foto de perfil na plataforma (aba oculta já logada) ----------
-// Só quando a criadora ainda não tem foto no painel; uma tentativa por plataforma por sessão do app.
-const avatarTried = new Set();
+// Só quando a criadora ainda não tem foto no painel. Se não deu (página ainda carregando, aba escondida,
+// download bloqueado), tenta de novo na próxima leitura, no máximo a cada 1 min e até 8 vezes por sessão.
+const avatarTried = new Map(); // `${id}|${platform}` -> { n, at, done }
+const avatarLog = {}; // diagnóstico por criadora (portátil)
 async function grabAvatar(id, view, platform) {
-  // diagnóstico da foto (só no portátil): em que etapa parou
-  const step = (stage, extra) => { if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-etapa.json`), JSON.stringify({ at: new Date().toISOString(), creator: id.slice(0, 6), stage, ...(extra || {}) }, null, 1)); } catch {} };
+  const key = `${id}|${platform}`;
+  const c0 = (state.creators || []).find((x) => x.id === id);
+  const step = (stage, extra) => {
+    const t = avatarTried.get(key) || { n: 0 }; if (stage === 'ok' || stage === 'painel recusou') t.done = true; avatarTried.set(key, t);
+    if (isPortable()) try { avatarLog[`${platform} · ${c0 ? c0.name : id.slice(0, 6)}`] = { at: new Date().toISOString(), stage, ...(extra || {}) }; fs.writeFileSync(path.join(calibDir(), 'fotos-etapas.json'), JSON.stringify(avatarLog, null, 1)); } catch {}
+  };
   try {
-    const c = (state.creators || []).find((x) => x.id === id);
-    if (!c || c.avatar || avatarTried.has(`${id}|${platform}`) || !state.user) return;
-    avatarTried.add(`${id}|${platform}`);
+    const c = c0;
+    if (!c || c.avatar || !state.user) return;
+    const t = avatarTried.get(key) || { n: 0, at: 0 };
+    if (t.done || t.n >= 8 || Date.now() - (t.at || 0) < 60000) return;
+    t.n += 1; t.at = Date.now(); avatarTried.set(key, t);
     const list = await runJs(view, AVATAR_SCRIPT, 8000);
-    if (!Array.isArray(list) || !list.length) return;
+    if (!Array.isArray(list) || !list.length) return step('sem foto na tela (ainda carregando?)');
     const [w] = win.getContentSize();
     let pick = null;
     if (platform === 'fatalfans') pick = list.filter((a) => a.y < 600).sort((a, b) => b.w - a.w)[0];               // card do perfil no painel da criadora
