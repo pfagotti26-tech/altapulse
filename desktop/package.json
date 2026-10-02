@@ -1,10 +1,10 @@
 {
   "name": "alta-pulse-desktop",
   "productName": "Alta Pulse",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "private": true,
   "description": "Alta Pulse desktop: perfis isolados por criadora, turnos e presença, com o painel altapulse.com.br",
-  "main": "main.js",
+  "main": "loader.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis --x64 --publish never"
