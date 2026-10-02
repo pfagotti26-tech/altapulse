@@ -1459,9 +1459,25 @@ ipcMain.handle('portable:update', async () => {
   const buf = Buffer.from(await res.arrayBuffer());
   if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
   const target = path.join(process.resourcesPath, 'app.asar');
+  const log = (m) => { try { fs.appendFileSync(path.join(dataDir(), 'calibracoes', 'atualizacao.log'), `${new Date().toISOString()} ${m}\n`); } catch {} };
   ofs.writeFileSync(target + '.novo', buf);
   try { ofs.copyFileSync(target, target + '.anterior'); } catch {}
-  ofs.renameSync(target + '.novo', target);
+  // No Windows o app.asar fica travado enquanto o app roda: a troca é feita por um ajudante que espera o app
+  // fechar, move o arquivo novo por cima e abre o Alta Pulse de novo.
+  if (process.platform === 'win32') {
+    // o ajudante roda pelo Explorer, fora do processo do app (filhos do app morrem junto com ele no Windows)
+    const { spawn } = require('child_process');
+    const bat = path.join(process.resourcesPath, 'atualizar-alta-pulse.bat');
+    const lines = ['@echo off', 'chcp 65001 >nul', 'title Atualizando o Alta Pulse', 'echo Atualizando o Alta Pulse, aguarde alguns segundos...', 'set n=0', 'ping -n 3 127.0.0.1 >nul', ':tenta',
+      `move /y "${target}.novo" "${target}" >nul 2>&1 && goto pronto`, 'set /a n=n+1', 'if %n% geq 20 goto pronto', 'ping -n 2 127.0.0.1 >nul', 'goto tenta', ':pronto',
+      `start "" "${process.execPath}"`, 'exit'];
+    ofs.writeFileSync(bat, Buffer.from(lines.join('\r\n') + '\r\n', 'utf8'));
+    log(`atualizando para ${d.version} pelo ajudante`);
+    spawn('explorer.exe', [bat], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.exit(0), 800);
+    return true;
+  }
+  ofs.renameSync(target + '.novo', target); log(`atualizado para ${d.version}`);
   setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
   return true;
 });
