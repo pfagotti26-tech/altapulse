@@ -112,6 +112,7 @@ function renderList() {
   const by = { az: (a, b) => a.name.localeCompare(b.name), za: (a, b) => b.name.localeCompare(a.name),
     recent: (a, b) => b.created_at.localeCompare(a.created_at), old: (a, b) => a.created_at.localeCompare(b.created_at),
     tag: (a, b) => ((tagOf(a.id) || {}).name || 'zzz').localeCompare((tagOf(b.id) || {}).name || 'zzz') || a.name.localeCompare(b.name) };
+  by.mine = (a, b) => { const o = myOrder(); const ia = o.has(a.id) ? o.get(a.id) : 1e6, ib = o.has(b.id) ? o.get(b.id) : 1e6; return ia - ib || a.name.localeCompare(b.name); };
   rows.sort(by[sort] || by.az);
 
   const groups = [...S.local.groups.map((g) => ({ id: g.id, name: g.name })), { id: '', name: 'Sem grupo' }];
@@ -124,7 +125,7 @@ function renderList() {
     el.className = 'group' + (closedGroups.has(g.id) ? ' closed' : '');
     el.innerHTML = `<div class="group-head" data-g="${esc(g.id)}"><span class="caret">▾</span><span>${esc(g.name)}</span><span class="count">${items.length}</span>${g.id ? `<button class="gmenu" data-g="${esc(g.id)}" title="Grupo">⋮</button>` : ''}</div><div class="cards"></div>`;
     const cards = el.querySelector('.cards');
-    for (const c of items) cards.appendChild(card(c));
+    for (const c of items) { const k = card(c); if (sort === 'mine' && !q) dragCard(k, c, items); cards.appendChild(k); }
     list.appendChild(el);
   }
 }
@@ -300,6 +301,42 @@ async function turnAction(action) {
 }
 setInterval(() => { if (S && S.user) renderTurn(); }, 30000);
 
+// ---------- ordem própria (arrastar o card ou setas no ⋮) ----------
+// a ordem é uma lista única do usuário; mover dentro de um grupo troca a posição relativa nessa lista
+function myOrder() { const list = (S.user && S.user.creator_order && S.user.creator_order.length ? S.user.creator_order : (S.local && S.local.order) || []); return new Map(list.map((id, i) => [id, i])); }
+function fullOrder() {
+  const o = myOrder();
+  return [...S.creators].sort((a, b) => (o.has(a.id) ? o.get(a.id) : 1e6) - (o.has(b.id) ? o.get(b.id) : 1e6) || a.name.localeCompare(b.name)).map((c) => c.id);
+}
+function moveStep(c, items, step) {
+  const ids = items.map((x) => x.id); const i = ids.indexOf(c.id); const j = i + step;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  const all = fullOrder().filter((x) => x !== c.id);
+  const anchor = ids[j]; let at = all.indexOf(anchor); if (step > 0) at += 1;
+  all.splice(at, 0, c.id); $('sort').value = 'mine'; saveSort();
+  return window.pulse.setOrder(all);
+}
+let dragId = null;
+function dragCard(el, c, items) {
+  el.draggable = true; el.title = 'Arraste para mudar a ordem';
+  el.addEventListener('dragstart', (e) => { dragId = c.id; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.id); } catch {} });
+  el.addEventListener('dragend', () => { dragId = null; el.classList.remove('dragging'); document.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); });
+  el.addEventListener('dragover', (e) => {
+    if (!dragId || dragId === c.id || !items.some((x) => x.id === dragId)) return; // só dentro do mesmo grupo
+    e.preventDefault(); const r = el.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2;
+    el.classList.toggle('drop-after', after); el.classList.toggle('drop-before', !after);
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-before', 'drop-after'));
+  el.addEventListener('drop', (e) => {
+    if (!dragId || dragId === c.id) return; e.preventDefault();
+    const after = el.classList.contains('drop-after'); el.classList.remove('drop-before', 'drop-after');
+    const all = fullOrder().filter((x) => x !== dragId); all.splice(all.indexOf(c.id) + (after ? 1 : 0), 0, dragId);
+    $('sort').value = 'mine'; saveSort(); window.pulse.setOrder(all);
+  });
+}
+function saveSort() { try { localStorage.setItem('alta-sort', $('sort').value); } catch {} }
+try { const sv = localStorage.getItem('alta-sort'); if (sv && [...$('sort').options].some((o) => o.value === sv)) $('sort').value = sv; } catch {}
+
 // ---------- menu da criadora ----------
 function creatorMenu(c, anchor) {
   const m = $('creator-menu'); const isOpen = S.open.includes(c.id);
@@ -318,6 +355,13 @@ function creatorMenu(c, anchor) {
   items.push(['Anotações', () => notesDialog(c)]);
   items.push(['Grupos', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
+  { // setas: sobe/desce dentro do grupo em que o card foi clicado
+    const ord = fullOrder();
+    const sib = [...(anchor.closest('.cards') || document).querySelectorAll('.card')].map((x) => S.creators.find((k) => k.id === x.dataset.id)).filter(Boolean).sort((a, b) => ord.indexOf(a.id) - ord.indexOf(b.id));
+    const i = sib.findIndex((x) => x.id === c.id);
+    if (i > 0) items.push(['↑ Mover para cima', () => moveStep(c, sib, -1)]);
+    if (i >= 0 && i < sib.length - 1) items.push(['↓ Mover para baixo', () => moveStep(c, sib, 1)]);
+  }
   items.push('-');
   if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
   if (isOpen && S.user.role === 'manager') items.push(['Mostrar/esconder aba do extrato (diagnóstico)', () => window.pulse.toggleExtrato(c.id)]);
@@ -428,7 +472,7 @@ $('btn-logout').onclick = async () => {
 $('btn-refresh').onclick = () => { if (window.pulse.reloadActive) window.pulse.reloadActive(); run(() => window.pulse.getState()); };
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
-$('sort').addEventListener('change', renderList);
+$('sort').addEventListener('change', () => { saveSort(); renderList(); });
 $('only-open').addEventListener('change', renderList);
 $('list').addEventListener('click', (e) => {
   const gm = e.target.closest('.gmenu'); if (gm) { e.stopPropagation(); groupMenu(gm.dataset.g, gm); return; }

@@ -1342,6 +1342,14 @@ ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
   }
   return local;
 });
+// ordem das criadoras (arrastar ou setas): salva no painel, por usuário; vale em qualquer computador
+ipcMain.handle('order:set', async (_e, order) => {
+  if (!state.user || !Array.isArray(order)) return false;
+  state.user = { ...state.user, creator_order: order }; local.order = order; saveLocal(); pushState();
+  try { const out = await api('PUT', '/extension/me/order', { order }); state.user.creator_order = out.creator_order; }
+  catch (error) { toast(/404|Not Found/i.test(error.message) ? 'Ordem salva só neste computador (painel ainda sem essa opção).' : `Ordem salva aqui, mas o painel recusou: ${error.message}`); }
+  return true;
+});
 ipcMain.handle('local:setGroups', async (_e, groups) => {
   const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });
   local.groups = groups; saveLocal(); pushState();

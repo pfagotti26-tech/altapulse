@@ -111,6 +111,19 @@ async def extension_shift_action(shift_id: str, body: ShiftAction, user=Depends(
     async with lock:
         return await change_shift(shift_id, body, user)
 
+# ordem das criadoras na lateral: cada usuário ordena as criadoras atribuídas a ele (gestor: todas)
+class OrderIn(Strict):
+    order: list[str] = Field(max_length=2000)
+@router.put('/extension/me/order')
+async def extension_order(body: OrderIn, user=Depends(extension_user)):
+    allowed = None if user['role'] == 'manager' else set(user['creator_ids'])
+    seen, order = set(), []
+    for cid in body.order:
+        if cid in seen or (allowed is not None and cid not in allowed): continue
+        seen.add(cid); order.append(cid)
+    await db.users.update_one({'id': user['id']}, {'$set': {'creator_order': order}})
+    return {'ok': True, 'creator_order': order}
+
 # relógio do turno (pergunta 'vai continuar?' 5 min depois do fim)
 from shift_clock import ExtendIn, EndMineIn, prompt_shown, extend_mine, end_mine, sweep_soon
 @router.post('/extension/shifts/prompt')

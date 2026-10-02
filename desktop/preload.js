@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('pulse', {
 
   setCreatorLocal: (id, patch) => ipcRenderer.invoke('local:setCreator', { id, patch }),
   setGroups: (groups) => ipcRenderer.invoke('local:setGroups', groups),
+  setOrder: (order) => ipcRenderer.invoke('order:set', order),
   setTags: (tags) => ipcRenderer.invoke('local:setTags', tags),
   setOrigin: (origin) => ipcRenderer.invoke('config:setOrigin', origin),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
