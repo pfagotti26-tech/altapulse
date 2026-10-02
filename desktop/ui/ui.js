@@ -118,7 +118,7 @@ function renderList() {
   const list = $('list'); list.innerHTML = '';
   if (!rows.length) { list.innerHTML = `<p class="empty">${S.creators.length ? 'Nenhuma criadora com esse filtro.' : 'Nenhuma criadora liberada para você. Cadastre no painel ou peça acesso ao gestor.'}</p>`; return; }
   for (const g of groups) {
-    const items = rows.filter((c) => (localOf(c.id).group || '') === g.id);
+    const items = rows.filter((c) => { const gs = groupsOf(c.id); return g.id ? gs.includes(g.id) : !gs.length; });
     if (!items.length && g.id === '') continue;
     const el = document.createElement('div');
     el.className = 'group' + (closedGroups.has(g.id) ? ' closed' : '');
@@ -148,13 +148,15 @@ function card(c) {
   const loginList = (S.loginPages && S.loginPages[c.id]) || [];
   const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
   const hasCred = (p) => (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === p);
+  // tela de login + acesso salvo: o próprio chip vira o "Entrar" (e o clique no card também entra)
+  const ent = S.entering && S.entering[c.id];
+  const canEnter = (p) => loginList.includes(p) && hasCred(p) && !ent;
+  const verr = S.vaultErrors && S.vaultErrors[c.id];
+  if (verr && !ent && S.open.includes(c.id)) queue += `<div class="queue late" title="${esc(verr.reason)}">${esc(labelOf(verr.platform))}: não entrou · ${esc(verr.reason.split(':')[0])}</div>`;
   let chips = '';
-  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · clique em Entrar' : 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
+  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}${canEnter(p) || ent === p ? ' enter' : ''}${ent === p ? ' entering' : ''}" data-plat="${esc(p)}" title="${ent === p ? 'Entrando com o acesso salvo…' : canEnter(p) ? `Clique para entrar na ${esc(labelOf(p))} com o acesso salvo (a senha não aparece)` : loginList.includes(p) && !hasCred(p) ? 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)' : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}${ent === p ? '<i class="chip-enter">Entrando…</i>' : canEnter(p) ? '<i class="chip-enter">Entrar</i>' : ''}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
-  // botão simples "Entrar"; some ao clicar (volta só se a tela de login continuar depois de 40 s)
-  for (const p of loginList) if (vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000) continue;
-  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : ''; // sem acesso salvo: só a bolinha vermelha no chip (a dica explica)
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
   const mine = c.shift && c.shift.operator_id === S.user.id;
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
@@ -176,26 +178,33 @@ function card(c) {
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
-  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return;
+    // clique no card: abre/mostra a plataforma e, se ela estiver na tela de login e houver acesso salvo, já entra
+    const target = cur && loginList.includes(cur) ? cur : (loginList.length === 1 ? loginList[0] : cur);
+    if (S.open.includes(c.id) && target) return enterPlatform(c, target);
+    openCreator(c).then(() => { if (S.open.includes(c.id)) enterPlatform(c, (S.activeTab && S.activeTab[c.id]) || 'privacy', true); });
+  });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
-  el.querySelectorAll('.vault-btn').forEach((vb) => vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c, vb.dataset.vault); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
     const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
     const p = ch.dataset.plat; if (p === '+') return platformDialog(c);
-    run(() => window.pulse.showProfile(c.id, p));
+    enterPlatform(c, p);
   }));
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
   return el;
 }
 
-const vaultPending = new Map();
-async function vaultLogin(c, platform) {
-  vaultPending.set(`${c.id}|${platform}`, Date.now()); renderList();
-  if (platform) await run(() => window.pulse.showProfile(c.id, platform));
-  const r = await run(() => window.pulse.vaultUse(c.id, platform));
-  if (r && r.ok) toast(r.clicked ? 'Login preenchido e enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
+// um clique: mostra a plataforma e, se a página estiver (ou carregar) na tela de login com acesso salvo, entra
+async function enterPlatform(c, platform, quietShow) {
+  if (!quietShow) await run(() => window.pulse.showProfile(c.id, platform));
+  const hasCred = (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === platform);
+  if (!hasCred) return;
+  const r = await run(() => window.pulse.vaultEnter(c.id, platform));
+  if (r && r.ok && !r.already) toast(r.clicked ? 'Login enviado. Se a plataforma pedir código (2FA), digite na tela.' : 'Login e senha preenchidos. Clique em Entrar na tela.');
 }
+const vaultLogin = (c, platform) => enterPlatform(c, platform);
 async function openCreator(c, platform) {
   if (S.open.includes(c.id) && !platform) return run(() => window.pulse.showProfile(c.id));
   if (c.shift && c.shift.operator_id !== S.user.id) {
@@ -209,7 +218,7 @@ async function platformDialog(c) {
   const plats = S.platforms || {}; const creds = (S.credentials || []).filter((x) => x.creator_id === c.id);
   const body = `<p>Abrir no perfil isolado de <b>${esc(c.name)}</b>:</p><div class="plat-list">${Object.keys(plats).map((id) => `<button class="plat" data-plat="${esc(id)}">${esc(plats[id].label)}${creds.some((x) => x.platform === id) ? ' <span class="plat-ok" title="acesso salvo no cofre">🔑</span>' : ''}</button>`).join('')}</div>`;
   const p = dialog({ title: 'Abrir plataforma', body, hideOk: true });
-  $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); openCreator(c, b.dataset.plat); }));
+  $('dialog-body').querySelectorAll('.plat').forEach((b) => b.addEventListener('click', () => { $('dialog-cancel').onclick(); const pl = b.dataset.plat; openCreator(c, pl).then(() => { if (S.tabs && (S.tabs[c.id] || []).includes(pl)) enterPlatform(c, pl, true); }); }));
   await p;
 }
 async function shiftClick(c, action) {
@@ -307,7 +316,7 @@ function creatorMenu(c, anchor) {
   if (mine || (c.shift && S.user.role === 'manager')) items.push(['Encerrar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.')]);
   items.push('-');
   items.push(['Anotações', () => notesDialog(c)]);
-  items.push(['Mover para grupo', () => groupDialog(c)]);
+  items.push(['Grupos', () => groupDialog(c)]);
   items.push(['Etiqueta', () => tagDialog(c)]);
   items.push('-');
   if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
@@ -345,11 +354,15 @@ function notesDialog(c) {
   dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="dlg-notes">${esc(cur)}</textarea><p>Ficam só neste computador nesta fase.</p>`, okText: 'Salvar',
     onOk: () => window.pulse.setCreatorLocal(c.id, { notes: $('dlg-notes').value }) });
 }
+// grupos da criadora (pode estar em vários); local antigo tinha só 'group'
+function groupsOf(id) { const l = localOf(id); return Array.isArray(l.groups) ? l.groups : (l.group ? [l.group] : []); }
 function groupDialog(c) {
-  const cur = localOf(c.id).group || '';
-  const opts = [{ id: '', name: 'Sem grupo' }, ...S.local.groups].map((g) => `<button class="ghost choice ${g.id === cur ? 'sel' : ''}" data-g="${esc(g.id)}">${esc(g.name)}</button>`).join('');
-  dialog({ title: `Grupo · ${c.name}`, body: opts || '<p>Crie um grupo primeiro.</p>', hideOk: true }).then(() => {});
-  $('dialog-body').querySelectorAll('.choice').forEach((b) => b.onclick = async () => { await window.pulse.setCreatorLocal(c.id, { group: b.dataset.g }); $('dialog').classList.add('hidden'); });
+  if (!S.local.groups.length) { dialog({ title: `Grupos · ${c.name}`, body: '<p>Crie um grupo primeiro em “+ Novo grupo”.</p>', hideOk: true }); return; }
+  const cur = new Set(groupsOf(c.id));
+  const opts = S.local.groups.map((g) => `<label class="ghost choice multi ${cur.has(g.id) ? 'sel' : ''}"><input type="checkbox" data-g="${esc(g.id)}" ${cur.has(g.id) ? 'checked' : ''}> ${esc(g.name)}</label>`).join('');
+  dialog({ title: `Grupos · ${c.name}`, body: `<p>Marque um ou mais grupos.</p>${opts}`, okText: 'Salvar',
+    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); await window.pulse.setCreatorLocal(c.id, { groups }); } });
+  $('dialog-body').querySelectorAll('input[type=checkbox]').forEach((i) => i.onchange = () => i.closest('label').classList.toggle('sel', i.checked));
 }
 function tagDialog(c) {
   const cur = localOf(c.id).tag || '';
@@ -367,10 +380,10 @@ function groupMenu(gid, anchor) {
   const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { hideMenus(); fn(); }; m.appendChild(b); };
   add('Renomear grupo', () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
     onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }));
-  add('Excluir grupo (criadoras ficam sem grupo)', async () => {
+  add('Excluir grupo (as criadoras não são apagadas)', async () => {
     const ok = await dialog({ title: 'Excluir grupo', body: `<p>Excluir <b>${esc(g.name)}</b>? As criadoras não são apagadas, só perdem o grupo.</p>`, okText: 'Excluir' });
     if (!ok) return;
-    for (const [id, l] of Object.entries(S.local.creators || {})) if (l.group === gid) await window.pulse.setCreatorLocal(id, { group: '' });
+    for (const id of Object.keys(S.local.creators || {})) { const gs = groupsOf(id); if (gs.includes(gid)) await window.pulse.setCreatorLocal(id, { groups: gs.filter((x) => x !== gid) }); }
     await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
   }, 'danger');
   place(m, anchor);

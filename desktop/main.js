@@ -20,6 +20,7 @@ const { FatalFansReader, SalesReader } = require('./fatalfans.js');
 const CF = require('./closefans-page.js');
 const OF = require('./onlyfans-page.js');
 const AVATAR_SCRIPT = require('./avatar-page.js').script;
+const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
@@ -173,8 +174,9 @@ async function refreshState() {
     for (const c of data.creators) {
       if (c.group === undefined) continue; // painel antigo, sem os campos: fica só local
       const l = local.creators[c.id] || {};
-      const gid = c.group ? groupIdFor(c.group) : '';
-      if (l.group !== gid || l.tag !== (c.tag || '') || l.notes !== (c.notes || '')) { local.creators[c.id] = { ...l, group: gid, tag: c.tag || '', notes: c.notes || '' }; changed = true; }
+      const names = Array.isArray(c.groups) ? c.groups : (c.group ? [c.group] : []);
+      const gids = names.map(groupIdFor);
+      if (JSON.stringify(l.groups || []) !== JSON.stringify(gids) || l.tag !== (c.tag || '') || l.notes !== (c.notes || '')) { local.creators[c.id] = { ...l, groups: gids, group: gids[0] || '', tag: c.tag || '', notes: c.notes || '' }; changed = true; }
     }
     if (changed) saveLocal();
   } catch (error) {
@@ -213,6 +215,8 @@ function publicState() {
     platforms: PLATFORMS,
     credentials: credentials.map((c) => ({ id: c.id, creator_id: c.creator_id, platform: c.platform, login: c.login, has_password: c.has_password })),
     loginPages: Object.fromEntries(loginPages),
+    entering: Object.fromEntries(entering),
+    vaultErrors: Object.fromEntries(vaultErrors),
     tasks: myTasks,
     probeInfo: Object.fromEntries(probeInfo),
   };
@@ -243,7 +247,7 @@ let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, lo
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
 function fanPanelWidth() {
-  if (!state.user || !activeId || activeTab.get(activeId) !== 'privacy' || !tabs.has(activeId)) return 0;
+  if (!state.user || !activeId || !['privacy', 'onlyfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
   return fanCollapsed() ? FAN_MIN : FAN_W;
 }
 function pushFan() {
@@ -261,17 +265,18 @@ async function loadFanCard(force = false) {
   } catch (error) { fan.error = /404|Not Found/i.test(error.message) ? 'O painel ainda não tem o cartão do fã (publicação pendente).' : error.message; }
   fan.loading = false; pushFan();
 }
-function setFanFromChat(id, open) {
+function setFanFromChat(id, open, platform = 'privacy') {
   if (!open || !open.name) {
     if (fan.creatorId !== id || fan.fanRef) { const before = fanCollapsed(); fan = { creatorId: id, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 }; if (fanCollapsed() !== before) layout(); pushFan(); }
     return;
   }
-  const ref = readerFor(id).reader.roomKey(open.name);
-  if (open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
+  // OnlyFans: mesma referência das vendas do extrato de Renda (para o cartão juntar as compras do fã)
+  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
+  if (platform === 'privacy' && open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
   // fã que mandou mensagem hoje/ontem está com acesso ao chat: não mostrar "assinatura inativa" da lista antiga
   const chatting = (open.msgs || []).some((m) => !m.ours && /^(hoje|ontem)$/i.test(String(m.date || '').trim()));
   // subAtiva: true/false vindo do aviso da Privacy ("não poderá responder, pois não é seu assinante"); null enquanto carrega
-  const subAtiva = open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
+  const subAtiva = platform !== 'privacy' || open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
   // esperando resposta: da primeira mensagem do fã depois da nossa última até agora
   let waitSince = null;
   { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
@@ -287,8 +292,14 @@ function setFanFromChat(id, open) {
 }
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
+  if (id === activeId && activeTab.get(id) === 'onlyfans') return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
   try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
+}
+// Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
+async function quickFanOF(id) {
+  const t = tabs.get(id); const view = t && t.get('onlyfans'); if (!view || view.webContents.isDestroyed()) return;
+  try { const data = await runJs(view, OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, 'onlyfans'); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -349,6 +360,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     return { action: 'deny' };
   });
   view.webContents.on('did-navigate', () => pushState());
+  view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
     view.webContents.on('before-input-event', (event, input) => {
@@ -360,7 +372,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
       if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
     });
   }
-  view.webContents.on('did-navigate-in-page', () => { pushState(); if (platform === 'privacy') setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -445,11 +457,14 @@ async function readAllNow() {
     }
     if (found.length) loginPages.set(id, found); else loginPages.delete(id);
   }
+  if (activeId && activeTab.get(activeId) === 'onlyfans') await quickFanOF(activeId);
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
     try { if (view.webContents.isDestroyed()) continue; data = await runJs(view, READER_SCRIPT, 8000); } catch { continue; }
-    if (id === activeId) setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
+    // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
+    if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
+    if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary;
@@ -674,6 +689,8 @@ async function readExtratoNow(id, opts = {}) {
 // Só quando a criadora ainda não tem foto no painel; uma tentativa por plataforma por sessão do app.
 const avatarTried = new Set();
 async function grabAvatar(id, view, platform) {
+  // diagnóstico da foto (só no portátil): em que etapa parou
+  const step = (stage, extra) => { if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-etapa.json`), JSON.stringify({ at: new Date().toISOString(), creator: id.slice(0, 6), stage, ...(extra || {}) }, null, 1)); } catch {} };
   try {
     const c = (state.creators || []).find((x) => x.id === id);
     if (!c || c.avatar || avatarTried.has(`${id}|${platform}`) || !state.user) return;
@@ -687,19 +704,32 @@ async function grabAvatar(id, view, platform) {
     else pick = list.filter((a) => a.head && a.y < 140).sort((a, b) => b.x - a.x)[0];                                // canto do cabeçalho (Privacy, CloseFans)
     if (!pick) pick = list.filter((a) => a.y < 700).sort((a, b) => b.w - a.w)[0];
     if (isPortable()) try { fs.writeFileSync(path.join(calibDir(), `foto-${platform}-candidatas.json`), JSON.stringify(list.map((a) => ({ ...a, src: a.src.slice(0, 60) })), null, 1)); } catch {}
-    if (!pick) return;
-    const res = await session.fromPartition(partitionFor(id)).fetch(pick.src);
-    if (!res.ok) return;
-    const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()));
-    if (img.isEmpty()) return;
+    if (!pick) return step('sem candidata');
+    // como o navegador: com a página de origem (Referer) e o mesmo navegador; sem isso a Privacy responde 403
+    let origin = ''; try { origin = new URL(view.webContents.getURL()).origin + '/'; } catch {}
+    const res = await session.fromPartition(partitionFor(id)).fetch(pick.src, { headers: { ...(origin ? { Referer: origin } : {}), 'User-Agent': UA, Accept: 'image/avif,image/webp,image/png,image/jpeg,*/*' } });
+    let img, buf = Buffer.alloc(0);
+    if (res.ok) { buf = Buffer.from(await res.arrayBuffer()); img = nativeImage.createFromBuffer(buf); }
+    else {
+      // download bloqueado: "fotografa" a bolinha na própria tela (só funciona com a aba visível)
+      try { const z = view.webContents.getZoomFactor() || 1; const shot = await view.webContents.capturePage({ x: Math.round(pick.x * z), y: Math.round(pick.y * z), width: Math.round(pick.w * z), height: Math.round(pick.h * z) }); if (!shot.isEmpty()) img = shot; } catch {}
+      if (!img) return step('download falhou', { status: res.status });
+    }
+    // a Privacy entrega a foto em WebP, que o nativeImage não lê: converte na lateral (Chromium lê WebP) para PNG
+    if (img.isEmpty() && buf.length && sidebar && !sidebar.webContents.isDestroyed()) {
+      const mime = (res.headers.get('content-type') || 'image/webp').split(';')[0];
+      const png = await runJs(sidebar, `new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; c.getContext('2d').drawImage(i, 0, 0); ok(c.toDataURL('image/png')); }; i.onerror = () => ok(null); i.src = 'data:${mime};base64,${buf.toString('base64')}'; })`, 8000);
+      if (png) img = nativeImage.createFromDataURL(png);
+    }
+    if (img.isEmpty()) return step('imagem ilegível', { type: res.headers.get('content-type'), bytes: buf.length });
     const { width, height } = img.getSize(); const side = Math.min(width, height);
     const square = img.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side }).resize({ width: 160, height: 160, quality: 'best' });
     const image = 'data:image/jpeg;base64,' + square.toJPEG(82).toString('base64');
-    if (image.length > 118000) return;
+    if (image.length > 118000) return step('grande demais', { size: image.length });
     if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), `foto-${platform}-${c.name.replace(/[^\w]+/g, '_')}.jpg`), square.toJPEG(82)); } catch {}
-    await api('POST', `/extension/creators/${id}/avatar`, { image });
-    c.avatar = image; pushState();
-  } catch {}
+    try { await api('POST', `/extension/creators/${id}/avatar`, { image }); } catch (error) { return step('painel recusou', { error: String(error.message).slice(0, 200) }); }
+    c.avatar = image; pushState(); step('ok');
+  } catch (error) { step('erro', { error: String(error && error.message).slice(0, 200) }); }
 }
 
 // ---------- FatalFans: Minhas vendas (transações e assinantes) ----------
@@ -1117,16 +1147,78 @@ ipcMain.handle('state:snapshot', () => publicState());
 ipcMain.handle('profile:open', (_e, id, platform) => { openProfile(id, platform || 'privacy'); return publicState(); });
 // cofre: pede login/senha ao painel (auditado) e preenche o formulário da plataforma aberta. A senha
 // não passa pela lateral: vai do painel para o processo principal e daí para a página, e é descartada.
+// ---------- cofre: entrar com um clique ----------
+// Preenche login e senha na tela de login da plataforma (a senha vem do painel, auditada, e é descartada).
+const entering = new Map(); // creatorId -> plataforma em que está entrando agora (a lateral mostra "Entrando…")
+const vaultErrors = new Map(); // creatorId -> { platform, reason } do último Entrar que não passou da tela de login
+function setLogin(id, platform, on) {
+  const list = (loginPages.get(id) || []).filter((p) => p !== platform); if (on) list.push(platform);
+  if (list.length) loginPages.set(id, list); else loginPages.delete(id);
+}
+async function probeLogin(view) { try { return !!(await runJs(view, LOGIN_PROBE, 2500)); } catch { return false; } }
+// sonda logo depois de carregar (o chip fica verde em ~1 s, sem esperar a varredura de 10 s)
+function probeSoon(creatorId, platform, view) {
+  setTimeout(async () => { if (view.webContents.isDestroyed()) return; const was = (loginPages.get(creatorId) || []).includes(platform); const on = await probeLogin(view); if (on !== was) { setLogin(creatorId, platform, on); pushState(); } }, 700);
+}
+async function vaultFill(creatorId, platform, view) {
+  const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
+  if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
+  const t0 = Date.now();
+  const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
+  const tApi = Date.now() - t0;
+  let result;
+  try {
+    try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
+    // formulário atrás de um botão "Entrar" (CloseFans) ou em outra página (FatalFans): espera aparecer e preenche
+    for (let i = 0; i < 16 && result && result.retry; i++) {
+      await sleep(600);
+      try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
+      if (!result) result = { ok: false, retry: true, reason: 'carregando o login' };
+    }
+  } finally { data.password = null; }
+  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], ms_painel: tApi, ms_total: Date.now() - t0, result }, null, 1)); } catch {}
+  if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
+  return result;
+}
+// depois de enviar: confere se saiu da tela de login; se não, avisa o motivo provável e libera o botão de novo
+async function vaultCheck(creatorId, platform, view) {
+  for (let i = 0; i < 12; i++) { await sleep(700); if (view.webContents.isDestroyed()) return; if (!(await probeLogin(view))) { setLogin(creatorId, platform, false); vaultErrors.delete(creatorId); pushState(); return; } }
+  vaultErrors.set(creatorId, { platform, reason: 'continua na tela de login: senha recusada, verificação ou código pedido pela plataforma' });
+  setLogin(creatorId, platform, true); pushState();
+  if (sidebar) sidebar.webContents.send('toast', `${PLATFORMS[platform].label}: ainda na tela de login. Veja se a plataforma pediu código ou verificação.`);
+}
+// um clique: mostra a plataforma; se a página carregar na tela de login e houver acesso salvo, entra
+ipcMain.handle('vault:enter', async (_e, creatorId, platformArg) => {
+  const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId) || 'privacy';
+  const view = t && t.get(platform); if (!view) return { ok: false, reason: 'aba fechada' };
+  if (!credentials.some((c) => c.creator_id === creatorId && c.platform === platform)) return { ok: false, reason: 'sem acesso salvo' };
+  if (entering.has(creatorId)) return { ok: false, reason: 'já entrando' };
+  // página pronta: uma sonda só (logada = só mostra, sem esperar). Carregando (aba recém-aberta): espera até ~8 s
+  const fresh = view.webContents.isLoading() || !view.webContents.getURL();
+  let login = false;
+  for (let i = 0, after = 0; i < 60; i++) {
+    if (view.webContents.isDestroyed()) return { ok: false };
+    if (!view.webContents.isLoading()) { login = await probeLogin(view); after += 1; if (login || !fresh || after >= 15) break; }
+    await sleep(200);
+  }
+  if (!login) { setLogin(creatorId, platform, false); pushState(); return { ok: true, already: true }; }
+  setLogin(creatorId, platform, true);
+  entering.set(creatorId, platform); pushState();
+  try {
+    const result = await vaultFill(creatorId, platform, view);
+    vaultCheck(creatorId, platform, view).catch(() => {});
+    return { ok: true, clicked: result.clicked, user: result.user };
+  } catch (error) {
+    vaultErrors.set(creatorId, { platform, reason: error.message });
+    throw error;
+  } finally { entering.delete(creatorId); pushState(); }
+});
+// compatibilidade (menu ⋮ "Entrar com o acesso salvo")
 ipcMain.handle('vault:use', async (_e, creatorId, platformArg) => {
   const t = tabs.get(creatorId); const platform = platformArg || activeTab.get(creatorId);
   const view = t && t.get(platform); if (!view) throw new Error('Abra a criadora primeiro.');
-  const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
-  if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
-  const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
-  let result;
-  try { result = await view.webContents.executeJavaScript(fillScript(data.login, data.password), true); } finally { data.password = null; }
-  if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
-  loginPages.set(creatorId, (loginPages.get(creatorId) || []).filter((p) => p !== platform)); if (!loginPages.get(creatorId).length) loginPages.delete(creatorId); pushState();
+  const result = await vaultFill(creatorId, platform, view);
+  vaultCheck(creatorId, platform, view).catch(() => {});
   return { ok: true, clicked: result.clicked, user: result.user };
 });
 ipcMain.handle('profile:show', (_e, id, platform) => { if (tabs.has(id) && tabs.get(id).size) { activeId = id; if (platform && tabs.get(id).has(platform)) activeTab.set(id, platform); layout(); pushState(); saveOpenTabs(); pushFan(); quickFan(id); } return publicState(); });
@@ -1160,9 +1252,11 @@ ipcMain.handle('shift:start', async (_e, creatorId) => { await api('POST', '/ext
 ipcMain.handle('shift:action', async (_e, { shiftId, action }) => { await api('POST', `/extension/shifts/${shiftId}/action`, { action }); return refreshState().then(publicState); });
 
 ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
+  if ('groups' in patch) patch = { ...patch, group: patch.groups[0] || '' };
   local.creators[id] = { ...(local.creators[id] || {}), ...patch }; saveLocal(); pushState();
   const meta = {};
-  if ('group' in patch) meta.group = groupName(patch.group);
+  if ('groups' in patch) meta.groups = patch.groups.map(groupName).filter(Boolean);
+  else if ('group' in patch) meta.group = groupName(patch.group);
   if ('tag' in patch) meta.tag = patch.tag || '';
   if ('notes' in patch) meta.notes = patch.notes || '';
   if (Object.keys(meta).length && token) {
@@ -1174,7 +1268,8 @@ ipcMain.handle('local:setCreator', async (_e, { id, patch }) => {
 ipcMain.handle('local:setGroups', async (_e, groups) => {
   const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });
   local.groups = groups; saveLocal(); pushState();
-  for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (l.group === g.id && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { group: g.name }); } catch {} }
+  const groupsOfLocal = (l) => l.groups || (l.group ? [l.group] : []);
+  for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (groupsOfLocal(l).includes(g.id) && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { groups: groupsOfLocal(l).map(groupName).filter(Boolean) }); } catch {} }
   return local;
 });
 ipcMain.handle('local:setTags', (_e, tags) => { local.tags = tags; saveLocal(); pushState(); return local; });
