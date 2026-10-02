@@ -459,6 +459,8 @@ async function readAllNow() {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
     try { if (view.webContents.isDestroyed()) continue; data = await runJs(view, READER_SCRIPT, 8000); } catch { continue; }
+    // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
+    if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
@@ -700,7 +702,14 @@ async function grabAvatar(id, view, platform) {
     if (!pick) return;
     const res = await session.fromPartition(partitionFor(id)).fetch(pick.src);
     if (!res.ok) return;
-    const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()));
+    const buf = Buffer.from(await res.arrayBuffer());
+    let img = nativeImage.createFromBuffer(buf);
+    // a Privacy entrega a foto em WebP, que o nativeImage não lê: converte na lateral (Chromium lê WebP) para PNG
+    if (img.isEmpty() && sidebar && !sidebar.webContents.isDestroyed()) {
+      const mime = (res.headers.get('content-type') || 'image/webp').split(';')[0];
+      const png = await runJs(sidebar, `new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; c.getContext('2d').drawImage(i, 0, 0); ok(c.toDataURL('image/png')); }; i.onerror = () => ok(null); i.src = 'data:${mime};base64,${buf.toString('base64')}'; })`, 8000);
+      if (png) img = nativeImage.createFromDataURL(png);
+    }
     if (img.isEmpty()) return;
     const { width, height } = img.getSize(); const side = Math.min(width, height);
     const square = img.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side }).resize({ width: 160, height: 160, quality: 'best' });
