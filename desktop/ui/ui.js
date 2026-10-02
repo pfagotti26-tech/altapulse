@@ -148,13 +148,13 @@ function card(c) {
   const loginList = (S.loginPages && S.loginPages[c.id]) || [];
   const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
   const hasCred = (p) => (S.credentials || []).some((x) => x.creator_id === c.id && x.platform === p);
+  // tela de login + acesso salvo: o próprio chip vira o "Entrar" (e o clique no card também entra); some por 40 s depois do clique
+  const pending = (p) => vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000;
+  const canEnter = (p) => loginList.includes(p) && hasCred(p) && !pending(p);
   let chips = '';
-  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}" data-plat="${esc(p)}" title="${loginList.includes(p) ? (hasCred(p) ? 'Tela de login · clique em Entrar' : 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
+  if (openTabs.length) chips = `<div class="chips">${openTabs.map((p) => `<span class="chip${p === cur && S.active === c.id ? ' on' : ''}${loginList.includes(p) ? ' login' : ''}${canEnter(p) ? ' enter' : ''}" data-plat="${esc(p)}" title="${canEnter(p) ? `Clique para entrar na ${esc(labelOf(p))} com o acesso salvo (a senha não aparece)` : loginList.includes(p) ? (hasCred(p) ? 'Entrando…' : 'Tela de login · sem acesso salvo (peça ao gestor para cadastrar no painel)') : 'Mostrar ' + esc(labelOf(p))}">${esc(labelOf(p))}${canEnter(p) ? '<i class="chip-enter">Entrar</i>' : ''}<b class="chip-x" data-close="${esc(p)}" title="Fechar ${esc(labelOf(p))}">×</b></span>`).join('')}<span class="chip add" data-plat="+" title="Abrir outra plataforma neste perfil">+</span></div>`;
   const pi = S.probeInfo && S.probeInfo[c.id];
   if (!loginList.length && pi && S.user && S.user.role === 'manager' && S.open.includes(c.id)) queue += `<div class="queue" style="opacity:.5" title="${esc(JSON.stringify(pi))}">${pi.error ? 'sonda: erro' : pi.platform ? `${esc(pi.platform)} · ${pi.hasPassword ? 'login' : 'sem login'}` : 'fora das plataformas'}</div>`;
-  // botão simples "Entrar"; some ao clicar (volta só se a tela de login continuar depois de 40 s)
-  for (const p of loginList) if (vaultPending.has(`${c.id}|${p}`) && Date.now() - vaultPending.get(`${c.id}|${p}`) < 40000) continue;
-  else queue += hasCred(p) ? `<button class="vault-btn" data-vault="${esc(p)}" title="Entra na ${esc(labelOf(p))} com o login e a senha salvos pelo gestor (a senha não aparece)">Entrar${loginList.length > 1 ? ` · ${esc(labelOf(p))}` : ''}</button>` : ''; // sem acesso salvo: só a bolinha vermelha no chip (a dica explica)
   // botão de turno sempre à vista: "Iniciar turno" vira "Encerrar turno" (e "Pausar/Retomar") enquanto o turno é seu
   const mine = c.shift && c.shift.operator_id === S.user.id;
   // turno: um botão único na barra "Meu turno" (topo); exceções pelo ⋮ da criadora
@@ -176,13 +176,19 @@ function card(c) {
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
-  el.addEventListener('click', (e) => { if (e.target.closest('.cmenu') || e.target.closest('.vault-btn') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return; openCreator(c); });
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return;
+    // clique no card: se a plataforma que está na tela (ou a única na tela de login) pede login e há acesso salvo, entra
+    const target = cur && loginList.includes(cur) ? cur : (loginList.length === 1 ? loginList[0] : null);
+    if (S.open.includes(c.id) && target && canEnter(target)) return vaultLogin(c, target);
+    openCreator(c);
+  });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
-  el.querySelectorAll('.vault-btn').forEach((vb) => vb.addEventListener('click', (e) => { e.stopPropagation(); vaultLogin(c, vb.dataset.vault); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
     const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
     const p = ch.dataset.plat; if (p === '+') return platformDialog(c);
+    if (canEnter(p)) return vaultLogin(c, p);
     run(() => window.pulse.showProfile(c.id, p));
   }));
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
