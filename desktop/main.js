@@ -1458,33 +1458,29 @@ ipcMain.handle('portable:update', async () => {
   const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
-  const target = path.join(process.resourcesPath, 'app.asar');
-  const log = (m) => { try { fs.appendFileSync(path.join(dataDir(), 'calibracoes', 'atualizacao.log'), `${new Date().toISOString()} ${m}\n`); } catch {} };
-  ofs.writeFileSync(target + '.novo', buf);
-  try { ofs.copyFileSync(target, target + '.anterior'); } catch {}
-  // No Windows o app.asar fica travado enquanto o app roda: a troca é feita por um ajudante que espera o app
-  // fechar, move o arquivo novo por cima e abre o Alta Pulse de novo.
-  if (process.platform === 'win32') {
-    // o ajudante roda pelo Explorer, fora do processo do app (filhos do app morrem junto com ele no Windows)
-    const { spawn } = require('child_process');
-    const bat = path.join(process.resourcesPath, 'atualizar-alta-pulse.bat');
-    const lines = ['@echo off', 'chcp 65001 >nul', 'title Atualizando o Alta Pulse', 'echo Atualizando o Alta Pulse, aguarde alguns segundos...', 'set n=0', 'ping -n 3 127.0.0.1 >nul', ':tenta',
-      `move /y "${target}.novo" "${target}" >nul 2>&1 && goto pronto`, 'set /a n=n+1', 'if %n% geq 20 goto pronto', 'ping -n 2 127.0.0.1 >nul', 'goto tenta', ':pronto',
-      `start "" "${process.execPath}"`, 'exit'];
-    ofs.writeFileSync(bat, Buffer.from(lines.join('\r\n') + '\r\n', 'utf8'));
-    log(`atualizando para ${d.version} pelo ajudante`);
-    spawn('explorer.exe', [bat], { detached: true, stdio: 'ignore' }).unref();
-    setTimeout(() => app.exit(0), 800);
-    return true;
-  }
-  ofs.renameSync(target + '.novo', target); log(`atualizado para ${d.version}`);
-  setTimeout(() => { app.relaunch(); app.exit(0); }, 600);
+  const log = (m) => { try { fs.appendFileSync(path.join(dataDir(), 'atualizacao.log'), `${new Date().toISOString()} ${m}\n`); } catch {} };
+  // grava a versão nova num arquivo novo (nada em uso é tocado) e aponta o carregador para ela
+  const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
+  ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
+  try { ofs.unlinkSync(path.join(process.resourcesPath, name)); } catch {}
+  ofs.renameSync(path.join(process.resourcesPath, name + '.tmp'), path.join(process.resourcesPath, name));
+  ofs.writeFileSync(path.join(process.resourcesPath, 'alta-atual.json'), JSON.stringify({ file: name, at: new Date().toISOString() }));
+  log(`baixada ${d.asar.version} em ${name}; reiniciando`);
+  setTimeout(() => { app.relaunch(); app.exit(0); }, 500);
   return true;
 });
+// limpa versões baixadas antigas (as que não estão em uso); falha em silêncio se algum arquivo estiver travado
+function cleanOldUpdates() {
+  try {
+    const ofs = require('original-fs'); const keep = path.basename((global.altaLoader && global.altaLoader.dir) || '');
+    for (const f of ofs.readdirSync(process.resourcesPath)) if (/^app-[\d.]+\.asar(\.tmp)?$/.test(f) && f !== keep) { try { ofs.unlinkSync(path.join(process.resourcesPath, f)); } catch {} }
+    for (const f of ['app.asar.novo', 'app.asar.anterior', 'atualizar-alta-pulse.bat']) { try { ofs.unlinkSync(path.join(process.resourcesPath, f)); } catch {} }
+  } catch {}
+}
 
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
-  if (isPortable()) { setupPortableNotice(); return; }
+  if (isPortable()) { setTimeout(cleanOldUpdates, 30000); setupPortableNotice(); return; }
   let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
