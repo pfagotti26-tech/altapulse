@@ -17,6 +17,14 @@ export const periodRange = (filters) => {
   else if (filters.period !== 'all') start = dayStart(today, -(Number(filters.period) - 1));
   return { start, end };
 };
+const dm = (d) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit' }).format(d);
+// "Ontem · 01/10", "7 dias · 26/09 a 02/10": o período sempre escrito com as datas
+export const periodText = (filters) => {
+  const { start, end } = periodRange(filters); const name = (PERIODS.find(([v]) => v === filters.period) || [, 'Período'])[1];
+  if (!start && !end) return filters.period === 'all' ? 'Todo o histórico' : name;
+  const a = start ? dm(start) : '…', b = dm(new Date((end || new Date()).getTime() - (end ? 1 : 0)));
+  return `${name} · ${a === b ? a : `${a} a ${b}`}`;
+};
 export const usePersistedFilters = () => {
   const [filters, setRaw] = useState(loadFilters);
   const setFilters = useCallback((fn) => setRaw(f => { const n = typeof fn === 'function' ? fn(f) : fn; try { localStorage.setItem(KEY, JSON.stringify(n)); } catch {} return n; }), []);
