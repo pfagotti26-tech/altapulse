@@ -57,7 +57,7 @@ function renderBody() {
   $('chips').innerHTML = chips;
   const b = $('body');
   if (!F || !F.active || !F.fanRef) {
-    b.innerHTML = `<div class="empty">${F && F.error ? esc(F.error) : 'Abra uma conversa (Privacy ou OnlyFans) para ver quem é o fã: quanto já gastou, o que costuma comprar e as anotações da equipe.'}</div>`;
+    b.innerHTML = `<div class="empty">${F && F.error ? esc(F.error) : 'Abra uma conversa (Privacy, OnlyFans ou FatalFans) para ver quem é o fã: quanto já gastou, o que costuma comprar e as anotações da equipe.'}</div>`;
     return;
   }
   if (!c) { b.innerHTML = `<div class="empty">${F.error ? esc(F.error) : 'Carregando o cartão…'}</div>`; return; }

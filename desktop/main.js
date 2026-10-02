@@ -21,6 +21,7 @@ const CF = require('./closefans-page.js');
 const OF = require('./onlyfans-page.js');
 const AVATAR_SCRIPT = require('./avatar-page.js').script;
 const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
+const FF_CHAT_SCRIPT = require('./fatalfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const crypto = require('crypto');
 
@@ -247,7 +248,7 @@ let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, lo
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
 function fanPanelWidth() {
-  if (!state.user || !activeId || !['privacy', 'onlyfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
+  if (!state.user || !activeId || !['privacy', 'onlyfans', 'fatalfans'].includes(activeTab.get(activeId)) || !tabs.has(activeId)) return 0;
   return fanCollapsed() ? FAN_MIN : FAN_W;
 }
 function pushFan() {
@@ -271,7 +272,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
     return;
   }
   // OnlyFans: mesma referência das vendas do extrato de Renda (para o cartão juntar as compras do fã)
-  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
+  const ref = platform === 'onlyfans' ? ofFor(id).reader.ref('fan', open.name) : platform === 'fatalfans' ? ffFor(id).reader.ref('fan', open.name) : readerFor(id).reader.roomKey(open.name);
   if (platform === 'privacy' && open.cid && !String(open.cid).startsWith('n:')) { fanCids[id] = fanCids[id] || {}; if (fanCids[id][ref] !== open.cid) { fanCids[id][ref] = open.cid; writeJson('fa-conversas.json', fanCids); } }
   // fã que mandou mensagem hoje/ontem está com acesso ao chat: não mostrar "assinatura inativa" da lista antiga
   const chatting = (open.msgs || []).some((m) => !m.ours && /^(hoje|ontem)$/i.test(String(m.date || '').trim()));
@@ -292,14 +293,15 @@ function setFanFromChat(id, open, platform = 'privacy') {
 }
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
-  if (id === activeId && activeTab.get(id) === 'onlyfans') return quickFanOF(id);
+  if (id === activeId && (activeTab.get(id) === 'onlyfans' || activeTab.get(id) === 'fatalfans')) return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
   try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
 }
 // Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
 async function quickFanOF(id) {
-  const t = tabs.get(id); const view = t && t.get('onlyfans'); if (!view || view.webContents.isDestroyed()) return;
-  try { const data = await runJs(view, OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, 'onlyfans'); } catch {}
+  const platform = activeTab.get(id) === 'fatalfans' ? 'fatalfans' : 'onlyfans';
+  const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
+  try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); } catch {}
 }
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
@@ -372,7 +374,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
       if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
     });
   }
-  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (platform === 'privacy' || platform === 'onlyfans') setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -457,7 +459,7 @@ async function readAllNow() {
     }
     if (found.length) loginPages.set(id, found); else loginPages.delete(id);
   }
-  if (activeId && activeTab.get(activeId) === 'onlyfans') await quickFanOF(activeId);
+  if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) await quickFanOF(activeId);
   for (const [id, view] of views) {
     const r = readerFor(id); r.reader.options.fanNames = !!state.fan_names_allowed;
     let data;
