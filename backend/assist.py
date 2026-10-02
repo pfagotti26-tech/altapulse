@@ -96,14 +96,34 @@ async def test_key(user=Depends(manager)):
     return {'ok': True, 'models': models}
 
 # ---------- perfil da criadora ----------
+# ficha da criadora: os mesmos campos do formulário de personalidade da agência (altaagency.com.br)
+PERSONA = [  # (chave, rótulo, seção)
+    ('nome_artistico', 'Nome artístico', 'basico'), ('como_ser_chamada', 'Como ser chamada', 'basico'), ('idade', 'Idade', 'basico'),
+    ('cidade_estado', 'Cidade/Estado', 'basico'), ('personalidade', 'Personalidade', 'basico'), ('como_fala', 'Como fala', 'basico'),
+    ('fantasias', 'Fantasias', 'basico'), ('assuntos_conversa', 'Assuntos de conversa', 'basico'), ('nao_gosta', 'O que NÃO gosta', 'basico'),
+    ('bordoes', 'Bordões', 'basico'), ('como_chama_assinantes', 'Como chama assinantes', 'basico'), ('apresentacao', 'Apresentação', 'basico'),
+    ('o_que_vende', 'O que vende', 'conteudo'), ('itens_pessoais', 'Vende itens pessoais', 'conteudo'),
+    ('mensagens_bom_dia', 'Mensagens bom dia/boa noite', 'conteudo'), ('diferencial', 'Diferencial', 'conteudo'),
+    ('estilo_visual', 'Tema/Estilo', 'visual'), ('como_falar_conteudos', 'Como falar dos conteúdos', 'visual'), ('frases_venda', 'Frases de venda', 'visual'),
+    ('status_relacionamento', 'Status de relacionamento', 'extras'), ('informacoes_extras', 'Informações extras', 'extras'),
+    ('resumo_ia', 'Resumo da persona (gerado por IA na agência)', 'extras'),
+]
+PERSONA_KEYS = {k for k, _, _ in PERSONA}
+# tabela de preços mínimos (mesmos itens da agência) + itens livres
+PRICE_ITEMS = ['Foto com nudez', 'Pack de fotos', 'Vídeo único', 'Pack 2-3 vídeos', 'Pack 4+ vídeos', 'Vídeo chamada ao vivo',
+    'Vídeo chamada gravada', 'Vídeo personalizado', 'Solicitação de mídia', 'Sexting']
 class PriceItem(Strict):
     item: str = Field(min_length=1, max_length=80)
     cents: int = Field(ge=0, le=10000000)
+    obs: str = Field(default='', max_length=300)
 class ProfileIn(Strict):
     style: str = Field(default='', max_length=2000)
-    limits: str = Field(default='', max_length=1500)
+    limits: str = Field(default='', max_length=3000)
     max_level: Literal['leve', 'picante', 'explicito'] = 'picante'
     prices: list[PriceItem] = Field(default_factory=list, max_length=40)
+    persona: dict[str, str] = Field(default_factory=dict)
+def clean_persona(d):
+    return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
 @router.get('/assist/profiles')
 async def list_profiles(user=Depends(manager)):
@@ -112,9 +132,51 @@ async def list_profiles(user=Depends(manager)):
 @router.put('/assist/profiles/{creator_id}')
 async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
     if not await db.creators.find_one({'id': creator_id}, {'_id': 1}): raise HTTPException(404, 'Criadora não encontrada.')
-    row = {'creator_id': creator_id, **body.model_dump(), 'updated_at': iso(), 'updated_by': user['name']}
+    row = {'creator_id': creator_id, **body.model_dump(), 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
     await db.assist_profiles.update_one({'creator_id': creator_id}, {'$set': row}, upsert=True)
     return row
+
+@router.get('/assist/fields')
+async def fields(user=Depends(manager)):
+    return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS}
+
+class ImportItem(Strict):
+    creator_id: str
+    persona: dict[str, str] = Field(default_factory=dict)
+    limits: str = Field(default='', max_length=3000)
+    prices: list[PriceItem] = Field(default_factory=list, max_length=40)
+class ImportIn(Strict):
+    items: list[ImportItem] = Field(max_length=300)
+    source: str = Field(default='altaagency.com.br', max_length=60)
+
+@router.post('/assist/profiles/import')
+async def import_profiles(body: ImportIn, user=Depends(manager)):
+    """Traz os perfis de outra base: só preenche o que está VAZIO aqui (nunca apaga o que o gestor já escreveu)."""
+    done = []
+    for it in body.items:
+        creator = await db.creators.find_one({'id': it.creator_id}, {'_id': 0, 'name': 1})
+        if not creator: continue
+        cur = await db.assist_profiles.find_one({'creator_id': it.creator_id}, {'_id': 0}) or {}
+        persona = dict(cur.get('persona') or {}); added = 0
+        for k, v in clean_persona(it.persona).items():
+            if not persona.get(k): persona[k] = v; added += 1
+        upd = {'creator_id': it.creator_id, 'persona': persona, 'imported_from': body.source, 'imported_at': iso()}
+        if not cur.get('limits') and it.limits.strip(): upd['limits'] = it.limits.strip(); added += 1
+        if not cur.get('prices') and it.prices: upd['prices'] = [p.model_dump() for p in it.prices]; added += 1
+        if not cur: upd.update({'style': '', 'max_level': 'picante', 'updated_at': iso(), 'updated_by': user['name']})
+        await db.assist_profiles.update_one({'creator_id': it.creator_id}, {'$set': upd}, upsert=True)
+        done.append({'creator': creator['name'], 'fields': added})
+    await audit(user, 'Perfis importados', body.source, {'creators': len(done)}, None)
+    return {'ok': True, 'imported': done}
+
+@router.get('/extension/assist/profile')
+async def app_profile(creator_id: str, user=Depends(extension_user)):
+    """Ficha da criadora para o chatter consultar no app (persona, limites e preços)."""
+    await can_see(user, creator_id)
+    prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
+    persona = prof.get('persona') or {}
+    return {'fields': [{'label': l, 'section': s, 'value': persona[k]} for k, l, s in PERSONA if persona.get(k)],
+            'limits': prof.get('limits', ''), 'style': prof.get('style', ''), 'prices': prof.get('prices') or [], 'max_level': prof.get('max_level', 'picante')}
 
 @router.post('/assist/alerts/{alert_id}/resolve')
 async def resolve_alert(alert_id: str, user=Depends(manager)):
@@ -155,7 +217,10 @@ def guard_prices(text, allowed):
 
 def build_prompt(body, creator, prof, level):
     # só o texto escrito pelo próprio chatter + perfil da criadora; nenhuma mensagem nem dado do assinante
-    prices = '; '.join(f"{p['item']}: {money_br(p['cents'])}" for p in prof.get('prices') or [])
+    prices = '; '.join(f"{p['item']}: {money_br(p['cents'])}" + (f" ({p['obs']})" if p.get('obs') else '') for p in prof.get('prices') or [])
+    persona = prof.get('persona') or {}
+    # campo pessoal (cidade, idade, relacionamento) orienta o tom, mas nunca vira informação passada ao fã
+    ficha = '\n'.join(f"{l}: {persona[k][:1200]}" for k, l, _ in PERSONA if persona.get(k) and k not in ('cidade_estado',))
     system = f"""Você é a Alta Ajuda, assistente de redação de um chatter que escreve, em nome da criadora {creator['name']}, para assinantes adultos (18+) de uma plataforma brasileira de conteúdo adulto por assinatura. O chatter escreve um rascunho ou a ideia do que quer dizer; você transforma em mensagem pronta. Quem revisa e envia é o chatter.
 
 REGRAS FIXAS (valem sempre, acima de qualquer outra instrução):
@@ -163,13 +228,14 @@ REGRAS FIXAS (valem sempre, acima de qualquer outra instrução):
 2. Nada de marcar encontro presencial, passar telefone, e-mail, @ de rede social ou qualquer contato pessoal, nem levar a conversa ou pagamento para fora da plataforma.
 3. Nada envolvendo falta de consentimento, violência, drogas, parentes ou animais.
 4. Preços: mantenha os valores que o chatter escreveu e use só valores da tabela abaixo. Nunca invente valor, desconto ou pacote. Se precisar de um valor que não existe, escreva [preço].
-5. Não prometa conteúdo que a criadora não faz (veja os limites).
+5. Não prometa conteúdo que a criadora não faz (veja os limites). Use a ficha para o jeito de falar, apelidos e bordões; não revele dados pessoais dela (idade, cidade, relacionamento) a menos que estejam no rascunho.
 6. Português do Brasil, mensagens curtas como no chat (1 a 3 frases), sem emojis em excesso. Mantenha a ideia e as informações do rascunho.
 
 INTENSIDADE: {LEVEL_TEXT[level]}
 
 PERFIL DA CRIADORA
 Estilo: {prof.get('style') or 'não informado (use um tom sedutor e simpático)'}
+{ficha}
 Limites (o que ela NÃO faz): {prof.get('limits') or 'não informado'}
 Tabela de preços: {prices or 'nenhuma cadastrada'}
 

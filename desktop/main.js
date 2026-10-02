@@ -1111,6 +1111,11 @@ ipcMain.handle('assist:status', async (_e, force) => {
   try { const data = await api('GET', `/extension/assist/status?creator_id=${encodeURIComponent(id)}`); assistCache.set(id, { at: Date.now(), data }); return data; }
   catch (error) { return { enabled: false, error: /404|Not Found/i.test(error.message) ? 'O painel ainda não tem a Alta Ajuda (publicação pendente).' : error.message }; }
 });
+ipcMain.handle('assist:profile', async () => {
+  const id = fan.creatorId; if (!id) throw new Error('Abra a conversa de uma criadora primeiro.');
+  try { return await api('GET', `/extension/assist/profile?creator_id=${encodeURIComponent(id)}`); }
+  catch (error) { throw new Error(/404|Not Found/i.test(error.message) ? 'O painel ainda não tem a ficha da criadora (publicação pendente).' : error.message); }
+});
 ipcMain.handle('assist:run', async (_e, { level, draft }) => {
   // só o rascunho escrito pelo chatter; a conversa com o fã não é lida nem enviada
   const id = fan.creatorId; if (!id) throw new Error('Abra a conversa de uma criadora primeiro.');

@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('pulse', {
   assistStatus: (force) => ipcRenderer.invoke('assist:status', force),
   assistRun: (opts) => ipcRenderer.invoke('assist:run', opts),
   assistUse: (text) => ipcRenderer.invoke('assist:use', text),
+  assistProfile: () => ipcRenderer.invoke('assist:profile'),
   fanRefresh: () => ipcRenderer.invoke('fan:refresh'),
   fanNoteAdd: (text) => ipcRenderer.invoke('fan:note:add', text),
   fanNoteDel: (id) => ipcRenderer.invoke('fan:note:del', id),
