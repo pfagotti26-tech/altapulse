@@ -16,6 +16,7 @@ class UserOut(Public):
     created_at: str
     must_change_password: bool = False
     avatar: Optional[str] = None
+    creator_order: list[str] = []
 
 class ShiftOut(Public):
     id: str
