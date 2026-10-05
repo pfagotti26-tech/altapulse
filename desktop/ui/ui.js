@@ -32,7 +32,9 @@ function dialog({ title, body, okText = 'OK', onOk, hideOk = false }) {
     $('dialog-cancel').onclick = () => close(null);
     $('dialog-x').onclick = () => close(null);
     $('dialog').onclick = (e) => { if (e.target === $('dialog')) close(null); };
-    const first = $('dialog-body').querySelector('input, textarea'); if (first) first.focus();
+    // foco na própria janela (se a página da plataforma estiver com o foco, o Esc iria para ela)
+    try { window.focus(); if (window.pulse.focusSidebar) window.pulse.focusSidebar(); } catch {}
+    const first = $('dialog-body').querySelector('input, textarea'); if (first) first.focus(); else { $('dialog-x').focus(); }
   });
 }
 

@@ -264,7 +264,7 @@ const tabsOf = (id) => { if (!tabs.has(id)) tabs.set(id, new Map()); return tabs
 const currentView = (id) => { const t = tabs.get(id); return t ? t.get(activeTab.get(id)) || [...t.values()][0] : null; };
 
 function hideSidebarMenus() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('menus:hide'); }
-function pushState() { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('state', publicState()); }
+function pushState() { try { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('state', publicState()); } catch { /* app fechando: abas já destruídas */ } }
 function publicState() {
   return {
     ...state,
@@ -274,8 +274,8 @@ function publicState() {
     active: activeId,
     tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])),
     activeTab: Object.fromEntries(activeTab),
-    zoom: (() => { const p = activeId && activeTab.get(activeId); const v = p && tabs.get(activeId) && tabs.get(activeId).get(p); return v && !v.webContents.isDestroyed() ? { platform: p, label: PLATFORMS[p] ? PLATFORMS[p].label : p, pct: Math.round(v.webContents.getZoomFactor() * 100), auto: p === 'privacy' && !zoomPref.privacy } : null; })(),
-    fullscreen: !!(win && win.isFullScreen()),
+    zoom: (() => { try { const p = activeId && activeTab.get(activeId); const v = p && tabs.get(activeId) && tabs.get(activeId).get(p); return v && !v.webContents.isDestroyed() ? { platform: p, label: PLATFORMS[p] ? PLATFORMS[p].label : p, pct: Math.round(v.webContents.getZoomFactor() * 100), auto: p === 'privacy' && !zoomPref.privacy } : null; } catch { return null; } })(),
+    fullscreen: (() => { try { return !!(win && !win.isDestroyed() && win.isFullScreen()); } catch { return false; } })(),
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
@@ -1280,6 +1280,7 @@ ipcMain.handle('fan:note:add', async (_e, text) => {
 });
 // anotações da criadora (no painel, com autor e hora)
 // zoom (botões − % + no menu ⋮) e tela cheia
+ipcMain.handle('ui:focus', () => { try { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.focus(); } catch {} return true; });
 ipcMain.handle('zoom:change', (_e, dir) => { const p = activeId && activeTab.get(activeId); if (!p) throw new Error('Abra uma criadora para ajustar o zoom.'); changeZoom(p, dir); return publicState(); });
 ipcMain.handle('win:fullscreen', () => { if (win) { win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); } return true; });
 ipcMain.handle('cnotes:list', async (_e, creatorId) => api('GET', `/extension/creators/${encodeURIComponent(creatorId)}/notes`));
@@ -1570,7 +1571,9 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => app.quit());
 // clique em qualquer outra área (aba da plataforma, cartão do fã): fecha os menus abertos na lateral
-app.on('web-contents-created', (_e, wc) => { wc.on('focus', () => { if (!sidebar || wc !== sidebar.webContents) hideSidebarMenus(); }); wc.on('before-mouse-event', (_ev, m) => { if (m && m.type === 'mouseDown' && (!sidebar || wc !== sidebar.webContents)) hideSidebarMenus(); }); });
+// fecha os menus da lateral quando a pessoa CLICA numa página; o evento 'focus' não serve porque uma página
+// carregando rouba o foco sozinha e fechava o menu logo depois de abrir
+app.on('web-contents-created', (_e, wc) => { wc.on('before-mouse-event', (_ev, m) => { if (m && m.type === 'mouseDown' && (!sidebar || wc !== sidebar.webContents)) hideSidebarMenus(); }); });
 
 // ---------- atualização automática (instalador) ----------
 // O app instalado pelo AltaPulse-Setup.exe busca versões novas nas releases do GitHub do projeto

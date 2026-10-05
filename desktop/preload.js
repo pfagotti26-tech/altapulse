@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('pulse', {
   oppOpen: (id) => ipcRenderer.invoke('opp:open', id),
   oppAction: (id, action, reason) => ipcRenderer.invoke('opp:action', { id, action, reason }),
   oppReload: () => ipcRenderer.invoke('opp:reload'),
+  focusSidebar: () => ipcRenderer.invoke('ui:focus'),
   zoom: (dir) => ipcRenderer.invoke('zoom:change', dir),
   fullscreen: () => ipcRenderer.invoke('win:fullscreen'),
   creatorNotes: (creatorId) => ipcRenderer.invoke('cnotes:list', creatorId),
