@@ -130,12 +130,12 @@ function renderList() {
     el.className = 'group' + (closedGroups.has(g.id) ? ' closed' : '');
     el.innerHTML = `<div class="group-head" data-g="${esc(g.id)}"><span class="caret">▾</span><span>${esc(g.name)}</span><span class="count">${items.length}</span>${g.id ? `<button class="gmenu" data-g="${esc(g.id)}" title="Grupo">⋮</button>` : ''}</div><div class="cards"></div>`;
     const cards = el.querySelector('.cards');
-    for (const c of items) { const k = card(c); if (sort === 'mine' && !q) dragCard(k, c, items); cards.appendChild(k); }
+    for (const c of items) { const k = card(c, items); if (sort === 'mine' && !q) dragCard(k, c, items); cards.appendChild(k); }
     list.appendChild(el);
   }
 }
 
-function card(c) {
+function card(c, groupItems) {
   const st = statusOf(c); const tag = tagOf(c.id);
   const rd = S.readers && S.readers[c.id];
   let queue = '';
@@ -177,6 +177,13 @@ function card(c) {
     if (ex && ex.error && S.user && S.user.role === 'manager') inds += `<span class="ind warn" title="${ex.error === 'login' ? 'Extrato: entre na Privacy' : 'Extrato: falha na leitura'}"></span>`;
   }
   el.dataset.id = c.id;
+  // setinhas ▲▼ para mudar a posição dentro do grupo (aparecem ao passar o mouse); mesma lógica do arrastar
+  let steps = '', sib = [];
+  if (groupItems && groupItems.length > 1) {
+    const ord = fullOrder(); sib = [...groupItems].sort((a, b) => ord.indexOf(a.id) - ord.indexOf(b.id));
+    const i = sib.findIndex((x) => x.id === c.id);
+    steps = `<span class="steps"><button class="step" data-step="-1" title="Subir uma posição" ${i > 0 ? '' : 'disabled'}>▲</button><button class="step" data-step="1" title="Descer uma posição" ${i >= 0 && i < sib.length - 1 ? '' : 'disabled'}>▼</button></span>`;
+  }
   // quem mais está neste perfil agora (outros chatters/gestor com a criadora aberta no app)
   const vw = c.viewers || [];
   const viewers = vw.length ? `<div class="viewers${vw.some((v) => v.active) ? ' on' : ''}" title="${esc(vw.map((v) => `${v.name}${v.active ? ' (na tela agora)' : ' (aberta em segundo plano)'}`).join(' · '))}">👀 ${esc(vw.map((v) => v.name.split(' ')[0]).slice(0, 3).join(', '))}${vw.length > 3 ? ` +${vw.length - 3}` : ''} ${vw.length === 1 ? 'está' : 'estão'} neste perfil</div>` : '';
@@ -188,9 +195,9 @@ function card(c) {
   el.innerHTML = `<div class="avatar ${esc(c.color)}${c.avatar ? ' has-photo' : ''}">${face}${bubble}</div>
     <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${viewers}${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
-    <button class="cmenu" title="Opções">⋮</button>`;
+    ${steps}<button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => {
-    if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn')) return;
+    if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn') || e.target.closest('.steps')) return;
     // clique no card: abre/mostra a plataforma e, se ela estiver na tela de login e houver acesso salvo, já entra
     const target = cur && loginList.includes(cur) ? cur : (loginList.length === 1 ? loginList[0] : cur);
     if (S.open.includes(c.id) && target) return enterPlatform(c, target);
@@ -203,6 +210,7 @@ function card(c) {
     const p = ch.dataset.plat; if (p === '+') return platformDialog(c);
     enterPlatform(c, p);
   }));
+  el.querySelectorAll('.step').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); if (!b.disabled) moveStep(c, sib, Number(b.dataset.step)); }));
   el.querySelector('.cmenu').addEventListener('click', (e) => { e.stopPropagation(); creatorMenu(c, e.currentTarget); });
   return el;
 }
@@ -350,50 +358,90 @@ function saveSort() { try { localStorage.setItem('alta-sort', $('sort').value); 
 try { const sv = localStorage.getItem('alta-sort'); if (sv && [...$('sort').options].some((o) => o.value === sv)) $('sort').value = sv; } catch {}
 
 // ---------- menu da criadora ----------
+// ---------- menu ⋮ da criadora (cabeçalho, barra de ícones, turno em destaque, organizar, vendas, avançado, sair) ----------
+function menuItem(it) {
+  const b = document.createElement('button'); b.className = `mi${it.cls ? ' ' + it.cls : ''}`; b.type = 'button';
+  b.innerHTML = `<span class="mi-ic">${it.icon || ''}</span><span class="mi-tx"><span class="mi-l">${esc(it.label)}</span>${it.sub ? `<span class="mi-s">${esc(it.sub)}</span>` : ''}</span>${it.right != null ? `<span class="mi-r">${it.right}</span>` : ''}`;
+  b.onclick = (e) => { e.stopPropagation(); if (!it.keep) hideMenus(); it.fn(e); };
+  return b;
+}
+function renderMenu(m, sections) {
+  m.innerHTML = ''; m.classList.add('menu2');
+  sections.filter(Boolean).forEach((sec, i) => {
+    if (i && !sec.noLine) m.appendChild(document.createElement('hr'));
+    if (sec.html) { const d = document.createElement('div'); d.innerHTML = sec.html; m.appendChild(d.firstElementChild); return; }
+    if (sec.icons) { const row = document.createElement('div'); row.className = 'mi-icons'; for (const it of sec.icons) { const b = document.createElement('button'); b.type = 'button'; b.className = 'mi-icon'; b.title = it.label; b.setAttribute('aria-label', it.label); b.textContent = it.icon; b.disabled = !!it.disabled; b.onclick = (e) => { e.stopPropagation(); hideMenus(); it.fn(); }; row.appendChild(b); } m.appendChild(row); return; }
+    if (sec.primary) { const row = document.createElement('div'); row.className = 'mi-primary'; for (const it of sec.primary) { const b = document.createElement('button'); b.type = 'button'; b.className = `mi-btn ${it.cls || ''}`; b.textContent = it.label; b.onclick = (e) => { e.stopPropagation(); hideMenus(); it.fn(); }; row.appendChild(b); } m.appendChild(row); return; }
+    for (const it of sec.items || []) m.appendChild(menuItem(it));
+  });
+}
+// teclado: ↑ ↓ andam pelos itens, Enter abre, ← volta do Avançado, Esc fecha (Esc já é tratado no documento)
+document.addEventListener('keydown', (e) => {
+  const m = $('creator-menu'); if (m.classList.contains('hidden') || !['ArrowDown', 'ArrowUp', 'ArrowLeft'].includes(e.key)) return;
+  const items = [...m.querySelectorAll('button:not(:disabled)')]; if (!items.length) return;
+  e.preventDefault();
+  if (e.key === 'ArrowLeft') { const back = m.querySelector('.mi-back'); if (back) back.click(); return; }
+  const i = items.indexOf(document.activeElement); const n = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+  items[n].focus();
+});
 function creatorMenu(c, anchor) {
-  const m = $('creator-menu'); const isOpen = S.open.includes(c.id);
+  const m = $('creator-menu'); const isOpen = S.open.includes(c.id); const isMgr = S.user.role === 'manager';
   const mine = c.shift && c.shift.operator_id === S.user.id;
-  const items = [];
-  items.push(isOpen ? ['Mostrar', () => window.pulse.showProfile(c.id)] : ['Abrir perfil', () => openCreator(c)]);
-  if (isOpen) { items.push(['Recarregar', () => window.pulse.reloadProfile(c.id)]); items.push(['Voltar', () => window.pulse.backProfile(c.id)]); }
-  items.push(['Abrir plataforma…', () => platformDialog(c)]);
-  for (const lp of (S.loginPages && S.loginPages[c.id]) || []) if ((S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) items.push([`Entrar com o acesso salvo · ${S.platforms && S.platforms[lp] ? S.platforms[lp].label : lp}`, () => vaultLogin(c, lp)]);
-  items.push('-');
-  if (!c.shift) items.push(['Iniciar turno', () => run(() => window.pulse.startShift(c.id), 'Turno iniciado.')]);
-  if (mine && !c.shift.paused) items.push(['Pausar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'pause'), 'Turno pausado.')]);
-  if (mine && c.shift.paused) items.push(['Retomar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'resume'), 'Turno retomado.')]);
-  if (mine || (c.shift && S.user.role === 'manager')) items.push(['Encerrar turno', () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.')]);
-  items.push('-');
-  items.push(['Anotações', () => notesDialog(c)]);
-  items.push(['Grupos', () => groupDialog(c)]);
-  items.push(['Etiqueta', () => tagDialog(c)]);
-  { // setas: sobe/desce dentro do grupo em que o card foi clicado
-    const ord = fullOrder();
-    const sib = [...(anchor.closest('.cards') || document).querySelectorAll('.card')].map((x) => S.creators.find((k) => k.id === x.dataset.id)).filter(Boolean).sort((a, b) => ord.indexOf(a.id) - ord.indexOf(b.id));
-    const i = sib.findIndex((x) => x.id === c.id);
-    if (i > 0) items.push(['↑ Mover para cima', () => moveStep(c, sib, -1)]);
-    if (i >= 0 && i < sib.length - 1) items.push(['↓ Mover para baixo', () => moveStep(c, sib, 1)]);
-  }
-  items.push('-');
-  if (isOpen || S.user.role === 'manager') items.push(['Ler extrato de vendas agora', () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.')]);
-  if (isOpen && S.user.role === 'manager') items.push(['Mostrar/esconder aba do extrato (diagnóstico)', () => window.pulse.toggleExtrato(c.id)]);
-  if (isOpen) items.push(['Capturar estrutura da tela (calibração)', () => calibrate(c)]);
-  if (S.user.role === 'manager') items.push(['Capturar Meu Privacy → Assinantes (calibração)', async () => { const r = await run(() => window.pulse.calibrateStats(c.id, 'assinantes')); if (r && r.ok) toast(`Estrutura salva (${r.size} caracteres): ${r.file}`); }]);
-  items.push(['Limpar cache', () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.')]);
-  items.push(['Sair da conta da Privacy (limpar cookies)', async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); }, 'danger']);
-  if (isOpen) items.push([((S.tabs && S.tabs[c.id]) || []).length > 1 ? 'Fechar todas as abas' : 'Fechar perfil', () => run(() => window.pulse.closeProfile(c.id))]);
-  m.innerHTML = '';
-  for (const it of items) {
-    if (it === '-') { m.appendChild(document.createElement('hr')); continue; }
-    const b = document.createElement('button'); b.textContent = it[0]; if (it[2]) b.className = it[2];
-    b.onclick = () => { hideMenus(); it[1](); }; m.appendChild(b);
-  }
-  place(m, anchor);
+  const st = statusOf(c); const tabsHere = (S.tabs && S.tabs[c.id]) || [];
+  const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
+  const face = c.avatar && /^data:image\//.test(c.avatar) ? `<img src="${esc(c.avatar)}" alt="">` : esc(initials(c.name));
+  const head = { html: `<div class="mi-head"><span class="mi-face avatar ${esc(c.color)}">${face}</span><span class="mi-who"><b>${esc(c.name)}</b><small>${esc(st.text)}${tabsHere.length ? ' · ' + esc(tabsHere.map(labelOf).join(', ')) : ''}</small></span></div>` };
+  const icons = { noLine: true, icons: [
+    { icon: '←', label: 'Voltar a página', disabled: !isOpen, fn: () => window.pulse.backProfile(c.id) },
+    { icon: '↻', label: 'Recarregar a página', disabled: !isOpen, fn: () => window.pulse.reloadProfile(c.id) },
+    { icon: '＋', label: 'Abrir outra plataforma neste perfil', fn: () => platformDialog(c) },
+    { icon: '✕', label: tabsHere.length > 1 ? 'Fechar todas as abas' : 'Fechar perfil', disabled: !isOpen, fn: () => run(() => window.pulse.closeProfile(c.id)) },
+  ] };
+  const shiftBtns = [];
+  if (!c.shift) shiftBtns.push({ label: '▶ Iniciar turno', cls: 'go', fn: () => run(() => window.pulse.startShift(c.id), 'Turno iniciado.') });
+  if (mine && !c.shift.paused) shiftBtns.push({ label: 'Pausar', cls: 'soft', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'pause'), 'Turno pausado.') });
+  if (mine && c.shift.paused) shiftBtns.push({ label: 'Retomar', cls: 'go', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'resume'), 'Turno retomado.') });
+  if (mine || (c.shift && isMgr)) shiftBtns.push({ label: mine ? 'Encerrar' : `Encerrar turno de ${c.shift.operator_name.split(' ')[0]}`, cls: 'stop', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.') });
+  const enter = [];
+  for (const lp of (S.loginPages && S.loginPages[c.id]) || []) if ((S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) enter.push({ icon: '🔑', label: `Entrar na ${labelOf(lp)}`, sub: 'com o acesso salvo (senha não aparece)', fn: () => vaultLogin(c, lp) });
+  if (!isOpen) enter.unshift({ icon: '▣', label: 'Abrir perfil', fn: () => openCreator(c) });
+  const gnames = groupsOf(c.id).map((id) => (S.local.groups.find((g) => g.id === id) || {}).name).filter(Boolean);
+  const tag = tagOf(c.id); const nNotes = c.notes_info ? c.notes_info.count : 0;
+  const ord = fullOrder();
+  const sib = [...(anchor.closest('.cards') || document).querySelectorAll('.card')].map((x) => S.creators.find((k) => k.id === x.dataset.id)).filter(Boolean).sort((a, b) => ord.indexOf(a.id) - ord.indexOf(b.id));
+  const pos = sib.findIndex((x) => x.id === c.id);
+  const organize = [
+    { icon: '📝', label: 'Anotações', right: nNotes ? `<i class="mi-badge">${nNotes}</i>` : '', fn: () => notesDialog(c) },
+    { icon: '📁', label: 'Grupos', right: gnames.length ? esc(gnames.slice(0, 2).join(', ') + (gnames.length > 2 ? ` +${gnames.length - 2}` : '')) : '<span class="mi-muted">nenhum</span>', fn: () => groupDialog(c) },
+    { icon: '●', label: 'Etiqueta', right: tag ? `<span class="mi-dot" style="background:${esc(tag.color)}"></span>${esc(tag.name)}` : '<span class="mi-muted">nenhuma</span>', fn: () => tagDialog(c) },
+  ];
+  const posRow = sib.length > 1 ? { noLine: true, html: `<div class="mi mi-pos"><span class="mi-ic">↕</span><span class="mi-tx"><span class="mi-l">Posição</span></span><span class="mi-r"><button type="button" class="mi-arrow" data-step="-1" ${pos > 0 ? '' : 'disabled'} title="Mover para cima">↑</button><button type="button" class="mi-arrow" data-step="1" ${pos >= 0 && pos < sib.length - 1 ? '' : 'disabled'} title="Mover para baixo">↓</button></span></div>` } : null;
+  const ex = S.extratos && S.extratos[c.id];
+  const sales = (isOpen || isMgr) ? [{ icon: '💲', label: 'Ler extrato agora', sub: ex && ex.readAt ? `última leitura ${new Date(ex.readAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'ainda não lido', fn: () => run(() => window.pulse.readExtrato(c.id), 'Extrato lido.') }] : [];
+  const adv = [];
+  if (isOpen && isMgr) adv.push({ icon: '🧪', label: 'Mostrar/esconder aba do extrato', sub: 'diagnóstico', fn: () => window.pulse.toggleExtrato(c.id) });
+  if (isOpen) adv.push({ icon: '🧩', label: 'Capturar estrutura da tela', sub: 'calibração', fn: () => calibrate(c) });
+  if (isMgr) adv.push({ icon: '🧩', label: 'Capturar Meu Privacy → Assinantes', sub: 'calibração', fn: async () => { const r = await run(() => window.pulse.calibrateStats(c.id, 'assinantes')); if (r && r.ok) toast(`Estrutura salva (${r.size} caracteres): ${r.file}`); } });
+  const cache = { icon: '🧹', label: 'Limpar cache', sub: 'resolve página travada ou desatualizada', fn: () => run(() => window.pulse.clearProfile(c.id, 'cache'), 'Cache limpo.') };
+  if (isMgr) adv.push(cache); else sales.push(cache);
+  const wire = () => m.querySelectorAll('.mi-arrow').forEach((b) => b.onclick = (e) => { e.stopPropagation(); hideMenus(); moveStep(c, sib, Number(b.dataset.step)); });
+  const main = () => { renderMenu(m, [head, icons,
+    shiftBtns.length ? { primary: shiftBtns } : null,
+    enter.length ? { items: enter } : null,
+    { items: organize },
+    sales.length || isMgr ? { items: [...sales, ...(isMgr ? [{ icon: '⚙', label: 'Avançado', right: '›', keep: true, fn: () => advanced() }] : [])] } : null,
+    { items: [{ icon: '⎋', label: 'Sair da conta da Privacy…', sub: 'apaga o login deste computador', cls: 'danger', fn: async () => { const ok = await dialog({ title: 'Sair da conta', body: `<p>Isso apaga o login da Privacy de <b>${esc(c.name)}</b> neste computador. Vai ser preciso entrar de novo.</p>`, okText: 'Limpar' }); if (ok) run(() => window.pulse.clearProfile(c.id, 'cookies'), 'Sessão apagada.'); } }] },
+  ]); wire(); };
+  const advanced = () => { renderMenu(m, [{ items: [{ icon: '‹', label: 'Avançado', cls: 'mi-back', keep: true, fn: () => { main(); place(m, anchor); } }] }, { items: adv }]); place(m, anchor); const f = m.querySelector('button.mi:not(.mi-back)'); if (f) f.focus(); };
+  main(); place(m, anchor);
 }
 function place(m, anchor) {
   const r = anchor.getBoundingClientRect(); m.classList.remove('hidden');
-  const top = Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8);
-  m.style.top = `${Math.max(8, top)}px`; m.style.left = `${Math.min(r.left, window.innerWidth - m.offsetWidth - 8)}px`;
+  m.style.maxHeight = `${window.innerHeight - 16}px`;
+  // cabe embaixo? abre embaixo; senão abre para cima do botão; em último caso encosta no topo e rola
+  const h = m.offsetHeight; let top = r.bottom + 4;
+  if (top + h > window.innerHeight - 8) top = r.top - h - 4 >= 8 ? r.top - h - 4 : Math.max(8, window.innerHeight - h - 8);
+  m.style.top = `${top}px`; m.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 8))}px`;
 }
 
 async function calibrate(c) {
@@ -444,17 +492,21 @@ function newGroupDialog() {
 }
 function groupMenu(gid, anchor) {
   const g = S.local.groups.find((x) => x.id === gid); if (!g) return;
-  const m = $('creator-menu'); m.innerHTML = '';
-  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { hideMenus(); fn(); }; m.appendChild(b); };
-  add('Escolher criadoras do grupo…', () => groupMembersDialog(g));
-  add('Renomear grupo', () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
-    onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }));
-  add('Excluir grupo (as criadoras não são apagadas)', async () => {
-    const ok = await dialog({ title: 'Excluir grupo', body: `<p>Excluir <b>${esc(g.name)}</b>? As criadoras não são apagadas, só perdem o grupo.</p>`, okText: 'Excluir' });
-    if (!ok) return;
-    for (const id of Object.keys(S.local.creators || {})) { const gs = groupsOf(id); if (gs.includes(gid)) await window.pulse.setCreatorLocal(id, { groups: gs.filter((x) => x !== gid) }); }
-    await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
-  }, 'danger');
+  const m = $('creator-menu'); const n = S.creators.filter((c) => groupsOf(c.id).includes(gid)).length;
+  renderMenu(m, [
+    { html: `<div class="mi-head"><span class="mi-face avatar">📁</span><span class="mi-who"><b>${esc(g.name)}</b><small>${n} criadora${n === 1 ? '' : 's'}</small></span></div>` },
+    { items: [
+      { icon: '☑', label: 'Escolher criadoras do grupo…', sub: 'várias de uma vez, com busca', fn: () => groupMembersDialog(g) },
+      { icon: '✎', label: 'Renomear grupo', fn: () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
+        onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }) },
+    ] },
+    { items: [{ icon: '🗑', label: 'Excluir grupo…', sub: 'as criadoras não são apagadas', cls: 'danger', fn: async () => {
+      const ok = await dialog({ title: 'Excluir grupo', body: `<p>Excluir <b>${esc(g.name)}</b>? As criadoras não são apagadas, só perdem o grupo.</p>`, okText: 'Excluir' });
+      if (!ok) return;
+      for (const id of Object.keys(S.local.creators || {})) { const gs = groupsOf(id); if (gs.includes(gid)) await window.pulse.setCreatorLocal(id, { groups: gs.filter((x) => x !== gid) }); }
+      await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
+    } }] },
+  ]);
   place(m, anchor);
 }
 // várias criadoras de uma vez num grupo: busca, marcar todas, e só grava quem mudou
@@ -499,17 +551,65 @@ $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin'
 $('me-avatar').onclick = () => photoMenu();
 // ---------- oportunidades de venda (radar) ----------
 const fmtBRL = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2).replace('.', ',');
+// gestor: por padrão só as criadoras abertas aqui ou no turno dele (ver todas é opção); chatter: as dele
+function oppScope() { try { return localStorage.getItem('alta-opp-scope') || 'minhas'; } catch { return 'minhas'; } }
+function oppsVisible() {
+  const list = S.opportunities || [];
+  if (!S.user || S.user.role !== 'manager' || oppScope() === 'todas') return list;
+  const mine = new Set([...(S.open || []), ...(S.creators || []).filter((c) => c.shift && c.shift.operator_id === S.user.id).map((c) => c.id)]);
+  return list.filter((o) => mine.has(o.creator_id));
+}
 function renderOpps() {
-  const list = S.opportunities || []; const hot = list.filter((o) => o.hot).length; const el = $('my-opps');
-  el.classList.toggle('hidden', !list.length);
-  if (list.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo</small>`;
+  const all = S.opportunities || []; const list = oppsVisible(); const hot = list.filter((o) => o.hot).length; const el = $('my-opps');
+  el.classList.toggle('hidden', !all.length);
+  if (all.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo${list.length !== all.length ? ` · ${all.length} em todas` : ''}</small>`;
+}
+const oppOpenGroups = new Set();
+// filtros da lista (ficam salvos neste computador): criadora, tipo, plataforma, só quentes, busca pelo nome do fã e ordem
+const OPP_F0 = { creator: '', kind: '', platform: '', hot: false, q: '', sort: 'valor' };
+let oppF = (() => { try { return { ...OPP_F0, ...JSON.parse(localStorage.getItem('alta-opp-filtros') || '{}'), q: '' }; } catch { return { ...OPP_F0 }; } })();
+const saveOppF = () => { try { localStorage.setItem('alta-opp-filtros', JSON.stringify({ ...oppF, q: '' })); } catch {} };
+function oppFiltered(list) {
+  const q = oppF.q.trim().toLowerCase();
+  let out = list.filter((o) => (!oppF.creator || o.creator_id === oppF.creator) && (!oppF.kind || o.kind === oppF.kind) && (!oppF.platform || (o.platform || 'privacy') === oppF.platform)
+    && (!oppF.hot || o.hot) && (!q || String(o.fan_name || '').toLowerCase().includes(q)));
+  const by = { valor: (a, b) => (b.hot - a.hot) || (b.value_cents || 0) - (a.value_cents || 0), recente: (a, b) => String(b.created_at).localeCompare(String(a.created_at)), vence: (a, b) => String(a.due_at).localeCompare(String(b.due_at)) };
+  return out.sort(by[oppF.sort] || by.valor);
 }
 function oppDialog() {
-  const list = S.opportunities || [];
+  const base = oppsVisible(); const list = oppFiltered(base); const isMgr = S.user && S.user.role === 'manager';
+  const opt = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`;
+  const count = (fn) => base.filter(fn).length;
+  const creators = [...new Map(base.map((o) => [o.creator_id, o.creator_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const kinds = [...new Map(base.map((o) => [o.kind, o.label])).entries()];
+  const plats = [...new Set(base.map((o) => o.platform || 'privacy'))];
+  const plabel = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
+  const filters = `<div class="opp-filters">
+    <input id="of-q" placeholder="Buscar fã pelo nome" value="${esc(oppF.q)}">
+    <select id="of-creator">${opt('', `Todas as criadoras (${base.length})`, oppF.creator)}${creators.map(([id, n]) => opt(id, `${n} (${count((o) => o.creator_id === id)})`, oppF.creator)).join('')}</select>
+    <select id="of-kind">${opt('', 'Todos os tipos', oppF.kind)}${kinds.map(([k, l]) => opt(k, `${l} (${count((o) => o.kind === k)})`, oppF.kind)).join('')}</select>
+    ${plats.length > 1 ? `<select id="of-plat">${opt('', 'Todas as plataformas', oppF.platform)}${plats.map((p) => opt(p, plabel(p), oppF.platform)).join('')}</select>` : ''}
+    <select id="of-sort">${opt('valor', 'Ordem: quentes e maior valor', oppF.sort)}${opt('recente', 'Ordem: mais recentes', oppF.sort)}${opt('vence', 'Ordem: vencem antes', oppF.sort)}</select>
+    <label><input type="checkbox" id="of-hot" ${oppF.hot ? 'checked' : ''}> Só quentes (pediu preço)</label>
+    ${list.length !== base.length ? `<a href="#" id="of-clear">Limpar filtros · mostrando ${list.length} de ${base.length}</a>` : ''}
+  </div>`;
   const byCreator = {}; for (const o of list) (byCreator[o.creator_name] = byCreator[o.creator_name] || []).push(o);
-  const body = `<div class="opp-list">${Object.entries(byCreator).map(([cn, items]) => `<div class="opp-group">${esc(cn)}</div>${items.map((o) => `<div class="opp${o.hot ? ' hot' : ''}"><div class="opp-info"><b>${esc(o.fan_name || 'Fã sem nome')}</b><span class="opp-kind">${esc(o.label)}${o.platform && o.platform !== 'privacy' ? ` · ${esc(S.platforms && S.platforms[o.platform] ? S.platforms[o.platform].label : o.platform)}` : ''} · ${esc(fmtBRL(o.value_cents))}</span><small>${esc(o.reason)}</small></div><div class="opp-actions"><button class="primary" data-open="${esc(o.id)}">Abrir conversa</button><button class="ghost" data-done="${esc(o.id)}" title="Já falei com o fã">Feito</button><button class="ghost" data-skip="${esc(o.id)}" title="Não faz sentido agora">Dispensar</button></div></div>`).join('')}`).join('') || '<p class="muted">Nada agora. O radar olha a lista de conversas enquanto a Privacy está aberta.</p>'}</div><p class="muted">Quando você responde ou manda oferta para o fã, a oportunidade é marcada sozinha. Venda em até 2 dias conta para você.</p>`;
+  const groups = Object.entries(byCreator).sort((a, b) => b[1].filter((o) => o.hot).length - a[1].filter((o) => o.hot).length || b[1].length - a[1].length);
+  if (groups.length === 1 || oppF.creator) for (const g of groups) oppOpenGroups.add(g[0]);
+  const scope = isMgr ? `<div class="opp-scope"><label><input type="radio" name="opp-scope" value="minhas" ${oppScope() !== 'todas' ? 'checked' : ''}> Abertas aqui / meu turno</label><label><input type="radio" name="opp-scope" value="todas" ${oppScope() === 'todas' ? 'checked' : ''}> Todas as criadoras (${(S.opportunities || []).length})</label></div>` : '';
+  const item = (o) => `<div class="opp${o.hot ? ' hot' : ''}"><div class="opp-info"><b>${esc(o.fan_name || 'Fã sem nome')}</b><span class="opp-kind">${esc(o.label)}${o.platform && o.platform !== 'privacy' ? ` · ${esc(S.platforms && S.platforms[o.platform] ? S.platforms[o.platform].label : o.platform)}` : ''} · ${esc(fmtBRL(o.value_cents))}</span><small>${esc(o.reason)}</small></div><div class="opp-actions"><button class="primary" data-open="${esc(o.id)}">Abrir conversa</button><button class="ghost" data-done="${esc(o.id)}" title="Já falei com o fã">Feito</button><button class="ghost" data-skip="${esc(o.id)}" title="Não faz sentido agora">Dispensar</button></div></div>`;
+  const body = `${scope}${filters}<div class="opp-list">${groups.map(([cn, items]) => { const hot = items.filter((o) => o.hot).length; const open = oppOpenGroups.has(cn);
+    return `<div class="opp-group${open ? ' open' : ''}" data-g="${esc(cn)}"><span class="caret">${open ? '▾' : '▸'}</span> ${esc(cn)} <i>${items.length}${hot ? ` · <span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span>` : ''} · ${esc(fmtBRL(items.reduce((n, o) => n + (o.value_cents || 0), 0)))}</i></div>${open ? items.map(item).join('') : ''}`; }).join('')
+    || `<p class="muted">${base.length ? 'Nenhuma com esses filtros.' : isMgr && oppScope() !== 'todas' ? 'Nada nas criadoras abertas aqui. Marque "Todas as criadoras" para ver o resto.' : 'Nada agora. O radar olha a lista de conversas enquanto a plataforma está aberta.'}</p>`}</div><p class="muted">Uma por fã (a mais importante). Quando você responde ou manda oferta, ela é marcada sozinha. Venda em até 2 dias conta para você.</p>`;
   const p = dialog({ title: 'Oportunidades de venda', body, hideOk: true });
   const B = $('dialog-body');
+  B.querySelectorAll('input[name=opp-scope]').forEach((r) => r.onchange = () => { try { localStorage.setItem('alta-opp-scope', r.value); } catch {} renderOpps(); $('dialog-cancel').onclick(); oppDialog(); });
+  const redraw = () => { saveOppF(); $('dialog-cancel').onclick(); oppDialog(); };
+  for (const [id, key] of [['of-creator', 'creator'], ['of-kind', 'kind'], ['of-plat', 'platform'], ['of-sort', 'sort']]) { const el = $(id); if (el) el.onchange = () => { oppF[key] = el.value; redraw(); }; }
+  $('of-hot').onchange = (e) => { oppF.hot = e.target.checked; redraw(); };
+  { let t; $('of-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { oppF.q = e.target.value; redraw(); setTimeout(() => { const i = $('of-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 350); }; }
+  if ($('of-clear')) $('of-clear').onclick = (e) => { e.preventDefault(); oppF = { ...OPP_F0 }; redraw(); };
+  B.querySelectorAll('.opp-group').forEach((g) => g.onclick = () => { const k = g.dataset.g; if (oppOpenGroups.has(k)) oppOpenGroups.delete(k); else oppOpenGroups.add(k); $('dialog-cancel').onclick(); oppDialog(); });
   B.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', async () => {
     $('dialog-cancel').onclick();
     const r = await run(() => window.pulse.oppOpen(b.dataset.open));

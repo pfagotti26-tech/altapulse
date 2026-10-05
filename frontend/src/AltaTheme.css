@@ -385,3 +385,41 @@ table.ai-days td.has{font-weight:700;color:#3f8158;text-align:center}table.ai-da
 .trash-head { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; font: inherit; }
 .trash-head span { font-size: 12px; padding: 0 7px; border-radius: 9px; background: var(--muted, #eee); }
 .trash-head small { opacity: .6; }
+
+/* Qualidade (redesenho): tooltips, fila ao vivo, placar em tabela, guia e checklist da IA */
+.qtip { position: relative; display: inline-flex; align-items: center; color: #9a9aa6; cursor: help; vertical-align: middle; margin-left: 2px; }
+.qtip .qtip-box { display: none; position: absolute; z-index: 50; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); width: 240px; padding: 8px 10px; border-radius: 8px; background: #1f1f24; color: #f1f1f4; font-size: 12px; font-weight: 400; line-height: 1.4; text-transform: none; letter-spacing: 0; white-space: normal; box-shadow: 0 6px 18px rgba(0,0,0,.25); text-align: left; }
+.qtip:hover .qtip-box, .qtip:focus .qtip-box { display: block; }
+.qhead-actions { display: flex; gap: 8px; justify-content: flex-end; margin: -6px 0 12px; }
+.wait-table td small { display: block; font-size: 11px; }
+.wait-table .w-time { font-size: 15px; }
+.wait-table tr.w-amber td:first-child { box-shadow: inset 3px 0 0 #f0a020; }
+.wait-table tr.w-red td:first-child { box-shadow: inset 3px 0 0 #d92a48; }
+.wait-table tr.w-red .w-time { color: #c41e3a; }
+.wait-table .w-none { color: #c41e3a; font-weight: 600; }
+.btn-link { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 8px; background: #c41e3a; color: #fff !important; font-size: 12.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.btn-link:hover { background: #a8172f; }
+.inline-empty.ok { color: #1f7a4d; }
+.score-table th { white-space: nowrap; }
+.score-table th.sorted .th-sort { color: #c41e3a; }
+.th-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.score-table td small { display: block; font-size: 11px; color: #8a8a96; }
+.score-table td.good { background: rgba(31,122,77,.08); color: #1f7a4d; }
+.score-table td.mid { background: rgba(240,160,32,.10); color: #9a6200; }
+.score-table td.low { background: rgba(196,30,58,.08); color: #b0172f; }
+.who-btn { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.who-btn small { display: block; font-size: 11px; color: #8a8a96; }
+.who-btn:hover strong { text-decoration: underline; }
+.score-pill { display: inline-block; min-width: 38px; text-align: center; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: 15px; }
+.score-pill.good { background: #e3f4ea; color: #1f7a4d; } .score-pill.mid { background: #fff1d6; color: #9a6200; } .score-pill.low { background: #fde4e8; color: #b0172f; } .score-pill.none { background: #eee; color: #888; }
+.trend { font-style: normal; font-size: 11px; margin-left: 6px; display: inline-flex; align-items: center; gap: 2px; color: #888; }
+.trend.up { color: #1f7a4d; } .trend.down { color: #b0172f; }
+.qguide section { margin-bottom: 14px; } .qguide h3 { font-size: 14px; margin: 0 0 4px; } .qguide p, .qguide li { font-size: 13px; line-height: 1.5; }
+.qguide-t td { padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 13px; vertical-align: top; } .qguide-t td:first-child { white-space: nowrap; }
+.ai-health { border: 1px solid #f3c6cf; background: #fff7f8; border-radius: 12px; padding: 12px 14px; margin: 10px 0 16px; }
+.ai-health.ok { border-color: #bfe3cd; background: #f3fbf6; }
+.ai-health-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ai-health-head span { font-size: 12px; }
+.ai-health ul { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.ai-health li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; } .ai-health li div { display: flex; flex-direction: column; } .ai-health li span { color: #666; font-size: 12px; }
+.ai-health li.red svg { color: #c41e3a; } .ai-health li.amber svg { color: #d48a00; } .ai-health li.gray svg { color: #999; }
+.rewrite { background: #f6f3ff; border-left: 3px solid #7c5cff; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
