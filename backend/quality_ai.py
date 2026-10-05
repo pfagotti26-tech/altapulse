@@ -36,6 +36,9 @@ class InsightItem(Strict):
     strengths: str = Field(default='', max_length=1500)
     improve: str = Field(default='', max_length=1500)
     example: str = Field(default='', max_length=600)
+    engagement: Optional[int] = Field(default=None, ge=0, le=10)   # nota de engajamento (respostas secas, sem gancho)
+    dry_pct: Optional[int] = Field(default=None, ge=0, le=100)     # % de mensagens secas do chatter
+    rewrite: str = Field(default='', max_length=800)               # "Em vez de … → Melhor …"
 class InsightIn(Strict):
     period_start: datetime
     period_end: datetime
@@ -207,3 +210,37 @@ async def save_diag(body: DiagIn, user):
 async def apps(user=Depends(manager)):
     """Uma linha por pessoa: versão do app, se a IA está ligada para ela, última amostra enviada e último erro."""
     return await db.app_status.find({}, {'_id': 0}).sort('last_seen', -1).to_list(200)
+
+def _ver(v):
+    try: return tuple(int(x) for x in str(v).split('.')[:3])
+    except Exception: return (0, 0, 0)
+
+@router.get('/quality/ai-health')
+async def ai_health(user=Depends(manager)):
+    """Lista de verificação da análise por IA: o que está travando e o que fazer, em linguagem de gestor."""
+    from datetime import timedelta
+    from extension_routes import DESKTOP_VERSION
+    config = await settings(); t = now(); checks = []
+    if not config.get('storage_allowed'): checks.append({'level': 'red', 'text': 'Armazenamento de métricas desligado', 'fix': 'Ligue em Configurações → Preferências da agência.'})
+    if not config.get('quality_ai_allowed'): checks.append({'level': 'red', 'text': 'Análise de qualidade por IA desligada', 'fix': 'Ligue em Configurações → Preferências da agência.'})
+    status = {a['user_id']: a for a in await db.app_status.find({}, {'_id': 0}).to_list(500)}
+    since = (t - timedelta(days=7)).isoformat()
+    worked = {}
+    for sh in await db.shifts.find({'started_at': {'$gte': since}}, {'_id': 0, 'operator_id': 1, 'operator_name': 1}).to_list(20000): worked[sh['operator_id']] = sh['operator_name']
+    roles = {u['id']: u.get('role') for u in await db.users.find({'id': {'$in': list(worked)}}, {'_id': 0, 'id': 1, 'role': 1}).to_list(500)}
+    latest = _ver(DESKTOP_VERSION or '0')
+    for uid_, name in sorted(worked.items(), key=lambda x: x[1]):
+        if roles.get(uid_) == 'manager': continue
+        a = status.get(uid_)
+        if not a: checks.append({'level': 'red', 'text': f'{name}: o app não informa nada (versão anterior à 1.4.2)', 'fix': f'Peça para {name.split()[0]} baixar a versão nova uma vez pelo botão Baixar do app. Depois as atualizações são em um clique.'}); continue
+        if _ver(a.get('version')) < latest: checks.append({'level': 'amber', 'text': f"{name}: app na versão {a.get('version')} (atual {DESKTOP_VERSION})", 'fix': 'Clique em Atualizar no topo do app.'})
+        if not a.get('quality_ai') or not a.get('storage'): checks.append({'level': 'amber', 'text': f'{name}: o app recebeu a IA desligada', 'fix': 'Confira as opções em Configurações e peça para recarregar o app (↻).'})
+        elif a.get('sample_error'): checks.append({'level': 'amber', 'text': f"{name}: erro ao enviar conversas ({a['sample_error'][:80]})", 'fix': 'Recarregue o app; se persistir, me avise.'})
+        elif not a.get('sample_ok_at') and a.get('sample_skip'): checks.append({'level': 'gray', 'text': f"{name}: nenhuma conversa enviada ainda ({a['sample_skip']})", 'fix': 'As conversas só vão quando o turno dele está ativo e há uma conversa aberta com 3+ mensagens.'})
+    pending = await db.samples.count_documents({'analyzed_at': None})
+    last_sample = await db.samples.find_one({}, {'_id': 0, 'captured_at': 1}, sort=[('captured_at', -1)])
+    last_ins = await db.insights.find_one({}, {'_id': 0, 'created_at': 1}, sort=[('created_at', -1)])
+    if not last_sample: checks.append({'level': 'red', 'text': 'Nenhuma conversa chegou para a IA até agora', 'fix': 'Resolva os itens acima; a análise das 10h30 usa as conversas do dia anterior.'})
+    ok = not any(c['level'] == 'red' for c in checks)
+    return {'ok': ok, 'checks': checks, 'samples_pending': pending, 'last_sample_at': (last_sample or {}).get('captured_at'),
+            'last_insight_at': (last_ins or {}).get('created_at'), 'runs_at': '10h30', 'needs': 'O computador do Paulo ligado com o Chrome aberto no horário da tarefa.'}

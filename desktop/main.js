@@ -445,22 +445,39 @@ async function loadOpportunities() {
   }
   oppFirst = false; pushState();
 }
-async function openOpportunity(oppId) {
-  const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
-  if (o.platform === 'fatalfans') {
-    openProfile(o.creator_id, 'fatalfans');
-    const t = tabs.get(o.creator_id); const v = t && t.get('fatalfans'); const name = String(o.cid || '').replace(/^ff:/, '') || o.fan_name;
-    if (!v || !name) return { found: false, name: o.fan_name };
+// abre a conversa de um fã no perfil isolado da criadora (Privacy pelo id da conversa; FatalFans clicando no nome)
+async function openConversation(creatorId, platform, cid, name, fanRef) {
+  if (platform === 'fatalfans') {
+    openProfile(creatorId, 'fatalfans');
+    const t = tabs.get(creatorId); const v = t && t.get('fatalfans'); const nm = String(cid || '').replace(/^ff:/, '') || name;
+    if (!v || !nm) return { found: false, name };
     if (!/fatalfans\.com\/chat/.test(v.webContents.getURL())) { await v.webContents.loadURL('https://fatalfans.com/chat', { userAgent: UA }); await new Promise((r) => setTimeout(r, 2500)); }
     // clica no item da lista com esse nome (o mesmo que o chatter faria)
-    const ok = await runJs(v, `(() => { const n = ${JSON.stringify(name)}; const it = [...document.querySelectorAll('div.min-h-18.cursor-pointer')].find((r) => { const h = r.querySelector('h3'); return h && h.textContent.replace(/\\s+/g, ' ').trim() === n; }); if (it) { it.click(); return true; } return false; })()`, 4000).catch(() => false);
-    return { found: !!ok, name: o.fan_name || name };
+    const ok = await runJs(v, `(() => { const n = ${JSON.stringify(nm)}; const it = [...document.querySelectorAll('div.min-h-18.cursor-pointer')].find((r) => { const h = r.querySelector('h3'); return h && h.textContent.replace(/\\s+/g, ' ').trim() === n; }); if (it) { it.click(); return true; } return false; })()`, 4000).catch(() => false);
+    return { found: !!ok, name: name || nm };
   }
-  openProfile(o.creator_id, 'privacy');
-  const view = views.get(o.creator_id); const cid = o.cid || (fanCids[o.creator_id] && fanCids[o.creator_id][o.fan_ref]);
-  if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
-  return { found: !!cid, name: o.fan_name };
+  openProfile(creatorId, 'privacy');
+  const view = views.get(creatorId); const id = cid || (fanRef && fanCids[creatorId] && fanCids[creatorId][fanRef]);
+  if (view) view.webContents.loadURL(id ? `https://privacy.com.br/chat?cid=${encodeURIComponent(id)}` : 'https://privacy.com.br/chat', { userAgent: UA });
+  return { found: !!id, name };
 }
+async function openOpportunity(oppId) {
+  const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
+  return openConversation(o.creator_id, o.platform || 'privacy', o.cid, o.fan_name, o.fan_ref);
+}
+// link do painel "Abrir no app": altapulse://abrir?c=<criadora>&p=<plataforma>&cid=<conversa>&n=<nome do fã>&f=<ref>
+async function handleDeepLink(url) {
+  let u; try { u = new URL(url); } catch { return; }
+  if (u.protocol !== 'altapulse:') return;
+  if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+  const q = u.searchParams; const creatorId = q.get('c');
+  if (!creatorId) return;
+  if (!state.user) { if (sidebar) sidebar.webContents.send('toast', 'Entre no Alta Pulse para abrir a conversa.'); return; }
+  if (!(state.creators || []).some((c) => c.id === creatorId)) { if (sidebar) sidebar.webContents.send('toast', 'Esta criadora não está liberada para você neste app.'); return; }
+  const r = await openConversation(creatorId, q.get('p') || 'privacy', q.get('cid'), q.get('n'), q.get('f')).catch(() => null);
+  if (r && !r.found && sidebar) sidebar.webContents.send('toast', `Procure "${r.name || 'o fã'}" na lista de conversas: ainda não sei qual é a conversa dele.`);
+}
+let pendingLink = process.argv.find((a) => /^altapulse:\/\//i.test(a)) || null;
 ipcMain.handle('opp:open', (_e, id) => openOpportunity(id));
 ipcMain.handle('opp:action', async (_e, { id, action, reason }) => { await api('POST', `/extension/opportunities/${encodeURIComponent(id)}/action`, { action, reason: reason || '' }); await loadOpportunities(); return publicState(); });
 ipcMain.handle('opp:reload', async () => { await loadOpportunities(); return publicState(); });
@@ -1509,7 +1526,12 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion(), electron: process
 
 // ---------- ciclo de vida ----------
 if (!app.requestSingleInstanceLock()) app.quit(); // dois cliques no Iniciar não abrem duas cópias
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+app.on('second-instance', (_e, argv) => {
+  if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  const link = (argv || []).find((a) => /^altapulse:\/\//i.test(a)); if (link) handleDeepLink(link);
+});
+// registra o endereço altapulse:// deste app (botão "Abrir no app" do painel)
+try { if (app.isPackaged) app.setAsDefaultProtocolClient('altapulse'); else app.setAsDefaultProtocolClient('altapulse', process.execPath, [require('path').resolve(process.argv[1] || '.')]); } catch {}
 app.whenReady().then(async () => {
   win = new BaseWindow({ width: 1440, height: 900, minWidth: 1000, minHeight: 600, title: 'Alta Pulse', backgroundColor: '#111113', icon: path.join(__dirname, 'ui', 'brand', 'favicon.ico') });
   win.setMenuBarVisibility(false);
@@ -1541,6 +1563,7 @@ app.whenReady().then(async () => {
   setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
   setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
+  if (pendingLink) setTimeout(() => { handleDeepLink(pendingLink); pendingLink = null; }, 8000); // app aberto pelo link do painel
   setInterval(() => loadOpportunities().catch(() => {}), 60000); setInterval(() => radarFatalFans().catch(() => {}), 90000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
 });
@@ -1590,7 +1613,15 @@ ipcMain.handle('portable:update', async () => {
 function cleanOldUpdates() {
   try {
     const ofs = require('original-fs'); const keep = path.basename((global.altaLoader && global.altaLoader.dir) || '');
-    for (const f of ofs.readdirSync(process.resourcesPath)) if (/^app-[\d.]+\.asar(\.tmp)?$/.test(f) && f !== keep) { try { ofs.unlinkSync(path.join(process.resourcesPath, f)); } catch {} }
+    // nunca apaga a versão apontada em alta-atual.json nem uma versão mais nova que a que está rodando
+    // (antes, uma janela antiga podia apagar a atualização recém-baixada e o app reabria na versão velha)
+    let pointed = ''; try { pointed = path.basename(JSON.parse(ofs.readFileSync(path.join(process.resourcesPath, 'alta-atual.json'), 'utf8')).file || ''); } catch {}
+    const ver = (f) => (f.match(/^app-([\d.]+)\.asar/) || [])[1] || '0';
+    const gt = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+    for (const f of ofs.readdirSync(process.resourcesPath)) {
+      if (!/^app-[\d.]+\.asar(\.tmp)?$/.test(f) || f === keep || f === pointed || /\.tmp$/.test(f) || gt(ver(f), app.getVersion())) continue;
+      try { ofs.unlinkSync(path.join(process.resourcesPath, f)); } catch {}
+    }
     for (const f of ['app.asar.novo', 'app.asar.anterior', 'atualizar-alta-pulse.bat']) { try { ofs.unlinkSync(path.join(process.resourcesPath, f)); } catch {} }
   } catch {}
 }

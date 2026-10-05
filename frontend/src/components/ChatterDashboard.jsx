@@ -43,6 +43,7 @@ export function ChatterDashboard({ operatorId, filters }) {
       <Kpi label="Conversas com oferta" value={t.offer_rate != null ? `${t.offer_rate}%` : '—'} raw={t.offer_rate} team={tm.offer_rate} hint="%"/>
       <Kpi label="Sem resposta agora" value={t.pending}/>
       <Kpi label="Horas de turno" value={`${t.hours} h`}/>
+      <Kpi label={`Esperas > ${g.alert_minutes || 10} min`} value={t.response_count ? t.over_alert : '—'}/>
     </div>
     <h3 className="cd-h">Por criadora</h3>
     {d.by_creator.length ? <div className="table-scroll"><table><thead><tr><th>Criadora</th><th>Horas</th><th>Faturou</th><th>R$/hora</th><th>Conversão</th><th>Resposta (mediana)</th><th>Na meta</th><th>Fãs</th><th>Sem resposta</th></tr></thead><tbody>
@@ -57,7 +58,8 @@ export function ChatterDashboard({ operatorId, filters }) {
       <strong>{a.creator_name || 'Criadora'} · {a.score != null ? `${a.score}/10` : 'sem nota'} · conversas de {dateTime(a.period_start).split(' ')[0]}</strong>
       {a.strengths && <p style={{ margin: '6px 0 0' }}><b>Pontos fortes:</b> {a.strengths}</p>}
       {a.improve && <p style={{ margin: '4px 0 0' }}><b>Melhorar:</b> {a.improve}</p>}
-      {a.example && <p className="body-muted" style={{ margin: '4px 0 0' }}>Exemplo: {a.example}</p>}
+      {a.engagement != null && <p style={{ margin: '4px 0 0' }}><b>Engajamento:</b> {a.engagement}/10{a.dry_pct != null ? ` · ${a.dry_pct}% de respostas secas` : ''}</p>}
+      {a.rewrite ? <p className="rewrite" style={{ margin: '6px 0 0' }}>{a.rewrite}</p> : a.example && <p className="body-muted" style={{ margin: '4px 0 0' }}>Exemplo: {a.example}</p>}
     </div>) : <div className="inline-empty">Nenhuma análise da IA sobre este chatter no período. Veja em "Análise por IA" se o app dele está enviando conversas.</div>}
   </div>;
 }

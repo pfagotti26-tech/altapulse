@@ -14,7 +14,7 @@ from metrics import report_data
 router = APIRouter()
 WEIGHTS = {'speed': 30, 'care': 15, 'conversion': 25, 'productivity': 30}
 BRT = timezone(timedelta(hours=-3))
-DEFAULT_GOALS = {'goal_conversion_pct': 30, 'goal_sales_hour_cents': 5000}
+DEFAULT_GOALS = {'goal_conversion_pct': 30, 'goal_sales_hour_cents': 5000, 'alert_minutes': 10}
 
 def clamp(v): return max(0, min(100, round(v)))
 def pct(a, b): return round(a / b * 100) if b else None
@@ -35,6 +35,7 @@ class GoalsIn(Strict):
     sla_minutes: int = Field(ge=1, le=120)
     goal_conversion_pct: int = Field(ge=1, le=100)
     goal_sales_hour_cents: int = Field(ge=100, le=10000000)
+    alert_minutes: int = Field(default=10, ge=1, le=240)
 
 @router.get('/quality/goals')
 async def get_goals(user=Depends(manager)): return await goals()
@@ -46,31 +47,42 @@ async def put_goals(body: GoalsIn, user=Depends(manager)):
     return await goals()
 
 async def shift_hours(start, end, creator_id=None):
-    """Horas de turno por (operador, criadora) dentro do período (pausas contam como turno)."""
+    """Horas de turno por (operador, criadora) e horas de RELÓGIO por operador (pausas contam como turno).
+    Quem atende 4 criadoras ao mesmo tempo trabalhou 1 hora, não 4: o R$/hora usa as horas de relógio."""
     q = {'started_at': {'$lt': end.isoformat()}}
     if creator_id: q['creator_id'] = creator_id
-    hours = {}
+    hours, spans = {}, {}
     for sh in await db.shifts.find(q, {'_id': 0, 'operator_id': 1, 'creator_id': 1, 'started_at': 1, 'ended_at': 1}).to_list(50000):
         a = max(datetime.fromisoformat(sh['started_at']), start)
         b = min(datetime.fromisoformat(sh['ended_at']) if sh.get('ended_at') else now(), end)
-        if b > a: k = (sh['operator_id'], sh['creator_id']); hours[k] = hours.get(k, 0) + (b - a).total_seconds() / 3600
-    return hours
+        if b > a:
+            k = (sh['operator_id'], sh['creator_id']); hours[k] = hours.get(k, 0) + (b - a).total_seconds() / 3600
+            spans.setdefault(sh['operator_id'], []).append((a, b))
+    clock = {}
+    for oid, xs in spans.items():
+        xs.sort(); total = 0; cur_a, cur_b = xs[0]
+        for a, b in xs[1:]:
+            if a <= cur_b: cur_b = max(cur_b, b)
+            else: total += (cur_b - cur_a).total_seconds(); cur_a, cur_b = a, b
+        total += (cur_b - cur_a).total_seconds(); clock[oid] = total / 3600
+    return hours, clock
 
 def new_cell():
-    return {'resp': [], 'late': 0, 'pending': 0, 'offers': 0, 'paid': 0, 'offered_cents': 0, 'paid_cents': 0, 'sales': 0, 'sales_cents': 0,
+    return {'resp': [], 'late': 0, 'pending': 0, 'pending_24h': 0, 'over_alert': 0, 'offers': 0, 'paid': 0, 'offered_cents': 0, 'paid_cents': 0, 'sales': 0, 'sales_cents': 0,
             'tickets': [], 'fans': set(), 'offer_fans': set(), 'hours': 0.0}
 
 def finish(c, g):
     sla = g['sla_minutes'] * 60; xs = c.pop('resp'); n = len(xs); h = c['hours']
     fans = c.pop('fans'); offer_fans = c.pop('offer_fans'); tickets = c.pop('tickets')
-    c.update({'hours': round(h, 1), 'response_count': n, 'median_seconds': round(median(xs)) if n else None, 'p90_seconds': round(p90(xs)) if n else None,
+    c.update({'hours': round(h, 1), 'creator_hours': round(c.pop('creator_hours', h), 1), 'response_count': n, 'median_seconds': round(median(xs)) if n else None, 'p90_seconds': round(p90(xs)) if n else None,
         'mean_seconds': round(sum(xs) / n) if n else None, 'within_goal_pct': pct(sum(1 for x in xs if x <= sla), n), 'late_pct': pct(c['late'], n),
         'conversion': pct(c['paid'], c['offers']), 'value_conversion': pct(c['paid_cents'], c['offered_cents']),
         'sales_per_hour_cents': round(c['sales_cents'] / h) if h >= 0.5 else None, 'ticket_cents': round(median(tickets)) if tickets else None,
         'fans_attended': len(fans), 'fans_per_hour': round(len(fans) / h, 1) if h >= 0.5 else None, 'offer_rate': pct(len(offer_fans), len(fans | offer_fans))})
     parts = {}
     if n >= 3: parts['speed'] = clamp(c['within_goal_pct'])
-    if n or c['pending']: parts['care'] = clamp(100 - c['pending'] * 10)
+    # cuidado: fãs que ficaram sem resposta nas últimas 24 h (conversas antigas e paradas não punem a nota)
+    if n or c['pending_24h']: parts['care'] = clamp(100 - c['pending_24h'] * 10)
     if c['offers'] >= 3: parts['conversion'] = clamp(c['conversion'] / g['goal_conversion_pct'] * 100)
     if c['sales_per_hour_cents'] is not None: parts['productivity'] = clamp(c['sales_per_hour_cents'] / g['goal_sales_hour_cents'] * 100)
     w = sum(WEIGHTS[k] for k in parts)
@@ -81,7 +93,8 @@ def finish(c, g):
 async def collect(start, end, creator_id=None, operator_id=None):
     """Tudo que o sistema mediu no período, agregado por operador e por (operador, criadora), mais série diária."""
     data = await report_data(creator_id or None, operator_id or None, start.isoformat(), end.isoformat())
-    hours = await shift_hours(start, end, creator_id)
+    hours, clock = await shift_hours(start, end, creator_id)
+    g = await goals(); alert_s = g.get('alert_minutes', 10) * 60; recent = (now() - timedelta(hours=24)).isoformat()
     ops, pairs, days = {}, {}, {}
     names = {u['id']: u for u in await db.users.find({}, {'_id': 0, 'id': 1, 'name': 1, 'role': 1, 'avatar': 1}).to_list(1000)}
     creators = {c['id']: c['name'] for c in await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(1000)}
@@ -92,12 +105,15 @@ async def collect(start, end, creator_id=None, operator_id=None):
         d = day(at); return days.setdefault(oid, {}).setdefault(d, {'sales_cents': 0, 'sales': 0, 'responses': 0, 'resp': []}) if d else None
     for r in data['responses']:
         if not r.get('operator_id'): continue
-        for c in cells(r['operator_id'], r['creator_id']): c['resp'].append(r['seconds']); c['late'] += r['late']; r.get('fan_ref') and c['fans'].add(r['fan_ref'])
+        for c in cells(r['operator_id'], r['creator_id']):
+            c['resp'].append(r['seconds']); c['late'] += r['late']; c['over_alert'] += r['seconds'] > alert_s; r.get('fan_ref') and c['fans'].add(r['fan_ref'])
         dc = dcell(r['operator_id'], r.get('responded_at'))
         if dc: dc['responses'] += 1; dc['resp'].append(r['seconds'])
     for p in data['pending']:
         if p.get('operator_id'):
-            for c in cells(p['operator_id'], p['creator_id']): c['pending'] += 1; p.get('fan_ref') and c['fans'].add(p['fan_ref'])
+            for c in cells(p['operator_id'], p['creator_id']):
+                c['pending'] += 1; p.get('fan_ref') and c['fans'].add(p['fan_ref'])
+                if (p.get('started_at') or '') >= recent and p['seconds'] > g['sla_minutes'] * 60: c['pending_24h'] += 1
     for o in data['offers']:
         if not o.get('operator_id'): continue
         for c in cells(o['operator_id'], o['creator_id']):
@@ -110,7 +126,10 @@ async def collect(start, end, creator_id=None, operator_id=None):
             if dc: dc['sales'] += 1; dc['sales_cents'] += s['amount_cents']
     for (oid, cid), h in hours.items():
         if operator_id and oid != operator_id: continue
-        a, b = cells(oid, cid); a['hours'] += h; b['hours'] += h
+        a, b = cells(oid, cid); a['creator_hours'] = a.get('creator_hours', 0) + h; b['hours'] += h
+    for oid, h in clock.items():
+        if operator_id and oid != operator_id: continue
+        if oid in ops: ops[oid]['hours'] = h
     return ops, pairs, days, names, creators
 
 async def scores(start, end, creator_id=None, include_managers=False):
@@ -132,14 +151,14 @@ async def alerts(creator_id=None):
     t = now(); out = []; g = await goals(); sla = g['sla_minutes'] * 60
     data = await report_data(creator_id or None, None, (t - timedelta(days=7)).isoformat(), None)
     for p in data['pending']:
-        if p['seconds'] < max(sla * 2, 900): continue
+        if p['seconds'] < g.get('alert_minutes', 10) * 60: continue
         stale = p['seconds'] >= 48 * 3600
         out.append({'kind': 'stale' if stale else 'waiting', 'level': 'gray' if stale else 'red' if p['seconds'] >= 3600 else 'amber',
             'creator': p['creator_name'], 'who': p['operator_name'], 'at': p.get('started_at'), 'seconds': round(p['seconds']),
             'text': f"{p.get('fan_name') or 'Fã'} {'parado' if stale else 'esperando resposta'} há {human(p['seconds'])}"})
-    limit = (t - timedelta(hours=24)).isoformat()
+    limit = (t - timedelta(hours=24)).isoformat(); oldest = (t - timedelta(days=3)).isoformat()
     for o in data['offers']:
-        if o.get('offer_status') == 'sent' and (o.get('offered_at') or '') < limit:
+        if o.get('offer_status') == 'sent' and oldest <= (o.get('offered_at') or '') < limit:
             out.append({'kind': 'offer', 'level': 'amber', 'creator': o['creator_name'], 'who': o['operator_name'], 'at': o.get('offered_at'),
                 'text': f"Oferta de R$ {o['amount_cents'] / 100:.2f}".replace('.', ',') + f" sem pagamento há {human((t - datetime.fromisoformat(o['offered_at'])).total_seconds()) if o.get('offered_at') else 'mais de 24 h'} ({o.get('fan_name') or 'fã'})"})
     q = {'active': True, 'started_at': {'$lt': (t - timedelta(hours=12)).isoformat()}}
@@ -166,6 +185,18 @@ async def scorecard(start: datetime | None = None, end: datetime | None = None, 
         p = prev.get(c['operator_id'])
         c['previous_score'] = p['score'] if p else None
         c['trend'] = (c['score'] - p['score']) if p and p['score'] is not None and c['score'] is not None else None
+    # nota da IA no período (média das análises que citam o chatter): qualidade da conversa e engajamento
+    ai = {}
+    for ins in await db.insights.find({'period_end': {'$gte': start.isoformat()}, 'period_start': {'$lt': end.isoformat()}}, {'_id': 0, 'items': 1}).to_list(200):
+        for it in ins.get('items', []):
+            k = (it.get('operator_name') or '').strip().lower(); a_ = ai.setdefault(k, {'s': [], 'e': [], 'd': []})
+            if it.get('score') is not None: a_['s'].append(it['score'])
+            if it.get('engagement') is not None: a_['e'].append(it['engagement'])
+            if it.get('dry_pct') is not None: a_['d'].append(it['dry_pct'])
+    avg = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+    for c in cur:
+        a_ = ai.get((c['name'] or '').strip().lower()) or {}
+        c['ai_score'] = avg(a_.get('s') or []); c['ai_engagement'] = avg(a_.get('e') or []); c['ai_dry_pct'] = avg(a_.get('d') or [])
     cur.sort(key=lambda c: (c['score'] is None, -(c['score'] or 0)))
     g = await goals()
     return {'start': start.isoformat(), 'end': end.isoformat(), 'sla_minutes': g['sla_minutes'], 'goals': g, 'chatters': cur, 'alerts': await alerts(creator_id)}
@@ -199,3 +230,30 @@ async def chatter(operator_id: str, start: datetime | None = None, end: datetime
     return {'user': u, 'start': start.isoformat(), 'end': end.isoformat(), 'goals': g, 'totals': me, 'by_creator': by_creator, 'series': series,
             'team_median': {k: med(k) for k in ['median_seconds', 'within_goal_pct', 'conversion', 'sales_per_hour_cents', 'ticket_cents', 'fans_per_hour', 'offer_rate']},
             'ai': ai, 'ai_score': round(sum(scores_ai) / len(scores_ai), 1) if scores_ai else None}
+
+
+@router.get('/quality/waiting')
+async def waiting(creator_id: str = '', user=Depends(manager)):
+    """Fãs esperando resposta há mais que o limite das metas (padrão 10 min), nas últimas 48 h, do maior tempo para o menor.
+    Traz nome do fã (se a agência guarda nomes), criadora, chatter de turno agora, quanto o fã já gastou e a conversa para abrir no app."""
+    t = now(); g = await goals(); limit = g.get('alert_minutes', 10) * 60
+    data = await report_data(creator_id or None, None, (t - timedelta(hours=48)).isoformat(), None)
+    rows = [p for p in data['pending'] if p['seconds'] >= limit]
+    active = {sh['creator_id']: sh for sh in await db.shifts.find({'active': True}, {'_id': 0, 'creator_id': 1, 'operator_name': 1, 'operator_id': 1, 'paused': 1}).to_list(1000)}
+    keys = [(p['creator_id'], p.get('fan_ref')) for p in rows if p.get('fan_ref')]
+    radar = {}
+    if keys:
+        async for r in db.fan_radar.find({'$or': [{'creator_id': c, 'fan_ref': f} for c, f in keys[:500]]}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1, 'cid': 1, 'platform': 1, 'spent_cents': 1, 'fan_name': 1}):
+            radar[(r['creator_id'], r['fan_ref'])] = r
+    spent = {}
+    if keys:
+        async for s in db.events.find({'kind': 'sale', 'fan_ref': {'$in': list({f for _, f in keys})}, 'sale_status': {'$nin': ['refunded', 'cancelled']}}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1, 'amount_cents': 1}):
+            k = (s['creator_id'], s['fan_ref']); spent[k] = spent.get(k, 0) + (s.get('amount_cents') or 0)
+    out = []
+    for p in rows:
+        k = (p['creator_id'], p.get('fan_ref')); r = radar.get(k) or {}; sh = active.get(p['creator_id'])
+        out.append({'creator_id': p['creator_id'], 'creator_name': p['creator_name'], 'fan_ref': p.get('fan_ref'), 'fan_name': p.get('fan_name') or r.get('fan_name'),
+            'seconds': round(p['seconds']), 'waiting': human(p['seconds']), 'since': p.get('started_at'),
+            'on_shift': sh['operator_name'] if sh else None, 'shift_paused': bool(sh and sh.get('paused')), 'blamed': p.get('operator_name'),
+            'spent_cents': max(r.get('spent_cents') or 0, spent.get(k, 0)), 'cid': r.get('cid'), 'platform': r.get('platform') or 'privacy'})
+    return {'limit_minutes': g.get('alert_minutes', 10), 'rows': out[:300], 'count': len(out)}

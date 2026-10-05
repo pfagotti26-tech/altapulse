@@ -6,7 +6,7 @@ avaliada no computador do chatter; o texto NUNCA é enviado). Junto com vendas, 
 painel já tem, o servidor gera oportunidades com motivo e valor esperado:
 
   pediu_preco    fã perguntou preço / pediu conteúdo e ainda não recebeu oferta           (quente: alerta na hora)
-  oferta_aberta  oferta enviada há 24 h–7 dias e ainda não paga
+  oferta_aberta  oferta enviada há 24 h–3 dias e ainda não paga
   novo_sem_compra assinante ativo há 2–7 dias sem nenhuma compra
   esfriando      baleia/spender da criadora há 10–30 dias sem comprar
   voltou         fã que já gastou e voltou a mandar mensagem depois de 14+ dias
@@ -27,6 +27,7 @@ TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), '
 LABEL = {'pediu_preco': 'Pediu preço / conteúdo', 'oferta_aberta': 'Oferta sem pagamento', 'novo_sem_compra': 'Assinante novo sem compra',
          'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar'}
 CONVERT_DAYS = 2
+OFFER_MAX_DAYS = 3
 MIN_RETURN_DAYS = 14
 
 def money_br(c): return 'R$ ' + f"{(c or 0)/100:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -88,7 +89,7 @@ async def _upsert(creator, fan_ref, kind, key, value_cents, reason, info, t):
     # um fã com oportunidade aberta de outro tipo: mantém só a mais valiosa visível (evita alerta duplicado)
     await db.opportunities.insert_one({'id': uid(), 'creator_id': creator['id'], 'creator_name': creator['name'], 'fan_ref': fan_ref, 'fan_name': (info or {}).get('fan_name'),
         'cid': (info or {}).get('cid'), 'platform': (info or {}).get('platform') or 'privacy', 'kind': kind, 'ref': ref, 'reason': reason, 'value_cents': int(value_cents or 0), 'hot': kind == 'pediu_preco',
-        'status': 'open', 'created_at': t.isoformat(), 'due_at': (t + TTL[kind]).isoformat(), 'workspace_id': WORKSPACE, 'expires_at': t + timedelta(days=120)})
+        'source_at': (info or {}).get('_source_at'), 'status': 'open', 'created_at': t.isoformat(), 'due_at': (t + TTL[kind]).isoformat(), 'workspace_id': WORKSPACE, 'expires_at': t + timedelta(days=120)})
     return True
 
 async def refresh_creator(creator_id):
@@ -121,11 +122,11 @@ async def refresh_creator(creator_id):
             spent = r.get('spent_cents') or 0
             reason = 'Perguntou preço ou pediu conteúdo e ainda não recebeu oferta' + (f" · já gastou {money_br(spent)}" if spent else '')
             created += await _upsert(creator, f, 'pediu_preco', r.get('asked_last_at') or r['asked_at'], max(ticket(f), 3000), reason, r, t)
-    # 2) oferta sem pagamento há 24 h–7 dias
+    # 2) oferta sem pagamento há 24 h–3 dias (mais antiga que isso vira ruído)
     for f, o in last_offer.items():
-        if o.get('offer_status') == 'sent' and (t - timedelta(days=7)).isoformat() <= o['offered_at'] <= (t - timedelta(hours=24)).isoformat():
+        if o.get('offer_status') == 'sent' and (t - timedelta(days=OFFER_MAX_DAYS)).isoformat() <= o['offered_at'] <= (t - timedelta(hours=24)).isoformat():
             if last_buy.get(f, '') > o['offered_at']: continue
-            info = radar.get(f) or (await _names(creator_id, [f])).get(f)
+            info = {**(radar.get(f) or (await _names(creator_id, [f])).get(f) or {}), '_source_at': o['offered_at']}
             created += await _upsert(creator, f, 'oferta_aberta', o['event_ref'], o.get('amount_cents') or 0, f"Oferta de {money_br(o.get('amount_cents'))} enviada e ainda não paga: retome com leveza antes de mandar outra", info, t)
     # 3) assinante novo (2–7 dias) sem compra
     async for s in db.subscribers.find({'creator_id': creator_id, 'active': True, 'first_seen_at': {'$gte': (t - timedelta(days=7)).isoformat(), '$lte': (t - timedelta(days=2)).isoformat()}}, {'_id': 0}):
@@ -147,6 +148,13 @@ async def refresh_creator(creator_id):
     await settle(creator_id)
     return created
 
+async def _offer_too_old(o, t):
+    at = o.get('source_at')
+    if not at:
+        ev = await db.events.find_one({'creator_id': o['creator_id'], 'event_ref': o['ref'].split(':', 1)[1]}, {'_id': 0, 'offered_at': 1})
+        at = (ev or {}).get('offered_at')
+    return bool(at) and at < (t - timedelta(days=OFFER_MAX_DAYS)).isoformat()
+
 async def settle(creator_id=None):
     """Marca como 'atendida' quando houve resposta/oferta nossa ao fã depois de criada; expira as vencidas."""
     t = now(); q = {'status': 'open'}
@@ -158,6 +166,9 @@ async def settle(creator_id=None):
             who = await db.shifts.find_one({'creator_id': o['creator_id'], 'started_at': {'$lte': ev.get('responded_at') or ev.get('offered_at')}}, {'_id': 0, 'operator_id': 1, 'operator_name': 1}, sort=[('started_at', -1)])
             await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'contacted', 'contacted_at': ev.get('responded_at') or ev.get('offered_at'), 'contacted_how': 'oferta' if ev['kind'] == 'offer' else 'resposta',
                 'contacted_by': (who or {}).get('operator_id'), 'contacted_name': (who or {}).get('operator_name')}})
+        elif o['kind'] == 'oferta_aberta' and await _offer_too_old(o, t):
+            # oferta antiga demais para retomar: sai da fila e não conta como perdida no quadro
+            await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'expired', 'stale': True}})
         elif o['due_at'] < t.isoformat():
             await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'expired'}})
 
@@ -182,9 +193,14 @@ async def with_result(rows):
 async def my_opportunities(user):
     q = {'status': 'open', 'due_at': {'$gt': now().isoformat()}}
     if user['role'] != 'manager': q['creator_id'] = {'$in': user.get('creator_ids') or []}
-    rows = await db.opportunities.find(q, {'_id': 0, 'expires_at': 0}).sort([('hot', -1), ('value_cents', -1)]).to_list(300)
-    for o in rows: o['label'] = LABEL.get(o['kind'], o['kind'])
-    return rows
+    rows = await db.opportunities.find(q, {'_id': 0, 'expires_at': 0}).sort([('hot', -1), ('value_cents', -1)]).to_list(5000)
+    # uma por fã: a quente primeiro, depois a mais valiosa (as outras do mesmo fã ficam guardadas)
+    seen, out = set(), []
+    for o in rows:
+        k = (o['creator_id'], o['fan_ref'])
+        if k in seen: continue
+        seen.add(k); o['label'] = LABEL.get(o['kind'], o['kind']); out.append(o)
+    return out[:2000]
 
 class OppAction(Strict):
     action: Literal['contacted', 'dismissed']
@@ -201,7 +217,7 @@ async def act(opp_id, body: OppAction, user):
 @router.get('/quality/opportunities')
 async def board(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', operator_id: str = '', user=Depends(manager)):
     await settle()
-    q = {}
+    q = {'stale': {'$ne': True}}
     if start: q.setdefault('created_at', {})['$gte'] = clean_time(start)
     if end: q.setdefault('created_at', {})['$lt'] = clean_time(end)
     if creator_id: q['creator_id'] = creator_id
