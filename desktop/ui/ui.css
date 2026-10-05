@@ -225,3 +225,12 @@ footer { padding: 12px 16px 14px; }
 .card.dragging { opacity: .45; }
 .card.drop-before { box-shadow: inset 0 3px 0 #e0566f; }
 .card.drop-after { box-shadow: inset 0 -3px 0 #e0566f; }
+
+/* escolher criadoras do grupo */
+#gm-search { width: 100%; margin-bottom: 8px; }
+.gm-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; } .gm-bar .muted { margin-left: auto; font-size: 11px; }
+.gm-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+
+/* ↻ girando enquanto recarrega */
+#btn-refresh.spinning { animation: alta-spin .8s linear infinite; opacity: 1; cursor: default; }
+@keyframes alta-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

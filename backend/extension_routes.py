@@ -172,6 +172,7 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
         for g in patch['groups']:
             g = str(g).strip()[:40]
             if g and g not in names: names.append(g)
+        if len(names) > 100: raise HTTPException(422, 'Cada criadora pode estar em no máximo 100 grupos.')
         patch['groups'] = names; patch['group'] = names[0] if names else ''
     elif 'group' in patch: patch['groups'] = [patch['group']] if patch['group'] else []
     if not patch: raise HTTPException(422, 'Nada para alterar.')

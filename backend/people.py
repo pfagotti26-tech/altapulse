@@ -59,8 +59,12 @@ async def remove_creator(creator_id: str, body: Reason, user=Depends(manager)):
 @router.get('/users', response_model=list[UserOut])
 async def users(user=Depends(manager)):
     return await db.users.find({}, {'_id': 0, 'password_hash': 0}).to_list(1000)
+MAX_CREATORS_PER_USER = 150
+def check_assigned(ids):
+    if len(set(ids)) > MAX_CREATORS_PER_USER: raise HTTPException(422, f'Cada integrante pode ter no máximo {MAX_CREATORS_PER_USER} criadoras atribuídas (você marcou {len(set(ids))}).')
 @router.post('/users', status_code=201, response_model=UserOut)
 async def create_user(body: Operator, user=Depends(manager)):
+    check_assigned(body.creator_ids)
     if len(set(body.creator_ids)) != await db.creators.count_documents({'id': {'$in': body.creator_ids}}):
         raise HTTPException(422, 'Há perfis inexistentes.')
     row = {**body.model_dump(exclude={'password', 'temporary_password'}), 'email': str(body.email).lower(), 'id': uid(), 'active': True,
@@ -74,6 +78,7 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager))
     target = await db.users.find_one({'id': user_id}, {'_id': 0})
     if not target: raise HTTPException(404, 'Integrante não encontrado.')
     if user_id == user['id'] and not body.active: raise HTTPException(409, 'Você não pode desativar seu próprio acesso.')
+    check_assigned(body.creator_ids)
     if await db.shifts.find_one({'operator_id': user_id, 'active': True}): raise HTTPException(409, 'Encerre os turnos deste integrante primeiro.')
     if await db.creators.count_documents({'id': {'$in': body.creator_ids}}) != len(set(body.creator_ids)): raise HTTPException(422, 'Perfis inválidos.')
     await db.users.update_one({'id': user_id}, {'$set': body.model_dump()})
