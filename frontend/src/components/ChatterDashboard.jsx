@@ -3,15 +3,16 @@ import { Sparkles, ArrowUp, ArrowDown } from 'lucide-react';
 import { api, errorText, money, duration, dateTime } from '../lib/api';
 import { Badge, Notice } from './Common';
 import { periodRange } from './MetricFilters';
+import { Tip } from './QualityBoard';
 
 // Painel individual do chatter: resultado, processo, por criadora, dia a dia e o que a IA disse dele
 const dayLabel = (d) => { const [, m, dd] = d.split('-'); return `${dd}/${m}`; };
 
-function Kpi({ label, value, hint, team, better, raw, goal }) {
+function Kpi({ label, value, hint, team, better, raw, goal, tip }) {
   // comparação com a mediana da equipe (seta verde = melhor que a equipe)
   let cmp = null;
   if (team != null && raw != null && raw !== team) { const good = better === 'low' ? raw < team : raw > team; cmp = <em className={good ? 'up' : 'down'}>{good ? <ArrowUp size={11}/> : <ArrowDown size={11}/>}equipe {better === 'money' ? money(team) : better === 'time' || better === 'low' ? duration(team) : `${team}${hint || ''}`}</em>; }
-  return <div className="cd-kpi"><span>{label}</span><b>{value}</b>{goal && <i>meta {goal}</i>}{cmp}</div>;
+  return <div className="cd-kpi"><span>{label}{tip && <Tip text={tip}/>}</span><b>{value}</b>{goal && <i>meta {goal}</i>}{cmp}</div>;
 }
 
 export function ChatterDashboard({ operatorId, filters }) {
@@ -26,22 +27,22 @@ export function ChatterDashboard({ operatorId, filters }) {
   return <div className="cd">
     <h3 className="cd-h">Resultado</h3>
     <div className="cd-kpis">
-      <Kpi label="Faturou no turno" value={money(t.sales_cents)}/>
-      <Kpi label="R$ por hora" value={money(t.sales_per_hour_cents)} raw={t.sales_per_hour_cents} team={tm.sales_per_hour_cents} better="money" goal={money(g.goal_sales_hour_cents)}/>
-      <Kpi label="Conversão de ofertas" value={t.offers ? `${t.conversion}%` : '—'} raw={t.conversion} team={tm.conversion} hint="%" goal={`${g.goal_conversion_pct}%`}/>
-      <Kpi label="R$ recebido / ofertado" value={t.offered_cents ? `${t.value_conversion}%` : '—'}/>
-      <Kpi label="Ticket (mediana)" value={money(t.ticket_cents)} raw={t.ticket_cents} team={tm.ticket_cents} better="money"/>
+      <Kpi label="Faturou no turno" tip="Vendas de chat confirmadas enquanto ele estava de turno na criadora." value={money(t.sales_cents)}/>
+      <Kpi label="R$ por hora" tip="Faturou ÷ horas de relógio de turno (atender várias criadoras ao mesmo tempo conta uma vez)." value={money(t.sales_per_hour_cents)} raw={t.sales_per_hour_cents} team={tm.sales_per_hour_cents} better="money" goal={money(g.goal_sales_hour_cents)}/>
+      <Kpi label="Conversão de ofertas" tip="Ofertas pagas ÷ ofertas enviadas." value={t.offers ? `${t.conversion}%` : '—'} raw={t.conversion} team={tm.conversion} hint="%" goal={`${g.goal_conversion_pct}%`}/>
+      <Kpi label="R$ recebido / ofertado" tip="Quanto do valor ofertado virou pagamento." value={t.offered_cents ? `${t.value_conversion}%` : '—'}/>
+      <Kpi label="Ticket (mediana)" tip="Valor típico de uma venda dele." value={money(t.ticket_cents)} raw={t.ticket_cents} team={tm.ticket_cents} better="money"/>
       <Kpi label="Vendas" value={t.sales}/>
     </div>
     <h3 className="cd-h">Processo</h3>
     <div className="cd-kpis">
-      <Kpi label="Resposta (mediana)" value={duration(t.median_seconds)} raw={t.median_seconds} team={tm.median_seconds} better="low" goal={`${g.sla_minutes} min`}/>
-      <Kpi label="10% mais lentas" value={duration(t.p90_seconds)}/>
-      <Kpi label="Respostas na meta" value={t.within_goal_pct != null ? `${t.within_goal_pct}%` : '—'} raw={t.within_goal_pct} team={tm.within_goal_pct} hint="%"/>
+      <Kpi label="Resposta (mediana)" tip="Tempo de resposta do fã típico: da mensagem do fã até a resposta." value={duration(t.median_seconds)} raw={t.median_seconds} team={tm.median_seconds} better="low" goal={`${g.sla_minutes} min`}/>
+      <Kpi label="10% mais lentas" tip="Tempo das respostas mais demoradas (os piores 10%)." value={duration(t.p90_seconds)}/>
+      <Kpi label="Respostas na meta" tip="% das respostas dentro do tempo de resposta das Metas." value={t.within_goal_pct != null ? `${t.within_goal_pct}%` : '—'} raw={t.within_goal_pct} team={tm.within_goal_pct} hint="%"/>
       <Kpi label="Fãs atendidos" value={t.fans_attended}/>
-      <Kpi label="Fãs por hora" value={t.fans_per_hour ?? '—'} raw={t.fans_per_hour} team={tm.fans_per_hour}/>
-      <Kpi label="Conversas com oferta" value={t.offer_rate != null ? `${t.offer_rate}%` : '—'} raw={t.offer_rate} team={tm.offer_rate} hint="%"/>
-      <Kpi label="Sem resposta agora" value={t.pending}/>
+      <Kpi label="Fãs por hora" tip="Fãs diferentes atendidos ÷ horas de turno." value={t.fans_per_hour ?? '—'} raw={t.fans_per_hour} team={tm.fans_per_hour}/>
+      <Kpi label="Conversas com oferta" tip="% dos fãs atendidos que receberam pelo menos uma oferta." value={t.offer_rate != null ? `${t.offer_rate}%` : '—'} raw={t.offer_rate} team={tm.offer_rate} hint="%"/>
+      <Kpi label="Sem resposta agora" tip="Fãs que escreveram e ainda não foram respondidos." value={t.pending}/>
       <Kpi label="Horas de turno" value={`${t.hours} h`}/>
       <Kpi label={`Esperas > ${g.alert_minutes || 10} min`} value={t.response_count ? t.over_alert : '—'}/>
     </div>
