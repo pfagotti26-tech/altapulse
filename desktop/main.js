@@ -1246,7 +1246,16 @@ ipcMain.handle('auth:logout', async () => {
   return publicState();
 });
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
-ipcMain.handle('profile:reload-active', () => { const v = activeId && currentView(activeId); if (v && !v.webContents.isDestroyed()) { v.webContents.reload(); watchBlank(v); } return true; });
+// recarrega a página aberta e só responde quando ela termina de carregar (o ↻ da lateral gira até lá; no máximo 15 s)
+ipcMain.handle('profile:reload-active', () => new Promise((resolve) => {
+  const v = activeId && currentView(activeId);
+  if (!v || v.webContents.isDestroyed()) return resolve(false);
+  const wc = v.webContents; let done = false;
+  const finish = () => { if (done) return; done = true; clearTimeout(t); wc.removeListener('did-stop-loading', finish); resolve(true); };
+  const t = setTimeout(finish, 15000);
+  wc.once('did-stop-loading', finish);
+  wc.reload(); watchBlank(v);
+}));
 ipcMain.handle('me:avatar', async (_e, image) => {
   if (image) await api('PUT', '/extension/avatar', { image }); else await api('DELETE', '/extension/avatar');
   await refreshState(); return publicState();

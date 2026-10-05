@@ -405,12 +405,13 @@ function notesDialog(c) {
 }
 // grupos da criadora (pode estar em vários); local antigo tinha só 'group'
 function groupsOf(id) { const l = localOf(id); return Array.isArray(l.groups) ? l.groups : (l.group ? [l.group] : []); }
+const MAX_GROUPS_PER_CREATOR = 100;
 function groupDialog(c) {
   if (!S.local.groups.length) { dialog({ title: `Grupos · ${c.name}`, body: '<p>Crie um grupo primeiro em “+ Novo grupo”.</p>', hideOk: true }); return; }
   const cur = new Set(groupsOf(c.id));
   const opts = S.local.groups.map((g) => `<label class="ghost choice multi ${cur.has(g.id) ? 'sel' : ''}"><input type="checkbox" data-g="${esc(g.id)}" ${cur.has(g.id) ? 'checked' : ''}> ${esc(g.name)}</label>`).join('');
   dialog({ title: `Grupos · ${c.name}`, body: `<p>Marque um ou mais grupos.</p>${opts}`, okText: 'Salvar',
-    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); await window.pulse.setCreatorLocal(c.id, { groups }); } });
+    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); if (groups.length > MAX_GROUPS_PER_CREATOR) { toast(`Cada criadora pode estar em no máximo ${MAX_GROUPS_PER_CREATOR} grupos.`, 5000); return false; } await window.pulse.setCreatorLocal(c.id, { groups }); } });
   $('dialog-body').querySelectorAll('input[type=checkbox]').forEach((i) => i.onchange = () => i.closest('label').classList.toggle('sel', i.checked));
 }
 function tagDialog(c) {
@@ -427,6 +428,7 @@ function groupMenu(gid, anchor) {
   const g = S.local.groups.find((x) => x.id === gid); if (!g) return;
   const m = $('creator-menu'); m.innerHTML = '';
   const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { hideMenus(); fn(); }; m.appendChild(b); };
+  add('Escolher criadoras do grupo…', () => groupMembersDialog(g));
   add('Renomear grupo', () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
     onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }));
   add('Excluir grupo (as criadoras não são apagadas)', async () => {
@@ -436,6 +438,29 @@ function groupMenu(gid, anchor) {
     await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
   }, 'danger');
   place(m, anchor);
+}
+// várias criadoras de uma vez num grupo: busca, marcar todas, e só grava quem mudou
+function groupMembersDialog(g) {
+  const list = [...S.creators].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = list.map((c) => { const on = groupsOf(c.id).includes(g.id); return `<label class="ghost choice multi ${on ? 'sel' : ''}" data-name="${esc(c.name.toLowerCase())}"><input type="checkbox" data-c="${esc(c.id)}" ${on ? 'checked' : ''}> ${esc(c.name)}</label>`; }).join('');
+  dialog({ title: `Criadoras · ${g.name}`, body: `<input id="gm-search" placeholder="Buscar criadora"><div class="gm-bar"><button type="button" class="ghost" id="gm-all">Marcar todas</button><button type="button" class="ghost" id="gm-none">Desmarcar todas</button><span id="gm-count" class="muted"></span></div><div class="gm-list">${rows}</div>`, okText: 'Salvar',
+    onOk: async () => {
+      const boxes = [...$('dialog-body').querySelectorAll('input[data-c]')]; let changed = 0, blocked = [];
+      for (const b of boxes) {
+        const id = b.dataset.c; const gs = groupsOf(id); const has = gs.includes(g.id);
+        if (b.checked === has) continue;
+        if (b.checked && gs.length >= MAX_GROUPS_PER_CREATOR) { blocked.push((S.creators.find((x) => x.id === id) || {}).name || id); continue; }
+        await window.pulse.setCreatorLocal(id, { groups: b.checked ? [...gs, g.id] : gs.filter((x) => x !== g.id) }); changed += 1;
+      }
+      toast(blocked.length ? `${changed} alteradas. Já estão em ${MAX_GROUPS_PER_CREATOR} grupos: ${blocked.join(', ')}.` : `${changed} criadora${changed === 1 ? '' : 's'} alterada${changed === 1 ? '' : 's'} no grupo.`, 5000);
+    } });
+  const body = $('dialog-body'); const count = () => { $('gm-count').textContent = `${body.querySelectorAll('input[data-c]:checked').length} no grupo`; };
+  body.querySelectorAll('input[data-c]').forEach((i) => i.onchange = () => { i.closest('label').classList.toggle('sel', i.checked); count(); });
+  const visible = () => [...body.querySelectorAll('label[data-name]')].filter((l) => l.style.display !== 'none');
+  $('gm-all').onclick = () => { visible().forEach((l) => { const i = l.querySelector('input'); i.checked = true; l.classList.add('sel'); }); count(); };
+  $('gm-none').onclick = () => { visible().forEach((l) => { const i = l.querySelector('input'); i.checked = false; l.classList.remove('sel'); }); count(); };
+  $('gm-search').oninput = (e) => { const q = e.target.value.trim().toLowerCase(); body.querySelectorAll('label[data-name]').forEach((l) => { l.style.display = !q || l.dataset.name.includes(q) ? '' : 'none'; }); };
+  count();
 }
 function tagsDialog() {
   const rows = S.local.tags.map((t, i) => `<div class="tagrow"><input type="color" value="${esc(t.color)}" data-i="${i}"><input value="${esc(t.name)}" data-i="${i}" maxlength="30"></div>`).join('');
@@ -474,7 +499,13 @@ $('btn-logout').onclick = async () => {
   for (const c of mine) { try { await window.pulse.shiftAction(c.shift.id, 'end'); } catch {} }
   run(() => window.pulse.logout());
 };
-$('btn-refresh').onclick = () => { if (window.pulse.reloadActive) window.pulse.reloadActive(); run(() => window.pulse.getState()); };
+// ↻ gira enquanto recarrega a página aberta e a lista (mínimo 0,6 s, para dar para ver)
+$('btn-refresh').onclick = async () => {
+  const b = $('btn-refresh'); if (b.classList.contains('spinning')) return;
+  b.classList.add('spinning'); b.disabled = true; const t0 = Date.now();
+  try { await Promise.all([window.pulse.reloadActive ? window.pulse.reloadActive() : null, run(() => window.pulse.getState())]); } catch {}
+  setTimeout(() => { b.classList.remove('spinning'); b.disabled = false; }, Math.max(0, 600 - (Date.now() - t0)));
+};
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
 $('sort').addEventListener('change', () => { saveSort(); renderList(); });
