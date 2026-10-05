@@ -76,6 +76,8 @@ async def sweep_loop():
         try:
             from team_live import purge_expired
             await purge_expired()
+            from password_reset import purge as purge_resets
+            await purge_resets()
         except Exception: logging.exception('lixeira de criadoras')
         # radar de oportunidades: regras por tempo (ofertas, assinantes novos, esfriando) a cada ~10 min
         _radar_tick = (_radar_tick + 1) % 10

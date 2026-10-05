@@ -5,6 +5,7 @@ import { Toaster } from './components/ui/sonner';
 import { Shell } from './components/Shell';
 import { Brand } from './components/Brand';
 import Auth from './pages/Auth';
+import ResetPassword from './pages/ResetPassword';
 import Creators from './pages/Creators';
 import Operation from './pages/Operation';
 import Sales from './pages/Sales';
@@ -46,6 +47,7 @@ export default function App() {
   return <Context.Provider value={{ user, config, setConfig, creators, refresh, logout, refreshIdentity: login }}><BrowserRouter><Routes>
     <Route path="/instalar" element={<InstallExtension/>}/>
     <Route path="/baixar" element={<Navigate to="/instalar" replace/>}/>
+    <Route path="/redefinir-senha" element={<ResetPassword onLogin={login}/>}/>
     <Route path="*" element={!user ? <Auth setup={setup} onLogin={login}/> : user.must_change_password ? <PasswordSetup/> : <Shell><Routes>
       <Route path="/" element={<Creators/>}/>
       <Route path="/operacao" element={user.role === 'manager' ? <Operation/> : <Navigate to="/"/>}/>
