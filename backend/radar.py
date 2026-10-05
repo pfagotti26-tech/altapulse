@@ -87,7 +87,7 @@ async def _upsert(creator, fan_ref, kind, key, value_cents, reason, info, t):
     if await db.opportunities.find_one({'creator_id': creator['id'], 'fan_ref': fan_ref, 'ref': ref}, {'_id': 1}): return False
     # um fã com oportunidade aberta de outro tipo: mantém só a mais valiosa visível (evita alerta duplicado)
     await db.opportunities.insert_one({'id': uid(), 'creator_id': creator['id'], 'creator_name': creator['name'], 'fan_ref': fan_ref, 'fan_name': (info or {}).get('fan_name'),
-        'cid': (info or {}).get('cid'), 'kind': kind, 'ref': ref, 'reason': reason, 'value_cents': int(value_cents or 0), 'hot': kind == 'pediu_preco',
+        'cid': (info or {}).get('cid'), 'platform': (info or {}).get('platform') or 'privacy', 'kind': kind, 'ref': ref, 'reason': reason, 'value_cents': int(value_cents or 0), 'hot': kind == 'pediu_preco',
         'status': 'open', 'created_at': t.isoformat(), 'due_at': (t + TTL[kind]).isoformat(), 'workspace_id': WORKSPACE, 'expires_at': t + timedelta(days=120)})
     return True
 

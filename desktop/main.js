@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-const { CreatorReader, parseDateLabel, at: msgAt } = require('./reader.js');
+const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
@@ -406,16 +406,28 @@ async function quickFanOF(id) {
 // ---------- radar de oportunidades ----------
 // a lista de conversas vai ao painel no máximo a cada 90 s por criadora, e só se mudou (sem texto de mensagem)
 const radarSent = new Map(); const RADAR_MS = 90000;
-async function sendRadar(id, rows) {
+async function sendRadar(id, rows, platform = 'privacy') {
   if (!token || !state.storage_allowed || !rows || !rows.length) return;
-  const known = fanCids[id] || {};
+  const known = platform === 'privacy' ? (fanCids[id] || {}) : {};
   const list = rows.filter((x) => x.fan_ref).map((x) => ({ ...x, cid: x.cid || known[x.fan_ref] || null })).slice(0, 500);
   const sig = JSON.stringify(list.map((x) => [x.fan_ref, x.spent_cents, x.last_from, x.last_at, x.unread, x.intent, x.cid]));
-  const prev = radarSent.get(id);
+  const key = `${id}|${platform}`; const prev = radarSent.get(key);
   if (prev && (prev.sig === sig || Date.now() - prev.at < RADAR_MS) && !list.some((x) => x.intent && x.last_from === 'fan' && !(prev.intents || []).includes(x.fan_ref))) return;
-  radarSent.set(id, { sig, at: Date.now(), intents: list.filter((x) => x.intent && x.last_from === 'fan').map((x) => x.fan_ref) });
-  try { await api('POST', '/extension/radar', { creator_id: id, platform: 'privacy', rows: list }); await loadOpportunities(); }
-  catch (error) { radarSent.delete(id); }
+  radarSent.set(key, { sig, at: Date.now(), intents: list.filter((x) => x.intent && x.last_from === 'fan').map((x) => x.fan_ref) });
+  try { await api('POST', '/extension/radar', { creator_id: id, platform, rows: list }); await loadOpportunities(); }
+  catch (error) { radarSent.delete(key); }
+}
+// FatalFans: a lista de conversas de cada aba aberta (sem abrir chats); mesma referência de fã do extrato de vendas
+async function radarFatalFans() {
+  if (!token || !state.storage_allowed) return;
+  for (const [id, t] of tabs) {
+    const view = t.get('fatalfans'); if (!view || view.webContents.isDestroyed() || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) continue;
+    let data; try { data = await runJs(view, FF_CHAT_SCRIPT, 5000); } catch { continue; }
+    if (!data || !data.rooms || !data.rooms.length) continue;
+    const reader = ffFor(id).reader; reader.options.fanNames = !!state.fan_names_allowed; const now = new Date();
+    const rows = data.rooms.map((r) => { const at = listAt(r.when, now); return { ...reader.fan(r.name), cid: 'ff:' + r.name.slice(0, 77), spent_cents: null, last_from: r.ours ? 'us' : 'fan', last_at: at ? at.toISOString() : null, unread: r.unread || 0, intent: !!r.intent }; });
+    sendRadar(id, rows, 'fatalfans').catch(() => {});
+  }
 }
 let opportunities = []; const oppSeen = new Set(); let oppFirst = true;
 async function loadOpportunities() {
@@ -435,6 +447,15 @@ async function loadOpportunities() {
 }
 async function openOpportunity(oppId) {
   const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
+  if (o.platform === 'fatalfans') {
+    openProfile(o.creator_id, 'fatalfans');
+    const t = tabs.get(o.creator_id); const v = t && t.get('fatalfans'); const name = String(o.cid || '').replace(/^ff:/, '') || o.fan_name;
+    if (!v || !name) return { found: false, name: o.fan_name };
+    if (!/fatalfans\.com\/chat/.test(v.webContents.getURL())) { await v.webContents.loadURL('https://fatalfans.com/chat', { userAgent: UA }); await new Promise((r) => setTimeout(r, 2500)); }
+    // clica no item da lista com esse nome (o mesmo que o chatter faria)
+    const ok = await runJs(v, `(() => { const n = ${JSON.stringify(name)}; const it = [...document.querySelectorAll('div.min-h-18.cursor-pointer')].find((r) => { const h = r.querySelector('h3'); return h && h.textContent.replace(/\\s+/g, ' ').trim() === n; }); if (it) { it.click(); return true; } return false; })()`, 4000).catch(() => false);
+    return { found: !!ok, name: o.fan_name || name };
+  }
   openProfile(o.creator_id, 'privacy');
   const view = views.get(o.creator_id); const cid = o.cid || (fanCids[o.creator_id] && fanCids[o.creator_id][o.fan_ref]);
   if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
@@ -1520,7 +1541,7 @@ app.whenReady().then(async () => {
   setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
   setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
-  setInterval(() => loadOpportunities().catch(() => {}), 60000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
+  setInterval(() => loadOpportunities().catch(() => {}), 60000); setInterval(() => radarFatalFans().catch(() => {}), 90000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
 });
 
