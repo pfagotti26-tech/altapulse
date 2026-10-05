@@ -274,6 +274,8 @@ function publicState() {
     active: activeId,
     tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])),
     activeTab: Object.fromEntries(activeTab),
+    zoom: (() => { const p = activeId && activeTab.get(activeId); const v = p && tabs.get(activeId) && tabs.get(activeId).get(p); return v && !v.webContents.isDestroyed() ? { platform: p, label: PLATFORMS[p] ? PLATFORMS[p].label : p, pct: Math.round(v.webContents.getZoomFactor() * 100), auto: p === 'privacy' && !zoomPref.privacy } : null; })(),
+    fullscreen: !!(win && win.isFullScreen()),
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
@@ -298,7 +300,10 @@ if (!fanUi.mode) fanUi.mode = 'auto';
 // zoom da Privacy: com a lateral e o cartão, a aba fica estreita e a Privacy troca para o layout de celular
 // (lista OU conversa). Reduzir o zoom faz a página "ver" uma largura de desktop e manter lista + conversa.
 const PRIVACY_CSS_WIDTH = 1460, ZOOM_MIN = 0.7;
-let zoomPref = readJson('zoom.json', { manual: null }); // manual: fator escolhido com Ctrl +/−
+// zoom por plataforma, neste computador: { privacy: 0.9, onlyfans: 1.1 } (sem valor: Privacy no automático, as outras 100%)
+let zoomPref = readJson('zoom.json', {});
+if ('manual' in zoomPref) zoomPref = zoomPref.manual ? { privacy: zoomPref.manual } : {}; // formato antigo (só Privacy)
+const ZOOM_STEPS = [0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 const WIDE_SCREEN = 1700;
 function fanImportant() { const c = fan.card; return !!(c && (c.tier === 'baleia' || c.task || (c.tags || []).some((t) => ['esfriando', 'novo_sem_compra', 'assinatura_inativa'].includes(t)) || (c.pending_offers || []).length)); }
 function fanCollapsed() {
@@ -306,11 +311,38 @@ function fanCollapsed() {
   const [w] = win ? win.getContentSize() : [1920];
   return w < WIDE_SCREEN && !fanImportant();
 }
-function privacyZoom(viewWidth) {
-  if (zoomPref.manual) return zoomPref.manual;
+function zoomFor(platform, viewWidth) {
+  if (zoomPref[platform]) return zoomPref[platform];
+  if (platform !== 'privacy') return 1;
   return Math.max(ZOOM_MIN, Math.min(1, Math.floor((viewWidth / PRIVACY_CSS_WIDTH) * 20) / 20));
 }
-function applyZoom(view, width) { try { const z = privacyZoom(width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); } catch {} }
+function applyZoom(view, width, platform = 'privacy') { try { const z = zoomFor(platform, width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); } catch {} }
+// muda o zoom da plataforma (todas as criadoras abertas nela, neste computador): 'in' | 'out' | 'reset'
+function changeZoom(platform, dir) {
+  if (!PLATFORMS[platform]) return null;
+  const sample = [...tabs.values()].map((t) => t.get(platform)).find(Boolean);
+  const cur = sample ? sample.webContents.getZoomFactor() : (zoomPref[platform] || 1);
+  if (dir === 'reset') delete zoomPref[platform];
+  else {
+    const next = dir === 'in' ? ZOOM_STEPS.find((z) => z > cur + 0.001) : [...ZOOM_STEPS].reverse().find((z) => z < cur - 0.001);
+    if (!next) return Math.round(cur * 100);
+    zoomPref[platform] = next;
+  }
+  writeJson('zoom.json', zoomPref); layout(); pushState();
+  const after = Math.round((zoomPref[platform] || (sample ? sample.webContents.getZoomFactor() : 1)) * 100);
+  if (sidebar) sidebar.webContents.send('toast', `Zoom ${PLATFORMS[platform].label}: ${dir === 'reset' ? (platform === 'privacy' ? 'automático' : '100%') : `${after}%`}${dir === 'reset' ? '' : ' · Ctrl+0 volta ao normal'}`);
+  return after;
+}
+function zoomKeys(view, platform) {
+  view.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11' && win) { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); return; }
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
+    if (!dir) return; event.preventDefault(); changeZoom(platform, dir);
+  });
+  // Ctrl + rodinha do mouse (e pinça no touchpad)
+  view.webContents.on('zoom-changed', (_e, direction) => changeZoom(platform, direction === 'in' ? 'in' : 'out'));
+}
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
@@ -383,7 +415,7 @@ function layout() {
     const vw = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
     v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vw, height: h });
     v.setVisible(id === activeId && platform === activeTab.get(id));
-    if (platform === 'privacy') applyZoom(v, vw);
+    applyZoom(v, vw, platform);
   }
   // a faixa de 2 px da aba oculta do extrato fica ENTRE a Privacy e o painel do fã (não coberta)
   if (fanView) { fanView.setBounds({ x: w - pw, y: 0, width: pw, height: h }); fanView.setVisible(pw > 0); }
@@ -433,15 +465,10 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
-    view.webContents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
-      const k = input.key; let z = view.webContents.getZoomFactor();
-      if (k === '=' || k === '+') z = Math.min(1.5, z + 0.05); else if (k === '-') z = Math.max(0.5, z - 0.05); else if (k === '0') { zoomPref = { manual: null }; writeJson('zoom.json', zoomPref); layout(); event.preventDefault(); return; } else return;
-      event.preventDefault(); zoomPref = { manual: Math.round(z * 100) / 100 }; writeJson('zoom.json', zoomPref);
-      for (const pv of views.values()) pv.webContents.setZoomFactor(zoomPref.manual);
-      if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
-    });
   }
+  zoomKeys(view, platform);
+  // o Chromium guarda zoom por site; aqui quem manda é a escolha por plataforma
+  view.webContents.on('did-finish-load', () => { const z = zoomFor(platform, view.getBounds().width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); });
   view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
@@ -1171,6 +1198,14 @@ ipcMain.handle('fan:note:add', async (_e, text) => {
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
   await loadFanCard(true); return true;
 });
+// anotações da criadora (no painel, com autor e hora)
+// zoom (botões − % + no menu ⋮) e tela cheia
+ipcMain.handle('zoom:change', (_e, dir) => { const p = activeId && activeTab.get(activeId); if (!p) throw new Error('Abra uma criadora para ajustar o zoom.'); changeZoom(p, dir); return publicState(); });
+ipcMain.handle('win:fullscreen', () => { if (win) { win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); } return true; });
+ipcMain.handle('cnotes:list', async (_e, creatorId) => api('GET', `/extension/creators/${encodeURIComponent(creatorId)}/notes`));
+ipcMain.handle('cnotes:add', async (_e, { creatorId, text, pinned }) => { const r = await api('POST', `/extension/creators/${encodeURIComponent(creatorId)}/notes`, { text: String(text || '').slice(0, 1000), pinned: !!pinned }); refreshState(); return r; });
+ipcMain.handle('cnotes:del', async (_e, noteId) => { await api('DELETE', `/extension/creator-notes/${encodeURIComponent(noteId)}`); refreshState(); return true; });
+ipcMain.handle('cnotes:pin', async (_e, { noteId, pinned }) => { await api('PATCH', `/extension/creator-notes/${encodeURIComponent(noteId)}`, { pinned: !!pinned }); return true; });
 ipcMain.handle('fan:note:del', async (_e, noteId) => { await api('DELETE', `/extension/fan/notes/${encodeURIComponent(noteId)}`); await loadFanCard(true); return true; });
 ipcMain.handle('fan:contacted', async (_e, taskId) => { await api('POST', `/extension/fan-tasks/${encodeURIComponent(taskId)}/contacted`, {}); await loadTasks(); await loadFanCard(true); pushState(); return true; });
 ipcMain.handle('task:open', async (_e, taskId) => {
@@ -1213,6 +1248,8 @@ ipcMain.handle('extrato:toggle', (_e, id) => {
 // vai apenas "aba aberta", "está no chat ou não" e "sem leitura de dados" (leitor chega na fase 2).
 async function heartbeats() {
   if (!token || !state.user) return;
+  // presença no perfil: quais criadoras estão abertas aqui e qual está na tela (os outros veem "Fulano está neste perfil agora")
+  try { await api('POST', '/extension/presence', { open: [...tabs.keys()], active: activeId || null }); } catch {}
   for (const [id, view] of views) {
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
@@ -1422,6 +1459,13 @@ app.whenReady().then(async () => {
   win.contentView.addChildView(fanView);
   fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
   fanView.webContents.on('did-finish-load', pushFan);
+  // Ctrl +/−/0 com o foco na lateral ou no cartão do fã: ajusta a página aberta (a lateral não muda de tamanho)
+  for (const ui of [sidebar, fanView]) ui.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
+    if (!dir) return; event.preventDefault(); const p = activeId && activeTab.get(activeId); if (p) changeZoom(p, dir);
+  });
+  for (const ui of [sidebar, fanView]) ui.webContents.on('zoom-changed', () => ui.webContents.setZoomFactor(1));
   win.on('resize', layout);
   layout();
 

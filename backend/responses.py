@@ -48,6 +48,8 @@ class CreatorOut(Public):
     shift: ShiftOut | None = None
     browser: dict[str, Any] | None = None
     avatar: str | None = None
+    viewers: list[dict[str, Any]] = []
+    notes_info: dict[str, Any] | None = None
 
 class SettingsOut(Public):
     id: str = 'main'

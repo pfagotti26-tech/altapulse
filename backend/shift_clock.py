@@ -71,6 +71,10 @@ async def sweep_loop():
     while True:
         try: await sweep()
         except Exception: logging.exception('varredura de turnos')
+        try:
+            from team_live import purge_expired
+            await purge_expired()
+        except Exception: logging.exception('lixeira de criadoras')
         await asyncio.sleep(60)
 
 class ExtendIn(Strict):

@@ -400,3 +400,21 @@ async def download():
                 package.writestr(name, file.read_text(encoding='utf-8').replace('__API_ORIGIN__', ORIGIN))
             else: package.write(file, name)
     return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="Alta-Pulse-Extensao-{VERSION}.zip"'})
+
+# presença no perfil e anotações da criadora (app desktop)
+from team_live import PresenceIn, NoteIn, PinIn, save_presence, list_notes, add_note, remove_note, pin_note
+@router.post('/extension/presence')
+async def extension_presence(body: PresenceIn, user=Depends(extension_user)):
+    return await save_presence(user, body)
+@router.get('/extension/creators/{creator_id}/notes')
+async def extension_notes(creator_id: str, user=Depends(extension_user)):
+    return await list_notes(creator_id, user)
+@router.post('/extension/creators/{creator_id}/notes', status_code=201)
+async def extension_add_note(creator_id: str, body: NoteIn, user=Depends(extension_user)):
+    return await add_note(creator_id, body, user)
+@router.delete('/extension/creator-notes/{note_id}')
+async def extension_remove_note(note_id: str, user=Depends(extension_user)):
+    return await remove_note(note_id, user)
+@router.patch('/extension/creator-notes/{note_id}')
+async def extension_pin_note(note_id: str, body: PinIn, user=Depends(extension_user)):
+    return await pin_note(note_id, body.pinned, user)

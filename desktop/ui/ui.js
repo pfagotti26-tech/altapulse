@@ -90,7 +90,7 @@ function apply(state) {
   const openTasks = (S.tasks || []).filter((t) => t.status === 'open');
   $('my-list').classList.toggle('hidden', !openTasks.length);
   if (openTasks.length) { const byReason = {}; for (const t of openTasks) byReason[t.reason || 'fãs'] = (byReason[t.reason || 'fãs'] || 0) + 1; $('my-list').innerHTML = `<b>Minha lista · ${openTasks.length}</b><small>${esc(Object.entries(byReason).map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · '))}</small>`; }
-  renderList();
+  renderList(); renderZoom();
 }
 
 function localOf(id) { return (S.local.creators && S.local.creators[id]) || {}; }
@@ -177,11 +177,16 @@ function card(c) {
     if (ex && ex.error && S.user && S.user.role === 'manager') inds += `<span class="ind warn" title="${ex.error === 'login' ? 'Extrato: entre na Privacy' : 'Extrato: falha na leitura'}"></span>`;
   }
   el.dataset.id = c.id;
+  // quem mais está neste perfil agora (outros chatters/gestor com a criadora aberta no app)
+  const vw = c.viewers || [];
+  const viewers = vw.length ? `<div class="viewers${vw.some((v) => v.active) ? ' on' : ''}" title="${esc(vw.map((v) => `${v.name}${v.active ? ' (na tela agora)' : ' (aberta em segundo plano)'}`).join(' · '))}">👀 ${esc(vw.map((v) => v.name.split(' ')[0]).slice(0, 3).join(', '))}${vw.length > 3 ? ` +${vw.length - 3}` : ''} ${vw.length === 1 ? 'está' : 'estão'} neste perfil</div>` : '';
+  const ni = c.notes_info;
+  if (ni) inds += `<span class="ind note" title="${esc(`${ni.count} anotaç${ni.count === 1 ? 'ão' : 'ões'} · ${ni.last.author}: ${ni.last.text}`)}">📝${ni.count > 1 ? `<i>${ni.count}</i>` : ''}</span>`;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
   const face = c.avatar && /^data:image\//.test(c.avatar) ? `<img class="creator-photo" src="${esc(c.avatar)}" alt="">` : esc(initials(c.name));
   el.innerHTML = `<div class="avatar ${esc(c.color)}${c.avatar ? ' has-photo' : ''}">${face}${bubble}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${viewers}${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => {
@@ -218,6 +223,8 @@ async function openCreator(c, platform) {
     if (!ok) return;
   }
   await run(() => window.pulse.openProfile(c.id, platform || 'privacy'));
+  const others = (c.viewers || []).filter((v) => v.active);
+  if (others.length && !(c.shift && c.shift.operator_id !== S.user.id)) toast(`${others.map((v) => v.name.split(' ')[0]).join(' e ')} ${others.length === 1 ? 'está' : 'estão'} neste perfil agora. Combinem para não responder o mesmo fã.`, 7000);
   if (!c.shift && !platform) offerShift(c);
 }
 async function platformDialog(c) {
@@ -398,10 +405,21 @@ async function calibrate(c) {
 }
 
 // ---------- diálogos ----------
-function notesDialog(c) {
-  const cur = localOf(c.id).notes || '';
-  dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="dlg-notes">${esc(cur)}</textarea><p>Ficam só neste computador nesta fase.</p>`, okText: 'Salvar',
-    onOk: () => window.pulse.setCreatorLocal(c.id, { notes: $('dlg-notes').value }) });
+// anotações da criadora: recados com autor e hora, iguais no painel e em qualquer computador
+async function notesDialog(c) {
+  const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const legacy = (localOf(c.id).notes || c.notes || '').trim();
+  const p = dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="cn-text" maxlength="1000" placeholder="Ex.: fã João prometeu comprar às 21h · não oferecer vídeo essa semana"></textarea><div class="cn-row"><label><input type="checkbox" id="cn-pin"> Fixar no topo</label><button class="primary" id="cn-add">Adicionar</button></div><div id="cn-list" class="cn-list"><p class="muted">Carregando…</p></div>`, hideOk: true });
+  const draw = async () => {
+    let rows = [];
+    try { rows = await window.pulse.creatorNotes(c.id); } catch (e) { $('cn-list').innerHTML = `<p class="muted">${esc(e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''))}</p>`; return; }
+    const old = legacy ? `<div class="cn-item old"><p>${esc(legacy)}</p><small>nota antiga (versões anteriores)</small></div>` : '';
+    $('cn-list').innerHTML = rows.length || legacy ? old + rows.map((n) => `<div class="cn-item${n.pinned ? ' pinned' : ''}"><p>${esc(n.text)}</p><small>${n.pinned ? '📌 ' : ''}${esc(n.author)} · ${fmt(n.created_at)}<span><button class="link" data-pin="${esc(n.id)}" data-v="${n.pinned ? '' : '1'}">${n.pinned ? 'desafixar' : 'fixar'}</button>${n.author_id === S.user.id || S.user.role === 'manager' ? `<button class="link danger" data-del="${esc(n.id)}">apagar</button>` : ''}</span></small></div>`).join('') : '<p class="muted">Nenhuma anotação ainda. Use para recados de passagem de turno.</p>';
+    $('cn-list').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNoteDel(b.dataset.del)); draw(); });
+    $('cn-list').querySelectorAll('[data-pin]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNotePin(b.dataset.pin, !!b.dataset.v)); draw(); });
+  };
+  $('cn-add').onclick = async () => { const t = $('cn-text').value.trim(); if (!t) return; const r = await run(() => window.pulse.creatorNoteAdd(c.id, t, $('cn-pin').checked)); if (r) { $('cn-text').value = ''; $('cn-pin').checked = false; draw(); } };
+  draw(); await p;
 }
 // grupos da criadora (pode estar em vários); local antigo tinha só 'group'
 function groupsOf(id) { const l = localOf(id); return Array.isArray(l.groups) ? l.groups : (l.group ? [l.group] : []); }
@@ -517,6 +535,22 @@ $('list').addEventListener('click', (e) => {
   if (g.classList.contains('closed')) closedGroups.add(gid); else closedGroups.delete(gid);
   localStorage.setItem('closedGroups', JSON.stringify([...closedGroups]));
 });
+// zoom da página aberta (por plataforma, neste computador): menu ⋮, Ctrl +/−/0 e Ctrl + rodinha
+function renderZoom() {
+  const z = S && S.zoom; const pill = $('zoom-pill');
+  $('zoom-pct').textContent = z ? `${z.pct}%` : '—';
+  $('zoom-row').querySelector('.zr-label').textContent = z ? `Zoom · ${z.label}${z.auto ? ' (auto)' : ''}` : 'Zoom';
+  $('zoom-row').querySelectorAll('[data-zoom="in"],[data-zoom="out"]').forEach((b) => { b.disabled = !z; });
+  const show = z && !z.auto && z.pct !== 100;
+  pill.classList.toggle('hidden', !show); if (show) pill.textContent = `${z.pct}%`;
+}
+$('zoom-row').addEventListener('click', async (e) => {
+  e.stopPropagation(); const b = e.target.closest('[data-zoom]'); if (!b) return;
+  if (b.dataset.zoom === 'full') { hideMenus(); return window.pulse.fullscreen(); }
+  await run(() => window.pulse.zoom(b.dataset.zoom));
+});
+$('zoom-pill').onclick = () => run(() => window.pulse.zoom('reset'));
+window.addEventListener('keydown', (e) => { if (e.key === 'F11') { e.preventDefault(); window.pulse.fullscreen(); } });
 $('btn-menu').onclick = (e) => { const m = $('app-menu'); if (!m.classList.contains('hidden')) return hideMenus(); place(m, e.currentTarget); };
 $('app-menu').addEventListener('click', async (e) => {
   const act = e.target.dataset.act; if (!act) return; hideMenus();

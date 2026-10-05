@@ -31,6 +31,7 @@
     <img class="logo small" src="brand/alta-pulse-white-h.png" alt="Alta Pulse" width="170">
     <div class="tools">
       <span id="unread-total" class="bubble-total hidden"></span>
+      <button id="zoom-pill" class="zoom-pill hidden" title="Zoom da página. Clique para voltar ao normal"></button>
       <button id="btn-refresh" class="icon" title="Recarregar a página aberta e a lista">&#8635;</button>
       <button id="btn-menu" class="icon" title="Opções">&#8942;</button>
     </div>
@@ -65,6 +66,8 @@
 
 <!-- menu de opções do app -->
 <div id="app-menu" class="popover hidden">
+  <div id="zoom-row" class="zoom-row"><span class="zr-label">Zoom</span><button class="zr-btn" data-zoom="out" title="Diminuir (Ctrl −)">−</button><b id="zoom-pct">100%</b><button class="zr-btn" data-zoom="in" title="Aumentar (Ctrl +)">+</button><button class="zr-btn" data-zoom="full" title="Tela cheia (F11)">⤢</button></div>
+  <hr>
   <button data-act="panel">Abrir painel no navegador</button>
   <button data-act="tags">Editar etiquetas</button>
   <button data-act="hide">Ocultar perfil aberto</button>

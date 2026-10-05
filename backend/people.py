@@ -11,8 +11,11 @@ router = APIRouter()
 async def creators(user=Depends(current_user)):
     from shift_clock import sweep_soon, decorate
     await sweep_soon()
-    query = {} if user['role'] == 'manager' else {'id': {'$in': user['creator_ids']}}
+    from team_live import viewers_by_creator, notes_summary
+    query = {'deleted_at': None} if user['role'] == 'manager' else {'id': {'$in': user['creator_ids']}, 'deleted_at': None}
     rows = await db.creators.find(query, {'_id': 0}).sort('created_at', 1).to_list(1000)
+    viewers = await viewers_by_creator(user['id'])
+    notes = await notes_summary([r['id'] for r in rows])
     avatars = {u['id']: u.get('avatar') for u in await db.users.find({'avatar': {'$ne': None}}, {'_id': 0, 'id': 1, 'avatar': 1}).to_list(500)}
     for row in rows:
         row['groups'] = row.get('groups') or ([row['group']] if row.get('group') else [])
@@ -21,6 +24,8 @@ async def creators(user=Depends(current_user)):
         row['browser'] = await db.browsers.find_one({'creator_id': row['id']}, {'_id': 0})
         if row['browser'] and row['browser'].get('last_seen', '') < (now() - timedelta(seconds=30)).isoformat():
             row['browser']['state'] = 'interrupted'
+        row['viewers'] = viewers.get(row['id'], [])
+        row['notes_info'] = notes.get(row['id'])
     return rows
 @router.post('/creators', status_code=201, response_model=CreatorOut)
 async def create_creator(body: Creator, user=Depends(manager)):
@@ -47,15 +52,11 @@ async def creator_avatar_delete(creator_id: str, user=Depends(manager)):
     return {'ok': True}
 @router.delete('/creators/{creator_id}')
 async def remove_creator(creator_id: str, body: Reason, user=Depends(manager)):
-    row = await creator_access(creator_id, user)
+    # vai para a lixeira ("Apagados recentemente"): 30 dias para restaurar; depois some de vez com os dados
+    await creator_access(creator_id, user)
     if await db.shifts.find_one({'creator_id': creator_id, 'active': True}): raise HTTPException(409, 'Encerre o turno antes de excluir.')
-    browser = await db.browsers.find_one({'creator_id': creator_id})
-    if browser and browser['state'] == 'open' and browser.get('last_seen', '') > (now() - timedelta(seconds=30)).isoformat(): raise HTTPException(409, 'Feche a aba da Privacy com a extensão ativa antes de excluir.')
-    for collection in ['creators', 'events', 'reviews', 'shifts', 'browsers']:
-        await db[collection].delete_many({'id': creator_id} if collection == 'creators' else {'creator_id': creator_id})
-    await db.users.update_many({}, {'$pull': {'creator_ids': creator_id}})
-    await audit(user, 'Criadora e dados excluídos', row['name'], reason=body.reason)
-    return {'ok': True}
+    from team_live import trash_creator
+    return await trash_creator(creator_id, user, body.reason)
 @router.get('/users', response_model=list[UserOut])
 async def users(user=Depends(manager)):
     return await db.users.find({}, {'_id': 0, 'password_hash': 0}).to_list(1000)

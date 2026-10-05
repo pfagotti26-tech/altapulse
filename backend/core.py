@@ -11,6 +11,8 @@ TRUSTED_ORIGINS = [ORIGIN, os.environ['INGRESS_APP_ORIGIN']]
 client = AsyncIOMotorClient(os.environ['MONGO_URL'], tz_aware=True)
 db = client[os.environ['DB_NAME']]
 lock = asyncio.Lock()
+# preparo para várias agências: todo dado NOVO já nasce marcado com a agência dona (hoje só existe a Alta)
+WORKSPACE = os.environ.get('WORKSPACE_ID', 'alta')
 def now(): return datetime.now(timezone.utc)
 def iso(): return now().isoformat()
 def uid(): return secrets.token_hex(12)
@@ -39,7 +41,7 @@ async def manager(user=Depends(current_user)):
     if user['role'] != 'manager': raise HTTPException(403, 'Acesso exclusivo do gestor.')
     return user
 async def creator_access(creator_id, user):
-    creator = await db.creators.find_one({'id': creator_id}, {'_id': 0})
+    creator = await db.creators.find_one({'id': creator_id, 'deleted_at': None}, {'_id': 0})
     if not creator: raise HTTPException(404, 'Criadora não encontrada.')
     if user['role'] != 'manager' and creator_id not in user['creator_ids']:
         raise HTTPException(403, 'Este perfil não está autorizado para você.')
