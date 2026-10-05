@@ -82,11 +82,37 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager))
     check_assigned(body.creator_ids)
     if await db.shifts.find_one({'operator_id': user_id, 'active': True}): raise HTTPException(409, 'Encerre os turnos deste integrante primeiro.')
     if await db.creators.count_documents({'id': {'$in': body.creator_ids}}) != len(set(body.creator_ids)): raise HTTPException(422, 'Perfis inválidos.')
-    await db.users.update_one({'id': user_id}, {'$set': body.model_dump()})
-    if not body.active:
+    if user_id == user['id'] and body.role == 'chatter': raise HTTPException(409, 'Você não pode tirar seu próprio acesso de gestor.')
+    patch = {'creator_ids': body.creator_ids, 'active': body.active}
+    if body.name: patch['name'] = body.name.strip()
+    if body.email: patch['email'] = str(body.email).lower()
+    if body.role: patch['role'] = body.role
+    kick = not body.active
+    if body.new_password:
+        # nova senha inicial: a pessoa é obrigada a trocar no primeiro acesso; sessões antigas caem
+        patch.update({'password_hash': hash_password(body.new_password), 'must_change_password': True, 'auth_version': (target.get('auth_version') or 0) + 1}); kick = True
+    try: await db.users.update_one({'id': user_id}, {'$set': patch})
+    except DuplicateKeyError: raise HTTPException(409, 'Este e-mail já está cadastrado.')
+    if patch.get('name') and patch['name'] != target['name']:
+        # o nome aparece em turnos, vendas e análises: atualiza onde está guardado por nome
+        for col, field in [('shifts', 'operator_name'), ('browsers', 'operator_name'), ('presence', 'name')]: await db[col].update_many({'operator_id' if field == 'operator_name' else 'user_id': user_id}, {'$set': {field: patch['name']}})
+    if kick:
         await db.sessions.delete_many({'user_id': user_id})
         await db.extension_tokens.delete_many({'user_id': user_id})
-    await audit(user, 'Permissões atualizadas', target['name'], body.model_dump())
+    await audit(user, 'Integrante atualizado', target['name'], {k: v for k, v in patch.items() if k not in ['password_hash']} | ({'senha': 'redefinida'} if body.new_password else {}))
+    return {'ok': True}
+@router.delete('/users/{user_id}')
+async def delete_user(user_id: str, body: Reason, user=Depends(manager)):
+    """Exclui o integrante. Turnos, vendas e análises ficam no histórico com o nome dele."""
+    target = await db.users.find_one({'id': user_id}, {'_id': 0})
+    if not target: raise HTTPException(404, 'Integrante não encontrado.')
+    if user_id == user['id']: raise HTTPException(409, 'Você não pode excluir seu próprio acesso.')
+    if await db.shifts.find_one({'operator_id': user_id, 'active': True}): raise HTTPException(409, 'Encerre os turnos deste integrante primeiro.')
+    if target.get('role') == 'manager' and await db.users.count_documents({'role': 'manager', 'active': True, 'id': {'$ne': user_id}}) == 0: raise HTTPException(409, 'Precisa sobrar pelo menos um gestor ativo.')
+    await db.users.delete_one({'id': user_id})
+    for col in ['sessions', 'extension_tokens', 'presence', 'app_status']: await db[col].delete_many({'user_id': user_id})
+    await db.fan_tasks.update_many({'assigned_to': user_id, 'status': 'open'}, {'$set': {'status': 'cancelled'}})
+    await audit(user, 'Integrante excluído', target['name'], reason=body.reason)
     return {'ok': True}
 @router.get('/shifts', response_model=list[ShiftOut])
 async def shifts(user=Depends(current_user)):

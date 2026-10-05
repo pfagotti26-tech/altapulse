@@ -37,6 +37,10 @@ class PasswordChange(Strict):
 class OperatorUpdate(Strict):
     creator_ids: list[str] = Field(max_length=1000)
     active: bool = True
+    name: Optional[str] = Field(default=None, min_length=2, max_length=70)
+    email: Optional[EmailStr] = None
+    role: Optional[Literal['manager', 'chatter']] = None
+    new_password: Optional[str] = Field(default=None, min_length=8, max_length=128)  # nova senha inicial (obriga a trocar no 1º acesso)
 class Creator(Strict):
     name: str = Field(min_length=2, max_length=70)
     handle: str = Field(default='', max_length=60)
