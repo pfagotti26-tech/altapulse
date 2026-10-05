@@ -52,7 +52,7 @@ async def performance(days: int = 30, user=Depends(manager)):
     days = max(7, min(days, 90))
     today = datetime.now(BR).date()
     start = today - timedelta(days=days - 1)
-    creators = await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1, 'color': 1, 'handle': 1}).to_list(1000)
+    creators = await db.creators.find({'deleted_at': None}, {'_id': 0, 'id': 1, 'name': 1, 'color': 1, 'handle': 1}).to_list(1000)
     snaps = await db.creator_snapshots.find({'day': {'$gte': (today - timedelta(days=days + 7)).isoformat()}}, {'_id': 0}).sort('day', 1).to_list(20000)
     by_creator = {}
     for s in snaps: by_creator.setdefault(s['creator_id'], []).append(s)

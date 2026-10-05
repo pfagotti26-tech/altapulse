@@ -12,6 +12,7 @@ module.exports = String.raw`(() => {
   })(document, 0);
   const qs = (sel) => { for (const r of roots) { const e = r.querySelector(sel); if (e) return e; } return null; };
   const qsa = (sel) => roots.flatMap((r) => [...r.querySelectorAll(sel)]);
+  const INTENT = /quanto|valor|pre[cç]o|\bpix\b|tem (v[ií]deo|foto|conte[uú]do|pack)|manda(r)? (v[ií]deo|foto|mais|nude)|vende|comprar|quero (ver|comprar|um|uma|seu|sua)|\bpack\b|personalizad|custom|chamada|\bcall\b|exclusiv|mais (fotos|v[ií]deos)|desbloque/;
   const money = (s) => {
     const m = s.match(/R\$\s*([\d.,]+)\s*([KM])?/i);
     if (!m) return null;
@@ -28,6 +29,10 @@ module.exports = String.raw`(() => {
     ours: !!r.querySelector('.message-last .vac-icon-check'),
     unread: parseInt(txt(r.querySelector('.cn-unread-number')), 10) || 0,
     when: txt(r.querySelector('.vac-text-date')),
+    // radar: id da conversa (abre direto com ?cid=) e se a última mensagem do fã tem cara de pedido de compra.
+    // A frase é avaliada aqui e descartada: só o sim/não sai da página.
+    rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
+    intent: !r.querySelector('.message-last .vac-icon-check') && INTENT.test(txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last')).toLowerCase()),
   })).filter((r) => r.name);
   // conversa aberta: o id vem do endereço (?cid= ou /chat/<id>); no layout estreito da Privacy ele pode
   // não aparecer, então cai no nome do cabeçalho (estável para a mesma conversa)

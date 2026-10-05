@@ -63,7 +63,7 @@ async def heartbeat(body: Heartbeat, station=Depends(agent_auth)):
     for browser in body.browsers:
         if await db.creators.find_one({'id': browser.creator_id}):
             await db.browsers.update_one({'creator_id': browser.creator_id}, {'$set': {**browser.model_dump(), 'last_seen': iso(), 'station_id': station['id']}}, upsert=True)
-    creators = await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1, 'review': 1}).to_list(1000)
+    creators = await db.creators.find({'deleted_at': None}, {'_id': 0, 'id': 1, 'name': 1, 'review': 1}).to_list(1000)
     for c in creators:
         shift = await db.shifts.find_one({'creator_id': c['id'], 'active': True}, {'_id': 0})
         c['paused'] = not shift or shift.get('paused', False) or bool(c.get('review'))
