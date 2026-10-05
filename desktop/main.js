@@ -288,6 +288,7 @@ function publicState() {
     entering: Object.fromEntries(entering),
     vaultErrors: Object.fromEntries(vaultErrors),
     tasks: myTasks,
+    opportunities,
     probeInfo: Object.fromEntries(probeInfo),
   };
 }
@@ -402,6 +403,46 @@ async function quickFanOF(id) {
   const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
   try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); if (data && data.page === 'chat' && data.open && data.open.cid) sampleConversation(id, view, null, data.open, platform).catch(() => {}); } catch {}
 }
+// ---------- radar de oportunidades ----------
+// a lista de conversas vai ao painel no máximo a cada 90 s por criadora, e só se mudou (sem texto de mensagem)
+const radarSent = new Map(); const RADAR_MS = 90000;
+async function sendRadar(id, rows) {
+  if (!token || !state.storage_allowed || !rows || !rows.length) return;
+  const known = fanCids[id] || {};
+  const list = rows.filter((x) => x.fan_ref).map((x) => ({ ...x, cid: x.cid || known[x.fan_ref] || null })).slice(0, 500);
+  const sig = JSON.stringify(list.map((x) => [x.fan_ref, x.spent_cents, x.last_from, x.last_at, x.unread, x.intent, x.cid]));
+  const prev = radarSent.get(id);
+  if (prev && (prev.sig === sig || Date.now() - prev.at < RADAR_MS) && !list.some((x) => x.intent && x.last_from === 'fan' && !(prev.intents || []).includes(x.fan_ref))) return;
+  radarSent.set(id, { sig, at: Date.now(), intents: list.filter((x) => x.intent && x.last_from === 'fan').map((x) => x.fan_ref) });
+  try { await api('POST', '/extension/radar', { creator_id: id, platform: 'privacy', rows: list }); await loadOpportunities(); }
+  catch (error) { radarSent.delete(id); }
+}
+let opportunities = []; const oppSeen = new Set(); let oppFirst = true;
+async function loadOpportunities() {
+  if (!token || !state.user) return;
+  try { opportunities = await api('GET', '/extension/opportunities'); } catch { return; }
+  // alerta na hora só para o que é quente (pediu preço) nas criadoras do turno de quem está logado
+  const mineIds = new Set((state.creators || []).filter((c) => c.shift && c.shift.operator_id === state.user.id && !c.shift.paused).map((c) => c.id));
+  const fresh = opportunities.filter((o) => o.hot && !oppSeen.has(o.id) && mineIds.has(o.creator_id));
+  for (const o of opportunities) oppSeen.add(o.id);
+  if (!oppFirst && fresh.length) {
+    const o = fresh[0]; const who = o.fan_name || 'Um fã';
+    const msg = `${o.creator_name}: ${who} perguntou preço ou pediu conteúdo${fresh.length > 1 ? ` (+${fresh.length - 1})` : ''}`;
+    if (sidebar) sidebar.webContents.send('toast', `💰 ${msg}`);
+    try { const n = new Notification({ title: 'Oportunidade de venda', body: msg, silent: false }); n.on('click', () => { if (win) { win.show(); win.focus(); } openOpportunity(o.id).catch(() => {}); }); n.show(); } catch {}
+  }
+  oppFirst = false; pushState();
+}
+async function openOpportunity(oppId) {
+  const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
+  openProfile(o.creator_id, 'privacy');
+  const view = views.get(o.creator_id); const cid = o.cid || (fanCids[o.creator_id] && fanCids[o.creator_id][o.fan_ref]);
+  if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
+  return { found: !!cid, name: o.fan_name };
+}
+ipcMain.handle('opp:open', (_e, id) => openOpportunity(id));
+ipcMain.handle('opp:action', async (_e, { id, action, reason }) => { await api('POST', `/extension/opportunities/${encodeURIComponent(id)}/action`, { action, reason: reason || '' }); await loadOpportunities(); return publicState(); });
+ipcMain.handle('opp:reload', async () => { await loadOpportunities(); return publicState(); });
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
 }
@@ -564,11 +605,12 @@ async function readAllNow() {
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
-    let events, summary;
-    try { ({ events, summary } = r.reader.process(data, new Date())); }
+    let events, summary, radar;
+    try { ({ events, summary, radar } = r.reader.process(data, new Date())); }
     catch (error) { try { fs.appendFileSync(path.join(app.isPackaged ? dataDir() : __dirname, 'erros-leitura.log'), `${new Date().toISOString()} process erro ${id.slice(0, 6)} ${error && error.stack}\n`); } catch {} continue; }
     r.summary = summary;
     writeJson(`reader-${id}.json`, r.reader.s);
+    sendRadar(id, radar).catch(() => {});
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
     const mine = shift && shift.operator_id === state.user.id && !shift.paused;
@@ -1478,6 +1520,7 @@ app.whenReady().then(async () => {
   setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
   setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
+  setInterval(() => loadOpportunities().catch(() => {}), 60000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
 });
 

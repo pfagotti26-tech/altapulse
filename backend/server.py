@@ -16,6 +16,7 @@ from quality_ai import router as quality_ai
 from assist import router as assist
 from scorecard import router as scorecard
 from team_live import router as team_live
+from radar import router as radar
 
 @asynccontextmanager
 async def lifespan(app):
@@ -48,6 +49,11 @@ async def lifespan(app):
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     await db.shifts.create_index([('active', 1), ('operator_id', 1)])
     await db.presence.create_index('user_id', unique=True)
+    await db.fan_radar.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
+    await db.fan_radar.create_index('expires_at', expireAfterSeconds=0)
+    await db.opportunities.create_index([('creator_id', 1), ('fan_ref', 1), ('ref', 1)], unique=True)
+    await db.opportunities.create_index([('status', 1), ('due_at', 1)])
+    await db.opportunities.create_index('expires_at', expireAfterSeconds=0)
     await db.creator_notes.create_index([('creator_id', 1), ('created_at', -1)])
     import asyncio
     from shift_clock import sweep_loop
@@ -71,7 +77,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')

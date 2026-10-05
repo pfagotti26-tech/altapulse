@@ -90,7 +90,7 @@ function apply(state) {
   const openTasks = (S.tasks || []).filter((t) => t.status === 'open');
   $('my-list').classList.toggle('hidden', !openTasks.length);
   if (openTasks.length) { const byReason = {}; for (const t of openTasks) byReason[t.reason || 'fãs'] = (byReason[t.reason || 'fãs'] || 0) + 1; $('my-list').innerHTML = `<b>Minha lista · ${openTasks.length}</b><small>${esc(Object.entries(byReason).map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · '))}</small>`; }
-  renderList(); renderZoom();
+  renderList(); renderZoom(); renderOpps();
 }
 
 function localOf(id) { return (S.local.creators && S.local.creators[id]) || {}; }
@@ -497,6 +497,29 @@ $('login-form').addEventListener('submit', async (e) => {
 });
 $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin').value.trim() || 'https://altapulse.com.br'); toast('Endereço salvo.'); };
 $('me-avatar').onclick = () => photoMenu();
+// ---------- oportunidades de venda (radar) ----------
+const fmtBRL = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2).replace('.', ',');
+function renderOpps() {
+  const list = S.opportunities || []; const hot = list.filter((o) => o.hot).length; const el = $('my-opps');
+  el.classList.toggle('hidden', !list.length);
+  if (list.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo</small>`;
+}
+function oppDialog() {
+  const list = S.opportunities || [];
+  const byCreator = {}; for (const o of list) (byCreator[o.creator_name] = byCreator[o.creator_name] || []).push(o);
+  const body = `<div class="opp-list">${Object.entries(byCreator).map(([cn, items]) => `<div class="opp-group">${esc(cn)}</div>${items.map((o) => `<div class="opp${o.hot ? ' hot' : ''}"><div class="opp-info"><b>${esc(o.fan_name || 'Fã sem nome')}</b><span class="opp-kind">${esc(o.label)} · ${esc(fmtBRL(o.value_cents))}</span><small>${esc(o.reason)}</small></div><div class="opp-actions"><button class="primary" data-open="${esc(o.id)}">Abrir conversa</button><button class="ghost" data-done="${esc(o.id)}" title="Já falei com o fã">Feito</button><button class="ghost" data-skip="${esc(o.id)}" title="Não faz sentido agora">Dispensar</button></div></div>`).join('')}`).join('') || '<p class="muted">Nada agora. O radar olha a lista de conversas enquanto a Privacy está aberta.</p>'}</div><p class="muted">Quando você responde ou manda oferta para o fã, a oportunidade é marcada sozinha. Venda em até 2 dias conta para você.</p>`;
+  const p = dialog({ title: 'Oportunidades de venda', body, hideOk: true });
+  const B = $('dialog-body');
+  B.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', async () => {
+    $('dialog-cancel').onclick();
+    const r = await run(() => window.pulse.oppOpen(b.dataset.open));
+    if (r && !r.found) toast(`Procure "${r.name || 'o fã'}" na lista de conversas: ainda não sei qual é a conversa dele.`, 6000);
+  }));
+  B.querySelectorAll('[data-done]').forEach((b) => b.addEventListener('click', async () => { await run(() => window.pulse.oppAction(b.dataset.done, 'contacted')); b.closest('.opp').remove(); }));
+  B.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', async () => { await run(() => window.pulse.oppAction(b.dataset.skip, 'dismissed')); b.closest('.opp').remove(); }));
+  return p;
+}
+$('my-opps').onclick = () => oppDialog();
 $('my-list').onclick = async () => {
   const list = (S.tasks || []).filter((t) => t.status === 'open');
   const body = `<div class="task-list">${list.map((t) => `<div class="task"><div><b>${esc(t.fan_name || 'Fã sem nome')}</b><small>${esc(t.creator_name)}${t.reason ? ' · ' + esc(t.reason) : ''} · por ${esc(t.assigned_by)}</small></div><button class="primary" data-task="${esc(t.id)}">Abrir</button></div>`).join('') || '<p class="muted">Nada pendente.</p>'}</div><p class="muted">Ao abrir, o cartão do fã aparece à direita; marque "contatado" depois de falar com ele.</p>`;

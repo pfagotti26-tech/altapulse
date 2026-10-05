@@ -418,3 +418,15 @@ async def extension_remove_note(note_id: str, user=Depends(extension_user)):
 @router.patch('/extension/creator-notes/{note_id}')
 async def extension_pin_note(note_id: str, body: PinIn, user=Depends(extension_user)):
     return await pin_note(note_id, body.pinned, user)
+
+# radar de oportunidades (lista de conversas lida de leve; o texto das mensagens nunca sai do computador)
+from radar import RadarIn, OppAction, save_radar, my_opportunities, act as opp_act
+@router.post('/extension/radar')
+async def extension_radar(body: RadarIn, user=Depends(extension_user)):
+    return await save_radar(body, user)
+@router.get('/extension/opportunities')
+async def extension_opportunities(user=Depends(extension_user)):
+    return await my_opportunities(user)
+@router.post('/extension/opportunities/{opp_id}/action')
+async def extension_opportunity_action(opp_id: str, body: OppAction, user=Depends(extension_user)):
+    return await opp_act(opp_id, body, user)

@@ -67,7 +67,9 @@ async def sweep_soon():
     try: await sweep()
     except Exception: logging.exception('varredura de turnos')
 
+_radar_tick = 0
 async def sweep_loop():
+    global _radar_tick
     while True:
         try: await sweep()
         except Exception: logging.exception('varredura de turnos')
@@ -75,6 +77,13 @@ async def sweep_loop():
             from team_live import purge_expired
             await purge_expired()
         except Exception: logging.exception('lixeira de criadoras')
+        # radar de oportunidades: regras por tempo (ofertas, assinantes novos, esfriando) a cada ~10 min
+        _radar_tick = (_radar_tick + 1) % 10
+        if _radar_tick == 1:
+            try:
+                from radar import sweep as radar_sweep
+                await radar_sweep()
+            except Exception: logging.exception('radar de oportunidades')
         await asyncio.sleep(60)
 
 class ExtendIn(Strict):
