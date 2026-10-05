@@ -172,6 +172,7 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
         for g in patch['groups']:
             g = str(g).strip()[:40]
             if g and g not in names: names.append(g)
+        if len(names) > 100: raise HTTPException(422, 'Cada criadora pode estar em no máximo 100 grupos.')
         patch['groups'] = names; patch['group'] = names[0] if names else ''
     elif 'group' in patch: patch['groups'] = [patch['group']] if patch['group'] else []
     if not patch: raise HTTPException(422, 'Nada para alterar.')
@@ -399,3 +400,33 @@ async def download():
                 package.writestr(name, file.read_text(encoding='utf-8').replace('__API_ORIGIN__', ORIGIN))
             else: package.write(file, name)
     return Response(output.getvalue(), media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="Alta-Pulse-Extensao-{VERSION}.zip"'})
+
+# presença no perfil e anotações da criadora (app desktop)
+from team_live import PresenceIn, NoteIn, PinIn, save_presence, list_notes, add_note, remove_note, pin_note
+@router.post('/extension/presence')
+async def extension_presence(body: PresenceIn, user=Depends(extension_user)):
+    return await save_presence(user, body)
+@router.get('/extension/creators/{creator_id}/notes')
+async def extension_notes(creator_id: str, user=Depends(extension_user)):
+    return await list_notes(creator_id, user)
+@router.post('/extension/creators/{creator_id}/notes', status_code=201)
+async def extension_add_note(creator_id: str, body: NoteIn, user=Depends(extension_user)):
+    return await add_note(creator_id, body, user)
+@router.delete('/extension/creator-notes/{note_id}')
+async def extension_remove_note(note_id: str, user=Depends(extension_user)):
+    return await remove_note(note_id, user)
+@router.patch('/extension/creator-notes/{note_id}')
+async def extension_pin_note(note_id: str, body: PinIn, user=Depends(extension_user)):
+    return await pin_note(note_id, body.pinned, user)
+
+# radar de oportunidades (lista de conversas lida de leve; o texto das mensagens nunca sai do computador)
+from radar import RadarIn, OppAction, save_radar, my_opportunities, act as opp_act
+@router.post('/extension/radar')
+async def extension_radar(body: RadarIn, user=Depends(extension_user)):
+    return await save_radar(body, user)
+@router.get('/extension/opportunities')
+async def extension_opportunities(user=Depends(extension_user)):
+    return await my_opportunities(user)
+@router.post('/extension/opportunities/{opp_id}/action')
+async def extension_opportunity_action(opp_id: str, body: OppAction, user=Depends(extension_user)):
+    return await opp_act(opp_id, body, user)

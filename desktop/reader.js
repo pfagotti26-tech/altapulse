@@ -123,8 +123,15 @@ class CreatorReader {
     // limpeza: refs com mais de 30 dias
     const keys = Object.keys(this.s.sent); if (keys.length > 5000) for (const k of keys.slice(0, keys.length - 4000)) delete this.s.sent[k];
 
-    return { events, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
+    // ---- radar de oportunidades: retrato leve de cada conversa visível na lista (sem texto) ----
+    const radar = [];
+    for (const r of data.rooms || []) {
+      const t = listAt(r.when, now);
+      radar.push({ ...this.fan(r.name), cid: r.rid || null, spent_cents: r.spent ? r.spent.cents : null, last_from: r.ours ? 'us' : 'fan',
+        last_at: t ? isoLocal(t) : null, unread: r.unread || 0, intent: !!r.intent });
+    }
+    return { events, radar, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
   }
 }
 
-module.exports = { CreatorReader, parseDateLabel, at };
+module.exports = { CreatorReader, parseDateLabel, at, listAt };

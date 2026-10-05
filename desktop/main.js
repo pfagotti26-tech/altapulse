@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-const { CreatorReader, parseDateLabel, at: msgAt } = require('./reader.js');
+const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
@@ -274,6 +274,8 @@ function publicState() {
     active: activeId,
     tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])),
     activeTab: Object.fromEntries(activeTab),
+    zoom: (() => { const p = activeId && activeTab.get(activeId); const v = p && tabs.get(activeId) && tabs.get(activeId).get(p); return v && !v.webContents.isDestroyed() ? { platform: p, label: PLATFORMS[p] ? PLATFORMS[p].label : p, pct: Math.round(v.webContents.getZoomFactor() * 100), auto: p === 'privacy' && !zoomPref.privacy } : null; })(),
+    fullscreen: !!(win && win.isFullScreen()),
     urls: Object.fromEntries([...views].map(([id, v]) => [id, v.webContents.getURL()])),
     readers: Object.fromEntries([...readers].map(([id, r]) => [id, r.summary || null])),
     extratos: Object.fromEntries([...extratos].map(([id, x]) => [id, x.summary || null])),
@@ -286,6 +288,7 @@ function publicState() {
     entering: Object.fromEntries(entering),
     vaultErrors: Object.fromEntries(vaultErrors),
     tasks: myTasks,
+    opportunities,
     probeInfo: Object.fromEntries(probeInfo),
   };
 }
@@ -298,7 +301,10 @@ if (!fanUi.mode) fanUi.mode = 'auto';
 // zoom da Privacy: com a lateral e o cartão, a aba fica estreita e a Privacy troca para o layout de celular
 // (lista OU conversa). Reduzir o zoom faz a página "ver" uma largura de desktop e manter lista + conversa.
 const PRIVACY_CSS_WIDTH = 1460, ZOOM_MIN = 0.7;
-let zoomPref = readJson('zoom.json', { manual: null }); // manual: fator escolhido com Ctrl +/−
+// zoom por plataforma, neste computador: { privacy: 0.9, onlyfans: 1.1 } (sem valor: Privacy no automático, as outras 100%)
+let zoomPref = readJson('zoom.json', {});
+if ('manual' in zoomPref) zoomPref = zoomPref.manual ? { privacy: zoomPref.manual } : {}; // formato antigo (só Privacy)
+const ZOOM_STEPS = [0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 const WIDE_SCREEN = 1700;
 function fanImportant() { const c = fan.card; return !!(c && (c.tier === 'baleia' || c.task || (c.tags || []).some((t) => ['esfriando', 'novo_sem_compra', 'assinatura_inativa'].includes(t)) || (c.pending_offers || []).length)); }
 function fanCollapsed() {
@@ -306,11 +312,38 @@ function fanCollapsed() {
   const [w] = win ? win.getContentSize() : [1920];
   return w < WIDE_SCREEN && !fanImportant();
 }
-function privacyZoom(viewWidth) {
-  if (zoomPref.manual) return zoomPref.manual;
+function zoomFor(platform, viewWidth) {
+  if (zoomPref[platform]) return zoomPref[platform];
+  if (platform !== 'privacy') return 1;
   return Math.max(ZOOM_MIN, Math.min(1, Math.floor((viewWidth / PRIVACY_CSS_WIDTH) * 20) / 20));
 }
-function applyZoom(view, width) { try { const z = privacyZoom(width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); } catch {} }
+function applyZoom(view, width, platform = 'privacy') { try { const z = zoomFor(platform, width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); } catch {} }
+// muda o zoom da plataforma (todas as criadoras abertas nela, neste computador): 'in' | 'out' | 'reset'
+function changeZoom(platform, dir) {
+  if (!PLATFORMS[platform]) return null;
+  const sample = [...tabs.values()].map((t) => t.get(platform)).find(Boolean);
+  const cur = sample ? sample.webContents.getZoomFactor() : (zoomPref[platform] || 1);
+  if (dir === 'reset') delete zoomPref[platform];
+  else {
+    const next = dir === 'in' ? ZOOM_STEPS.find((z) => z > cur + 0.001) : [...ZOOM_STEPS].reverse().find((z) => z < cur - 0.001);
+    if (!next) return Math.round(cur * 100);
+    zoomPref[platform] = next;
+  }
+  writeJson('zoom.json', zoomPref); layout(); pushState();
+  const after = Math.round((zoomPref[platform] || (sample ? sample.webContents.getZoomFactor() : 1)) * 100);
+  if (sidebar) sidebar.webContents.send('toast', `Zoom ${PLATFORMS[platform].label}: ${dir === 'reset' ? (platform === 'privacy' ? 'automático' : '100%') : `${after}%`}${dir === 'reset' ? '' : ' · Ctrl+0 volta ao normal'}`);
+  return after;
+}
+function zoomKeys(view, platform) {
+  view.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11' && win) { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); return; }
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
+    if (!dir) return; event.preventDefault(); changeZoom(platform, dir);
+  });
+  // Ctrl + rodinha do mouse (e pinça no touchpad)
+  view.webContents.on('zoom-changed', (_e, direction) => changeZoom(platform, direction === 'in' ? 'in' : 'out'));
+}
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
@@ -370,6 +403,67 @@ async function quickFanOF(id) {
   const t = tabs.get(id); const view = t && t.get(platform); if (!view || view.webContents.isDestroyed()) return;
   try { const data = await runJs(view, platform === 'fatalfans' ? FF_CHAT_SCRIPT : OF_CHAT_SCRIPT, 5000); setFanFromChat(id, data && data.page === 'chat' ? data.open : null, platform); if (data && data.page === 'chat' && data.open && data.open.cid) sampleConversation(id, view, null, data.open, platform).catch(() => {}); } catch {}
 }
+// ---------- radar de oportunidades ----------
+// a lista de conversas vai ao painel no máximo a cada 90 s por criadora, e só se mudou (sem texto de mensagem)
+const radarSent = new Map(); const RADAR_MS = 90000;
+async function sendRadar(id, rows, platform = 'privacy') {
+  if (!token || !state.storage_allowed || !rows || !rows.length) return;
+  const known = platform === 'privacy' ? (fanCids[id] || {}) : {};
+  const list = rows.filter((x) => x.fan_ref).map((x) => ({ ...x, cid: x.cid || known[x.fan_ref] || null })).slice(0, 500);
+  const sig = JSON.stringify(list.map((x) => [x.fan_ref, x.spent_cents, x.last_from, x.last_at, x.unread, x.intent, x.cid]));
+  const key = `${id}|${platform}`; const prev = radarSent.get(key);
+  if (prev && (prev.sig === sig || Date.now() - prev.at < RADAR_MS) && !list.some((x) => x.intent && x.last_from === 'fan' && !(prev.intents || []).includes(x.fan_ref))) return;
+  radarSent.set(key, { sig, at: Date.now(), intents: list.filter((x) => x.intent && x.last_from === 'fan').map((x) => x.fan_ref) });
+  try { await api('POST', '/extension/radar', { creator_id: id, platform, rows: list }); await loadOpportunities(); }
+  catch (error) { radarSent.delete(key); }
+}
+// FatalFans: a lista de conversas de cada aba aberta (sem abrir chats); mesma referência de fã do extrato de vendas
+async function radarFatalFans() {
+  if (!token || !state.storage_allowed) return;
+  for (const [id, t] of tabs) {
+    const view = t.get('fatalfans'); if (!view || view.webContents.isDestroyed() || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) continue;
+    let data; try { data = await runJs(view, FF_CHAT_SCRIPT, 5000); } catch { continue; }
+    if (!data || !data.rooms || !data.rooms.length) continue;
+    const reader = ffFor(id).reader; reader.options.fanNames = !!state.fan_names_allowed; const now = new Date();
+    const rows = data.rooms.map((r) => { const at = listAt(r.when, now); return { ...reader.fan(r.name), cid: 'ff:' + r.name.slice(0, 77), spent_cents: null, last_from: r.ours ? 'us' : 'fan', last_at: at ? at.toISOString() : null, unread: r.unread || 0, intent: !!r.intent }; });
+    sendRadar(id, rows, 'fatalfans').catch(() => {});
+  }
+}
+let opportunities = []; const oppSeen = new Set(); let oppFirst = true;
+async function loadOpportunities() {
+  if (!token || !state.user) return;
+  try { opportunities = await api('GET', '/extension/opportunities'); } catch { return; }
+  // alerta na hora só para o que é quente (pediu preço) nas criadoras do turno de quem está logado
+  const mineIds = new Set((state.creators || []).filter((c) => c.shift && c.shift.operator_id === state.user.id && !c.shift.paused).map((c) => c.id));
+  const fresh = opportunities.filter((o) => o.hot && !oppSeen.has(o.id) && mineIds.has(o.creator_id));
+  for (const o of opportunities) oppSeen.add(o.id);
+  if (!oppFirst && fresh.length) {
+    const o = fresh[0]; const who = o.fan_name || 'Um fã';
+    const msg = `${o.creator_name}: ${who} perguntou preço ou pediu conteúdo${fresh.length > 1 ? ` (+${fresh.length - 1})` : ''}`;
+    if (sidebar) sidebar.webContents.send('toast', `💰 ${msg}`);
+    try { const n = new Notification({ title: 'Oportunidade de venda', body: msg, silent: false }); n.on('click', () => { if (win) { win.show(); win.focus(); } openOpportunity(o.id).catch(() => {}); }); n.show(); } catch {}
+  }
+  oppFirst = false; pushState();
+}
+async function openOpportunity(oppId) {
+  const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
+  if (o.platform === 'fatalfans') {
+    openProfile(o.creator_id, 'fatalfans');
+    const t = tabs.get(o.creator_id); const v = t && t.get('fatalfans'); const name = String(o.cid || '').replace(/^ff:/, '') || o.fan_name;
+    if (!v || !name) return { found: false, name: o.fan_name };
+    if (!/fatalfans\.com\/chat/.test(v.webContents.getURL())) { await v.webContents.loadURL('https://fatalfans.com/chat', { userAgent: UA }); await new Promise((r) => setTimeout(r, 2500)); }
+    // clica no item da lista com esse nome (o mesmo que o chatter faria)
+    const ok = await runJs(v, `(() => { const n = ${JSON.stringify(name)}; const it = [...document.querySelectorAll('div.min-h-18.cursor-pointer')].find((r) => { const h = r.querySelector('h3'); return h && h.textContent.replace(/\\s+/g, ' ').trim() === n; }); if (it) { it.click(); return true; } return false; })()`, 4000).catch(() => false);
+    return { found: !!ok, name: o.fan_name || name };
+  }
+  openProfile(o.creator_id, 'privacy');
+  const view = views.get(o.creator_id); const cid = o.cid || (fanCids[o.creator_id] && fanCids[o.creator_id][o.fan_ref]);
+  if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
+  return { found: !!cid, name: o.fan_name };
+}
+ipcMain.handle('opp:open', (_e, id) => openOpportunity(id));
+ipcMain.handle('opp:action', async (_e, { id, action, reason }) => { await api('POST', `/extension/opportunities/${encodeURIComponent(id)}/action`, { action, reason: reason || '' }); await loadOpportunities(); return publicState(); });
+ipcMain.handle('opp:reload', async () => { await loadOpportunities(); return publicState(); });
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
 }
@@ -383,7 +477,7 @@ function layout() {
     const vw = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
     v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vw, height: h });
     v.setVisible(id === activeId && platform === activeTab.get(id));
-    if (platform === 'privacy') applyZoom(v, vw);
+    applyZoom(v, vw, platform);
   }
   // a faixa de 2 px da aba oculta do extrato fica ENTRE a Privacy e o painel do fã (não coberta)
   if (fanView) { fanView.setBounds({ x: w - pw, y: 0, width: pw, height: h }); fanView.setVisible(pw > 0); }
@@ -433,15 +527,10 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
-    view.webContents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
-      const k = input.key; let z = view.webContents.getZoomFactor();
-      if (k === '=' || k === '+') z = Math.min(1.5, z + 0.05); else if (k === '-') z = Math.max(0.5, z - 0.05); else if (k === '0') { zoomPref = { manual: null }; writeJson('zoom.json', zoomPref); layout(); event.preventDefault(); return; } else return;
-      event.preventDefault(); zoomPref = { manual: Math.round(z * 100) / 100 }; writeJson('zoom.json', zoomPref);
-      for (const pv of views.values()) pv.webContents.setZoomFactor(zoomPref.manual);
-      if (sidebar) sidebar.webContents.send('toast', `Zoom da Privacy: ${Math.round(zoomPref.manual * 100)}% (Ctrl+0 volta ao automático)`);
-    });
   }
+  zoomKeys(view, platform);
+  // o Chromium guarda zoom por site; aqui quem manda é a escolha por plataforma
+  view.webContents.on('did-finish-load', () => { const z = zoomFor(platform, view.getBounds().width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); });
   view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
@@ -537,11 +626,12 @@ async function readAllNow() {
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
-    let events, summary;
-    try { ({ events, summary } = r.reader.process(data, new Date())); }
+    let events, summary, radar;
+    try { ({ events, summary, radar } = r.reader.process(data, new Date())); }
     catch (error) { try { fs.appendFileSync(path.join(app.isPackaged ? dataDir() : __dirname, 'erros-leitura.log'), `${new Date().toISOString()} process erro ${id.slice(0, 6)} ${error && error.stack}\n`); } catch {} continue; }
     r.summary = summary;
     writeJson(`reader-${id}.json`, r.reader.s);
+    sendRadar(id, radar).catch(() => {});
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
     const mine = shift && shift.operator_id === state.user.id && !shift.paused;
@@ -1171,6 +1261,14 @@ ipcMain.handle('fan:note:add', async (_e, text) => {
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
   await loadFanCard(true); return true;
 });
+// anotações da criadora (no painel, com autor e hora)
+// zoom (botões − % + no menu ⋮) e tela cheia
+ipcMain.handle('zoom:change', (_e, dir) => { const p = activeId && activeTab.get(activeId); if (!p) throw new Error('Abra uma criadora para ajustar o zoom.'); changeZoom(p, dir); return publicState(); });
+ipcMain.handle('win:fullscreen', () => { if (win) { win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); } return true; });
+ipcMain.handle('cnotes:list', async (_e, creatorId) => api('GET', `/extension/creators/${encodeURIComponent(creatorId)}/notes`));
+ipcMain.handle('cnotes:add', async (_e, { creatorId, text, pinned }) => { const r = await api('POST', `/extension/creators/${encodeURIComponent(creatorId)}/notes`, { text: String(text || '').slice(0, 1000), pinned: !!pinned }); refreshState(); return r; });
+ipcMain.handle('cnotes:del', async (_e, noteId) => { await api('DELETE', `/extension/creator-notes/${encodeURIComponent(noteId)}`); refreshState(); return true; });
+ipcMain.handle('cnotes:pin', async (_e, { noteId, pinned }) => { await api('PATCH', `/extension/creator-notes/${encodeURIComponent(noteId)}`, { pinned: !!pinned }); return true; });
 ipcMain.handle('fan:note:del', async (_e, noteId) => { await api('DELETE', `/extension/fan/notes/${encodeURIComponent(noteId)}`); await loadFanCard(true); return true; });
 ipcMain.handle('fan:contacted', async (_e, taskId) => { await api('POST', `/extension/fan-tasks/${encodeURIComponent(taskId)}/contacted`, {}); await loadTasks(); await loadFanCard(true); pushState(); return true; });
 ipcMain.handle('task:open', async (_e, taskId) => {
@@ -1213,6 +1311,8 @@ ipcMain.handle('extrato:toggle', (_e, id) => {
 // vai apenas "aba aberta", "está no chat ou não" e "sem leitura de dados" (leitor chega na fase 2).
 async function heartbeats() {
   if (!token || !state.user) return;
+  // presença no perfil: quais criadoras estão abertas aqui e qual está na tela (os outros veem "Fulano está neste perfil agora")
+  try { await api('POST', '/extension/presence', { open: [...tabs.keys()], active: activeId || null }); } catch {}
   for (const [id, view] of views) {
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
@@ -1246,7 +1346,16 @@ ipcMain.handle('auth:logout', async () => {
   return publicState();
 });
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
-ipcMain.handle('profile:reload-active', () => { const v = activeId && currentView(activeId); if (v && !v.webContents.isDestroyed()) { v.webContents.reload(); watchBlank(v); } return true; });
+// recarrega a página aberta e só responde quando ela termina de carregar (o ↻ da lateral gira até lá; no máximo 15 s)
+ipcMain.handle('profile:reload-active', () => new Promise((resolve) => {
+  const v = activeId && currentView(activeId);
+  if (!v || v.webContents.isDestroyed()) return resolve(false);
+  const wc = v.webContents; let done = false;
+  const finish = () => { if (done) return; done = true; clearTimeout(t); wc.removeListener('did-stop-loading', finish); resolve(true); };
+  const t = setTimeout(finish, 15000);
+  wc.once('did-stop-loading', finish);
+  wc.reload(); watchBlank(v);
+}));
 ipcMain.handle('me:avatar', async (_e, image) => {
   if (image) await api('PUT', '/extension/avatar', { image }); else await api('DELETE', '/extension/avatar');
   await refreshState(); return publicState();
@@ -1413,6 +1522,13 @@ app.whenReady().then(async () => {
   win.contentView.addChildView(fanView);
   fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
   fanView.webContents.on('did-finish-load', pushFan);
+  // Ctrl +/−/0 com o foco na lateral ou no cartão do fã: ajusta a página aberta (a lateral não muda de tamanho)
+  for (const ui of [sidebar, fanView]) ui.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
+    if (!dir) return; event.preventDefault(); const p = activeId && activeTab.get(activeId); if (p) changeZoom(p, dir);
+  });
+  for (const ui of [sidebar, fanView]) ui.webContents.on('zoom-changed', () => ui.webContents.setZoomFactor(1));
   win.on('resize', layout);
   layout();
 
@@ -1425,6 +1541,7 @@ app.whenReady().then(async () => {
   setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);
   setInterval(() => sendDiag(false), 60000); setTimeout(() => sendDiag(true), 20000);
   setInterval(heartbeats, HEARTBEAT_MS);
+  setInterval(() => loadOpportunities().catch(() => {}), 60000); setInterval(() => radarFatalFans().catch(() => {}), 90000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
 });
 

@@ -90,7 +90,7 @@ function apply(state) {
   const openTasks = (S.tasks || []).filter((t) => t.status === 'open');
   $('my-list').classList.toggle('hidden', !openTasks.length);
   if (openTasks.length) { const byReason = {}; for (const t of openTasks) byReason[t.reason || 'fãs'] = (byReason[t.reason || 'fãs'] || 0) + 1; $('my-list').innerHTML = `<b>Minha lista · ${openTasks.length}</b><small>${esc(Object.entries(byReason).map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · '))}</small>`; }
-  renderList();
+  renderList(); renderZoom(); renderOpps();
 }
 
 function localOf(id) { return (S.local.creators && S.local.creators[id]) || {}; }
@@ -177,11 +177,16 @@ function card(c) {
     if (ex && ex.error && S.user && S.user.role === 'manager') inds += `<span class="ind warn" title="${ex.error === 'login' ? 'Extrato: entre na Privacy' : 'Extrato: falha na leitura'}"></span>`;
   }
   el.dataset.id = c.id;
+  // quem mais está neste perfil agora (outros chatters/gestor com a criadora aberta no app)
+  const vw = c.viewers || [];
+  const viewers = vw.length ? `<div class="viewers${vw.some((v) => v.active) ? ' on' : ''}" title="${esc(vw.map((v) => `${v.name}${v.active ? ' (na tela agora)' : ' (aberta em segundo plano)'}`).join(' · '))}">👀 ${esc(vw.map((v) => v.name.split(' ')[0]).slice(0, 3).join(', '))}${vw.length > 3 ? ` +${vw.length - 3}` : ''} ${vw.length === 1 ? 'está' : 'estão'} neste perfil</div>` : '';
+  const ni = c.notes_info;
+  if (ni) inds += `<span class="ind note" title="${esc(`${ni.count} anotaç${ni.count === 1 ? 'ão' : 'ões'} · ${ni.last.author}: ${ni.last.text}`)}">📝${ni.count > 1 ? `<i>${ni.count}</i>` : ''}</span>`;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
   const face = c.avatar && /^data:image\//.test(c.avatar) ? `<img class="creator-photo" src="${esc(c.avatar)}" alt="">` : esc(initials(c.name));
   el.innerHTML = `<div class="avatar ${esc(c.color)}${c.avatar ? ' has-photo' : ''}">${face}${bubble}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${viewers}${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
     <button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => {
@@ -218,6 +223,8 @@ async function openCreator(c, platform) {
     if (!ok) return;
   }
   await run(() => window.pulse.openProfile(c.id, platform || 'privacy'));
+  const others = (c.viewers || []).filter((v) => v.active);
+  if (others.length && !(c.shift && c.shift.operator_id !== S.user.id)) toast(`${others.map((v) => v.name.split(' ')[0]).join(' e ')} ${others.length === 1 ? 'está' : 'estão'} neste perfil agora. Combinem para não responder o mesmo fã.`, 7000);
   if (!c.shift && !platform) offerShift(c);
 }
 async function platformDialog(c) {
@@ -398,19 +405,31 @@ async function calibrate(c) {
 }
 
 // ---------- diálogos ----------
-function notesDialog(c) {
-  const cur = localOf(c.id).notes || '';
-  dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="dlg-notes">${esc(cur)}</textarea><p>Ficam só neste computador nesta fase.</p>`, okText: 'Salvar',
-    onOk: () => window.pulse.setCreatorLocal(c.id, { notes: $('dlg-notes').value }) });
+// anotações da criadora: recados com autor e hora, iguais no painel e em qualquer computador
+async function notesDialog(c) {
+  const fmt = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const legacy = (localOf(c.id).notes || c.notes || '').trim();
+  const p = dialog({ title: `Anotações · ${c.name}`, body: `<textarea id="cn-text" maxlength="1000" placeholder="Ex.: fã João prometeu comprar às 21h · não oferecer vídeo essa semana"></textarea><div class="cn-row"><label><input type="checkbox" id="cn-pin"> Fixar no topo</label><button class="primary" id="cn-add">Adicionar</button></div><div id="cn-list" class="cn-list"><p class="muted">Carregando…</p></div>`, hideOk: true });
+  const draw = async () => {
+    let rows = [];
+    try { rows = await window.pulse.creatorNotes(c.id); } catch (e) { $('cn-list').innerHTML = `<p class="muted">${esc(e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''))}</p>`; return; }
+    const old = legacy ? `<div class="cn-item old"><p>${esc(legacy)}</p><small>nota antiga (versões anteriores)</small></div>` : '';
+    $('cn-list').innerHTML = rows.length || legacy ? old + rows.map((n) => `<div class="cn-item${n.pinned ? ' pinned' : ''}"><p>${esc(n.text)}</p><small>${n.pinned ? '📌 ' : ''}${esc(n.author)} · ${fmt(n.created_at)}<span><button class="link" data-pin="${esc(n.id)}" data-v="${n.pinned ? '' : '1'}">${n.pinned ? 'desafixar' : 'fixar'}</button>${n.author_id === S.user.id || S.user.role === 'manager' ? `<button class="link danger" data-del="${esc(n.id)}">apagar</button>` : ''}</span></small></div>`).join('') : '<p class="muted">Nenhuma anotação ainda. Use para recados de passagem de turno.</p>';
+    $('cn-list').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNoteDel(b.dataset.del)); draw(); });
+    $('cn-list').querySelectorAll('[data-pin]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNotePin(b.dataset.pin, !!b.dataset.v)); draw(); });
+  };
+  $('cn-add').onclick = async () => { const t = $('cn-text').value.trim(); if (!t) return; const r = await run(() => window.pulse.creatorNoteAdd(c.id, t, $('cn-pin').checked)); if (r) { $('cn-text').value = ''; $('cn-pin').checked = false; draw(); } };
+  draw(); await p;
 }
 // grupos da criadora (pode estar em vários); local antigo tinha só 'group'
 function groupsOf(id) { const l = localOf(id); return Array.isArray(l.groups) ? l.groups : (l.group ? [l.group] : []); }
+const MAX_GROUPS_PER_CREATOR = 100;
 function groupDialog(c) {
   if (!S.local.groups.length) { dialog({ title: `Grupos · ${c.name}`, body: '<p>Crie um grupo primeiro em “+ Novo grupo”.</p>', hideOk: true }); return; }
   const cur = new Set(groupsOf(c.id));
   const opts = S.local.groups.map((g) => `<label class="ghost choice multi ${cur.has(g.id) ? 'sel' : ''}"><input type="checkbox" data-g="${esc(g.id)}" ${cur.has(g.id) ? 'checked' : ''}> ${esc(g.name)}</label>`).join('');
   dialog({ title: `Grupos · ${c.name}`, body: `<p>Marque um ou mais grupos.</p>${opts}`, okText: 'Salvar',
-    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); await window.pulse.setCreatorLocal(c.id, { groups }); } });
+    onOk: async () => { const groups = [...$('dialog-body').querySelectorAll('input[type=checkbox]')].filter((i) => i.checked).map((i) => i.dataset.g); if (groups.length > MAX_GROUPS_PER_CREATOR) { toast(`Cada criadora pode estar em no máximo ${MAX_GROUPS_PER_CREATOR} grupos.`, 5000); return false; } await window.pulse.setCreatorLocal(c.id, { groups }); } });
   $('dialog-body').querySelectorAll('input[type=checkbox]').forEach((i) => i.onchange = () => i.closest('label').classList.toggle('sel', i.checked));
 }
 function tagDialog(c) {
@@ -427,6 +446,7 @@ function groupMenu(gid, anchor) {
   const g = S.local.groups.find((x) => x.id === gid); if (!g) return;
   const m = $('creator-menu'); m.innerHTML = '';
   const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { hideMenus(); fn(); }; m.appendChild(b); };
+  add('Escolher criadoras do grupo…', () => groupMembersDialog(g));
   add('Renomear grupo', () => dialog({ title: 'Renomear grupo', body: `<input id="dlg-group" value="${esc(g.name)}" maxlength="40">`, okText: 'Salvar',
     onOk: async () => { const name = $('dlg-group').value.trim(); if (!name) return false; await window.pulse.setGroups(S.local.groups.map((x) => x.id === gid ? { ...x, name } : x)); } }));
   add('Excluir grupo (as criadoras não são apagadas)', async () => {
@@ -436,6 +456,29 @@ function groupMenu(gid, anchor) {
     await window.pulse.setGroups(S.local.groups.filter((x) => x.id !== gid));
   }, 'danger');
   place(m, anchor);
+}
+// várias criadoras de uma vez num grupo: busca, marcar todas, e só grava quem mudou
+function groupMembersDialog(g) {
+  const list = [...S.creators].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = list.map((c) => { const on = groupsOf(c.id).includes(g.id); return `<label class="ghost choice multi ${on ? 'sel' : ''}" data-name="${esc(c.name.toLowerCase())}"><input type="checkbox" data-c="${esc(c.id)}" ${on ? 'checked' : ''}> ${esc(c.name)}</label>`; }).join('');
+  dialog({ title: `Criadoras · ${g.name}`, body: `<input id="gm-search" placeholder="Buscar criadora"><div class="gm-bar"><button type="button" class="ghost" id="gm-all">Marcar todas</button><button type="button" class="ghost" id="gm-none">Desmarcar todas</button><span id="gm-count" class="muted"></span></div><div class="gm-list">${rows}</div>`, okText: 'Salvar',
+    onOk: async () => {
+      const boxes = [...$('dialog-body').querySelectorAll('input[data-c]')]; let changed = 0, blocked = [];
+      for (const b of boxes) {
+        const id = b.dataset.c; const gs = groupsOf(id); const has = gs.includes(g.id);
+        if (b.checked === has) continue;
+        if (b.checked && gs.length >= MAX_GROUPS_PER_CREATOR) { blocked.push((S.creators.find((x) => x.id === id) || {}).name || id); continue; }
+        await window.pulse.setCreatorLocal(id, { groups: b.checked ? [...gs, g.id] : gs.filter((x) => x !== g.id) }); changed += 1;
+      }
+      toast(blocked.length ? `${changed} alteradas. Já estão em ${MAX_GROUPS_PER_CREATOR} grupos: ${blocked.join(', ')}.` : `${changed} criadora${changed === 1 ? '' : 's'} alterada${changed === 1 ? '' : 's'} no grupo.`, 5000);
+    } });
+  const body = $('dialog-body'); const count = () => { $('gm-count').textContent = `${body.querySelectorAll('input[data-c]:checked').length} no grupo`; };
+  body.querySelectorAll('input[data-c]').forEach((i) => i.onchange = () => { i.closest('label').classList.toggle('sel', i.checked); count(); });
+  const visible = () => [...body.querySelectorAll('label[data-name]')].filter((l) => l.style.display !== 'none');
+  $('gm-all').onclick = () => { visible().forEach((l) => { const i = l.querySelector('input'); i.checked = true; l.classList.add('sel'); }); count(); };
+  $('gm-none').onclick = () => { visible().forEach((l) => { const i = l.querySelector('input'); i.checked = false; l.classList.remove('sel'); }); count(); };
+  $('gm-search').oninput = (e) => { const q = e.target.value.trim().toLowerCase(); body.querySelectorAll('label[data-name]').forEach((l) => { l.style.display = !q || l.dataset.name.includes(q) ? '' : 'none'; }); };
+  count();
 }
 function tagsDialog() {
   const rows = S.local.tags.map((t, i) => `<div class="tagrow"><input type="color" value="${esc(t.color)}" data-i="${i}"><input value="${esc(t.name)}" data-i="${i}" maxlength="30"></div>`).join('');
@@ -454,6 +497,29 @@ $('login-form').addEventListener('submit', async (e) => {
 });
 $('origin-save').onclick = async () => { await window.pulse.setOrigin($('origin').value.trim() || 'https://altapulse.com.br'); toast('Endereço salvo.'); };
 $('me-avatar').onclick = () => photoMenu();
+// ---------- oportunidades de venda (radar) ----------
+const fmtBRL = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2).replace('.', ',');
+function renderOpps() {
+  const list = S.opportunities || []; const hot = list.filter((o) => o.hot).length; const el = $('my-opps');
+  el.classList.toggle('hidden', !list.length);
+  if (list.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo</small>`;
+}
+function oppDialog() {
+  const list = S.opportunities || [];
+  const byCreator = {}; for (const o of list) (byCreator[o.creator_name] = byCreator[o.creator_name] || []).push(o);
+  const body = `<div class="opp-list">${Object.entries(byCreator).map(([cn, items]) => `<div class="opp-group">${esc(cn)}</div>${items.map((o) => `<div class="opp${o.hot ? ' hot' : ''}"><div class="opp-info"><b>${esc(o.fan_name || 'Fã sem nome')}</b><span class="opp-kind">${esc(o.label)}${o.platform && o.platform !== 'privacy' ? ` · ${esc(S.platforms && S.platforms[o.platform] ? S.platforms[o.platform].label : o.platform)}` : ''} · ${esc(fmtBRL(o.value_cents))}</span><small>${esc(o.reason)}</small></div><div class="opp-actions"><button class="primary" data-open="${esc(o.id)}">Abrir conversa</button><button class="ghost" data-done="${esc(o.id)}" title="Já falei com o fã">Feito</button><button class="ghost" data-skip="${esc(o.id)}" title="Não faz sentido agora">Dispensar</button></div></div>`).join('')}`).join('') || '<p class="muted">Nada agora. O radar olha a lista de conversas enquanto a Privacy está aberta.</p>'}</div><p class="muted">Quando você responde ou manda oferta para o fã, a oportunidade é marcada sozinha. Venda em até 2 dias conta para você.</p>`;
+  const p = dialog({ title: 'Oportunidades de venda', body, hideOk: true });
+  const B = $('dialog-body');
+  B.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', async () => {
+    $('dialog-cancel').onclick();
+    const r = await run(() => window.pulse.oppOpen(b.dataset.open));
+    if (r && !r.found) toast(`Procure "${r.name || 'o fã'}" na lista de conversas: ainda não sei qual é a conversa dele.`, 6000);
+  }));
+  B.querySelectorAll('[data-done]').forEach((b) => b.addEventListener('click', async () => { await run(() => window.pulse.oppAction(b.dataset.done, 'contacted')); b.closest('.opp').remove(); }));
+  B.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', async () => { await run(() => window.pulse.oppAction(b.dataset.skip, 'dismissed')); b.closest('.opp').remove(); }));
+  return p;
+}
+$('my-opps').onclick = () => oppDialog();
 $('my-list').onclick = async () => {
   const list = (S.tasks || []).filter((t) => t.status === 'open');
   const body = `<div class="task-list">${list.map((t) => `<div class="task"><div><b>${esc(t.fan_name || 'Fã sem nome')}</b><small>${esc(t.creator_name)}${t.reason ? ' · ' + esc(t.reason) : ''} · por ${esc(t.assigned_by)}</small></div><button class="primary" data-task="${esc(t.id)}">Abrir</button></div>`).join('') || '<p class="muted">Nada pendente.</p>'}</div><p class="muted">Ao abrir, o cartão do fã aparece à direita; marque "contatado" depois de falar com ele.</p>`;
@@ -474,7 +540,13 @@ $('btn-logout').onclick = async () => {
   for (const c of mine) { try { await window.pulse.shiftAction(c.shift.id, 'end'); } catch {} }
   run(() => window.pulse.logout());
 };
-$('btn-refresh').onclick = () => { if (window.pulse.reloadActive) window.pulse.reloadActive(); run(() => window.pulse.getState()); };
+// ↻ gira enquanto recarrega a página aberta e a lista (mínimo 0,6 s, para dar para ver)
+$('btn-refresh').onclick = async () => {
+  const b = $('btn-refresh'); if (b.classList.contains('spinning')) return;
+  b.classList.add('spinning'); b.disabled = true; const t0 = Date.now();
+  try { await Promise.all([window.pulse.reloadActive ? window.pulse.reloadActive() : null, run(() => window.pulse.getState())]); } catch {}
+  setTimeout(() => { b.classList.remove('spinning'); b.disabled = false; }, Math.max(0, 600 - (Date.now() - t0)));
+};
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
 $('sort').addEventListener('change', () => { saveSort(); renderList(); });
@@ -486,6 +558,22 @@ $('list').addEventListener('click', (e) => {
   if (g.classList.contains('closed')) closedGroups.add(gid); else closedGroups.delete(gid);
   localStorage.setItem('closedGroups', JSON.stringify([...closedGroups]));
 });
+// zoom da página aberta (por plataforma, neste computador): menu ⋮, Ctrl +/−/0 e Ctrl + rodinha
+function renderZoom() {
+  const z = S && S.zoom; const pill = $('zoom-pill');
+  $('zoom-pct').textContent = z ? `${z.pct}%` : '—';
+  $('zoom-row').querySelector('.zr-label').textContent = z ? `Zoom · ${z.label}${z.auto ? ' (auto)' : ''}` : 'Zoom';
+  $('zoom-row').querySelectorAll('[data-zoom="in"],[data-zoom="out"]').forEach((b) => { b.disabled = !z; });
+  const show = z && !z.auto && z.pct !== 100;
+  pill.classList.toggle('hidden', !show); if (show) pill.textContent = `${z.pct}%`;
+}
+$('zoom-row').addEventListener('click', async (e) => {
+  e.stopPropagation(); const b = e.target.closest('[data-zoom]'); if (!b) return;
+  if (b.dataset.zoom === 'full') { hideMenus(); return window.pulse.fullscreen(); }
+  await run(() => window.pulse.zoom(b.dataset.zoom));
+});
+$('zoom-pill').onclick = () => run(() => window.pulse.zoom('reset'));
+window.addEventListener('keydown', (e) => { if (e.key === 'F11') { e.preventDefault(); window.pulse.fullscreen(); } });
 $('btn-menu').onclick = (e) => { const m = $('app-menu'); if (!m.classList.contains('hidden')) return hideMenus(); place(m, e.currentTarget); };
 $('app-menu').addEventListener('click', async (e) => {
   const act = e.target.dataset.act; if (!act) return; hideMenus();

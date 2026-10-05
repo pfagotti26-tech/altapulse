@@ -13,7 +13,7 @@ class Setup(Login):
 class Operator(Login):
     name: str = Field(min_length=2, max_length=70)
     role: Literal['manager', 'chatter'] = 'chatter'
-    creator_ids: list[str] = Field(default_factory=list, max_length=100)
+    creator_ids: list[str] = Field(default_factory=list, max_length=1000)  # limite de negócio (150) validado em people.py
     temporary_password: bool = False
 
 class PasswordChange(Strict):
@@ -35,20 +35,20 @@ class PasswordChange(Strict):
         if self.new_password != self.confirm_password: raise ValueError('A confirmação da nova senha não confere.')
         return self
 class OperatorUpdate(Strict):
-    creator_ids: list[str] = Field(max_length=100)
+    creator_ids: list[str] = Field(max_length=1000)
     active: bool = True
 class Creator(Strict):
     name: str = Field(min_length=2, max_length=70)
     handle: str = Field(default='', max_length=60)
     color: Literal['green', 'rose', 'blue', 'amber', 'lavender'] = 'green'
     group: str = Field(default='', max_length=40)
-    groups: list[str] = Field(default_factory=list, max_length=20)
+    groups: list[str] = Field(default_factory=list, max_length=500)  # limite de negócio (100) validado ao gravar
     tag: str = Field(default='', max_length=30)
     notes: str = Field(default='', max_length=2000)
 class CreatorMeta(Strict):
     group: Optional[str] = Field(default=None, max_length=40)
     # vários grupos (a mesma criadora pode estar em mais de um); 'group' fica com o primeiro, para apps antigos
-    groups: Optional[list[str]] = Field(default=None, max_length=20)
+    groups: Optional[list[str]] = Field(default=None, max_length=500)
     tag: Optional[str] = Field(default=None, max_length=30)
     notes: Optional[str] = Field(default=None, max_length=2000)
 class Reason(Strict):

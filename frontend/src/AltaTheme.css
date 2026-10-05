@@ -371,3 +371,17 @@ table.ai-days td.has{font-weight:700;color:#3f8158;text-align:center}table.ai-da
 .cd-day i{width:100%;max-width:26px;background:#ae344b;border-radius:3px 3px 0 0}.cd-day i.zero{background:#e6e6ea}
 .cd-day span{position:absolute;bottom:-16px;font-size:9px;color:#9a9aa3}
 .ai-bad{color:#b33a4f;font-weight:600}
+
+/* anotações, presença e lixeira (lote 28) */
+.icon-btn.has-notes { position: relative; color: var(--accent, #4f8cff); }
+.icon-btn .notes-count { position: absolute; top: -4px; right: -4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--accent, #4f8cff); color: #fff; font: 600 9.5px/15px inherit; font-style: normal; text-align: center; }
+.creator-viewers { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12px; color: #b7791f; }
+.creator-viewers .tiny-avatar { width: 18px; height: 18px; font-size: 8px; }
+.note-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; }
+.note-item { border: 1px solid var(--border, #e5e5e5); border-radius: 10px; padding: 10px 12px; }
+.note-item.pinned { border-color: #f0b429; background: rgba(240, 180, 41, .07); }
+.note-item p { margin: 0 0 6px; white-space: pre-wrap; }
+.note-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; opacity: .7; }
+.trash-head { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; font: inherit; }
+.trash-head span { font-size: 12px; padding: 0 7px; border-radius: 9px; background: var(--muted, #eee); }
+.trash-head small { opacity: .6; }
