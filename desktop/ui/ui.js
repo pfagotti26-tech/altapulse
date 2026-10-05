@@ -24,9 +24,14 @@ function dialog({ title, body, okText = 'OK', onOk, hideOk = false }) {
     $('dialog-title').textContent = title; $('dialog-body').innerHTML = body;
     $('dialog-ok').textContent = okText; $('dialog-ok').classList.toggle('hidden', hideOk);
     $('dialog').classList.remove('hidden');
-    const close = (v) => { $('dialog').classList.add('hidden'); $('dialog-ok').onclick = null; $('dialog-cancel').onclick = null; resolve(v); };
+    const close = (v) => { $('dialog').classList.add('hidden'); $('dialog-ok').onclick = null; $('dialog-cancel').onclick = null; $('dialog-x').onclick = null; $('dialog').onclick = null; document.removeEventListener('keydown', onKey); resolve(v); };
+    // fecha com ×, Esc e clique fora da caixa
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
+    document.addEventListener('keydown', onKey);
     $('dialog-ok').onclick = async () => { const v = onOk ? await onOk() : true; if (v !== false) close(v); };
     $('dialog-cancel').onclick = () => close(null);
+    $('dialog-x').onclick = () => close(null);
+    $('dialog').onclick = (e) => { if (e.target === $('dialog')) close(null); };
     const first = $('dialog-body').querySelector('input, textarea'); if (first) first.focus();
   });
 }

@@ -43,26 +43,41 @@ export function QualityGuide({ open, onClose, goals }) {
   </Modal>;
 }
 
-// ---------- fila ao vivo ----------
+// ---------- fila ao vivo (vem fechada: resumo em uma linha; dentro, uma dobra por criadora) ----------
+const pref = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === '1'; } catch { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch {} };
 function WaitingNow({ filters, reloadKey }) {
-  const [d, setD] = useState(null);
+  const [d, setD] = useState(null), [open, setOpen] = useState(() => pref('alta-waiting-open', false)), [groupsOpen, setGroupsOpen] = useState({}), [more, setMore] = useState({}), [who, setWho] = useState('');
   const load = useCallback(() => api.get(`/quality/waiting${filters.creator_id ? `?creator_id=${filters.creator_id}` : ''}`).then(r => setD(r.data)).catch(() => setD({ rows: [], count: 0, limit_minutes: 10 })), [filters.creator_id, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, [load]);
   const link = (r) => `altapulse://abrir?${new URLSearchParams({ c: r.creator_id, p: r.platform || 'privacy', ...(r.cid ? { cid: r.cid } : {}), ...(r.fan_name ? { n: r.fan_name } : {}), ...(r.fan_ref ? { f: r.fan_ref } : {}) }).toString()}`;
   const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast.success('Nome copiado.'); } catch { toast.error('Não consegui copiar.'); } };
-  const rows = d?.rows || [];
-  return <section className="data-section" data-testid="quality-waiting">
-    <div className="section-heading"><div><h2><AlarmClock size={17}/> Fãs esperando agora <span className="count-label">{d ? d.count : '…'}</span></h2>
-      <p>Fã escreveu e ninguém respondeu há mais de {d?.limit_minutes || 10} min (últimas 48 h). Atualiza sozinho a cada minuto. <Tip text="Só aparecem conversas que o app viu abertas. O botão Abrir no app abre a conversa no seu Alta Pulse, no perfil isolado da criadora."/></p></div></div>
-    {!d ? <p className="body-muted">Carregando…</p> : rows.length ? <div className="table-scroll"><table className="wait-table"><thead><tr><th>Esperando há</th><th>Fã</th><th>Criadora</th><th>De turno agora</th><th>Já gastou</th><th/></tr></thead><tbody>
-      {rows.map((r, i) => <tr key={i} className={r.seconds >= 3600 ? 'w-red' : r.seconds >= 1800 ? 'w-amber' : ''}>
-        <td><b className="w-time">{r.waiting}</b><small className="body-muted">desde {dateTime(r.since).split(' ').pop()}</small></td>
-        <td><strong>{r.fan_name || 'Fã sem nome'}</strong>{r.platform !== 'privacy' && <small className="body-muted"> · {r.platform === 'fatalfans' ? 'FatalFans' : r.platform}</small>}</td>
-        <td>{r.creator_name}</td>
-        <td>{r.on_shift ? <>{r.on_shift}{r.shift_paused && <span className="body-muted"> (pausado)</span>}</> : <span className="w-none">ninguém de turno</span>}</td>
-        <td className="tabular">{r.spent_cents ? money(r.spent_cents) : '—'}</td>
-        <td className="row-actions"><a className="btn-link" href={link(r)} title="Abre a conversa no seu Alta Pulse">Abrir no app <ExternalLink size={13}/></a>{r.fan_name && <button className="icon-btn" title="Copiar nome do fã" onClick={() => copy(r.fan_name)}><Copy size={14}/></button>}</td></tr>)}
-    </tbody></table></div> : <div className="inline-empty ok">Ninguém esperando acima de {d.limit_minutes} min. 👏</div>}
+  const all = d?.rows || [];
+  const chatters = [...new Set(all.map(r => r.on_shift || 'ninguém de turno'))];
+  const rows = all.filter(r => !who || (r.on_shift || 'ninguém de turno') === who);
+  const sev = (s) => s >= 12 * 3600 ? 'w-red' : s >= 3600 ? 'w-amber' : '';
+  const old12 = all.filter(r => r.seconds >= 12 * 3600).length; const spent = all.reduce((n, r) => n + (r.spent_cents || 0), 0); const oldest = all[0];
+  const by = {}; for (const r of rows) (by[r.creator_name] = by[r.creator_name] || []).push(r);
+  const groups = Object.entries(by).sort((a, b) => b[1][0].seconds - a[1][0].seconds);
+  const toggle = () => { setOpen(o => { setPref('alta-waiting-open', !o); return !o; }); };
+  return <section className={`data-section waiting ${open ? 'open' : ''}`} data-testid="quality-waiting">
+    <button type="button" className="fold-head" onClick={toggle} aria-expanded={open}>
+      {open ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}<AlarmClock size={16}/><b>Fãs esperando agora</b>
+      {d ? all.length ? <span className="fold-sum"><i className={old12 ? 'bad' : ''}>{all.length} esperando</i>{old12 ? <> · <i className="bad">{old12} há mais de 12 h</i></> : null} · mais antigo: {oldest.fan_name || 'fã'} ({oldest.creator_name}) há {oldest.waiting}{spent ? <> · já gastaram {money(spent)}</> : null}</span> : <span className="fold-sum ok">ninguém esperando acima de {d.limit_minutes} min 👏</span> : <span className="fold-sum">…</span>}
+      <Tip text={`Fã escreveu e ninguém respondeu há mais de ${d?.limit_minutes || 10} min (últimas 48 h; limite em Metas). Atualiza a cada minuto. Abrir no app abre a conversa no seu Alta Pulse, no perfil da criadora.`}/>
+    </button>
+    {open && d && all.length > 0 && <div className="fold-body">
+      {chatters.length > 1 && <div className="wait-filter"><span>Chatter:</span><button type="button" className={!who ? 'on' : ''} onClick={() => setWho('')}>Todos</button>{chatters.map(c => <button key={c} type="button" className={who === c ? 'on' : ''} onClick={() => setWho(c)}>{c}</button>)}</div>}
+      {groups.map(([cn, list]) => { const g = groupsOpen[cn]; const shown = more[cn] ? list : list.slice(0, 5); const chatter = list[0].on_shift;
+        return <div key={cn} className="wait-group">
+          <button type="button" className="wait-group-head" onClick={() => setGroupsOpen(o => ({ ...o, [cn]: !g }))}>{g ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}<b>{cn}</b><span className={list[0].seconds >= 12 * 3600 ? 'bad' : ''}>{list.length} esperando · mais antigo há {list[0].waiting}</span><em>{chatter ? `${chatter} de turno${list[0].shift_paused ? ' (pausado)' : ''}` : 'ninguém de turno'}</em></button>
+          {g && <div className="wait-rows">{shown.map((r, i) => <div key={i} className={`wait-row ${sev(r.seconds)}`}>
+            <b className="w-time">{r.waiting}</b><span className="w-fan"><strong>{r.fan_name || 'Fã sem nome'}</strong>{r.platform !== 'privacy' && <small> · {r.platform === 'fatalfans' ? 'FatalFans' : r.platform}</small>}</span>
+            <span className="w-spent">{r.spent_cents ? money(r.spent_cents) : ''}</span><small className="w-since">desde {dateTime(r.since).split(' ').pop()}</small>
+            <span className="w-acts"><a className="w-link" href={link(r)} title="Abre a conversa no seu Alta Pulse">Abrir no app <ExternalLink size={12}/></a>{r.fan_name && <button className="icon-btn" title="Copiar nome do fã" onClick={() => copy(r.fan_name)}><Copy size={13}/></button>}</span>
+          </div>)}{list.length > 5 && <button type="button" className="w-more" onClick={() => setMore(m => ({ ...m, [cn]: !m[cn] }))}>{more[cn] ? 'ver menos' : `ver mais ${list.length - 5}`}</button>}</div>}
+        </div>; })}
+    </div>}
   </section>;
 }
 
@@ -131,7 +146,6 @@ export function QualityBoard({ filters, reloadKey }) {
   return <>
     <div className="qhead-actions"><Button variant="outline" onClick={() => setGuide(true)}><HelpCircle size={15}/>Como ler esta página</Button><Button variant="outline" onClick={() => setGoalsOpen(true)}><Target size={14}/>Metas</Button></div>
     {error && <Notice id="quality-error" tone="danger">{error}</Notice>}
-    <WaitingNow filters={filters} reloadKey={reloadKey + nonce}/>
     <section className="data-section" data-testid="quality-scorecard">
       <div className="section-heading"><div><h2>Placar da equipe</h2><p>Um chatter por linha, contra as metas: verde bate a meta, amarelo perto, vermelho longe. Clique no nome para abrir o painel dele; clique no título da coluna para ordenar.</p></div>
         <div className="row-actions"><label className="checkbox-label small"><input type="checkbox" checked={managers} onChange={e => setManagers(e.target.checked)}/><span>incluir gestores</span></label><span className="period-tag">{periodText(filters)}</span></div></div>
@@ -150,6 +164,7 @@ export function QualityBoard({ filters, reloadKey }) {
           <td className={cellTone('ai_score', c, g)}>{c.ai_score != null ? `${c.ai_score}/10` : '—'}<small>{c.ai_engagement != null ? `engaj. ${c.ai_engagement}/10${c.ai_dry_pct != null ? ` · ${c.ai_dry_pct}% secas` : ''}` : 'sem análise'}</small></td>
         </tr>)}</tbody></table></div> : <div className="inline-empty">{loading ? 'Calculando…' : 'Nenhum chatter com turno ou atendimento no período.'}</div>}
     </section>
+    <WaitingNow filters={filters} reloadKey={reloadKey + nonce}/>
     <Alerts alerts={(data?.alerts || []).filter(a => a.kind !== 'waiting')}/>
     <GoalsModal open={goalsOpen} onClose={() => setGoalsOpen(false)} onSaved={() => setNonce(n => n + 1)}/>
     <QualityGuide open={guide} onClose={() => setGuide(false)} goals={g}/>
