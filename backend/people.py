@@ -73,7 +73,10 @@ async def create_user(body: Operator, user=Depends(manager)):
     try: await db.users.insert_one(row.copy())
     except DuplicateKeyError: raise HTTPException(409, 'Este e-mail já está cadastrado.')
     await audit(user, 'Integrante cadastrado', row['name'])
-    return {k: v for k, v in row.items() if k != 'password_hash'}
+    # com e-mail configurado, a pessoa recebe o convite e define a própria senha (a inicial segue valendo como reserva)
+    from password_reset import send_invite_if_possible
+    invited = await send_invite_if_possible(row, user['name'])
+    return {k: v for k, v in row.items() if k != 'password_hash'} | {'invite_sent': invited}
 @router.patch('/users/{user_id}')
 async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager)):
     target = await db.users.find_one({'id': user_id}, {'_id': 0})
@@ -100,6 +103,21 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(manager))
         await db.sessions.delete_many({'user_id': user_id})
         await db.extension_tokens.delete_many({'user_id': user_id})
     await audit(user, 'Integrante atualizado', target['name'], {k: v for k, v in patch.items() if k not in ['password_hash']} | ({'senha': 'redefinida'} if body.new_password else {}))
+    invited = False
+    if body.new_password:
+        from password_reset import send_invite_if_possible
+        invited = await send_invite_if_possible({**target, **patch}, user['name'])
+    return {'ok': True, 'invite_sent': invited}
+@router.post('/users/{user_id}/invite')
+async def resend_invite(user_id: str, user=Depends(manager)):
+    """Reenvia o e-mail para a pessoa definir a senha (precisa do envio de e-mail configurado)."""
+    from password_reset import send_invite_if_possible
+    import mailer
+    if not mailer.configured(): raise HTTPException(503, 'O envio de e-mail ainda não está configurado neste painel.')
+    target = await db.users.find_one({'id': user_id, 'active': True}, {'_id': 0, 'password_hash': 0})
+    if not target: raise HTTPException(404, 'Integrante não encontrado.')
+    if not await send_invite_if_possible(target, user['name']): raise HTTPException(502, 'Não consegui enviar o e-mail agora. Tente de novo em instantes.')
+    await audit(user, 'Convite por e-mail reenviado', target['name'])
     return {'ok': True}
 @router.delete('/users/{user_id}')
 async def delete_user(user_id: str, body: Reason, user=Depends(manager)):
