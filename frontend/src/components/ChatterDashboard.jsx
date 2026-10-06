@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, ArrowUp, ArrowDown } from 'lucide-react';
+import { Sparkles, ArrowUp, ArrowDown, LayoutDashboard } from 'lucide-react';
 import { api, errorText, money, duration, dateTime } from '../lib/api';
 import { Badge, Notice } from './Common';
 import { periodRange } from './MetricFilters';
@@ -13,6 +13,38 @@ function Kpi({ label, value, hint, team, better, raw, goal, tip }) {
   let cmp = null;
   if (team != null && raw != null && raw !== team) { const good = better === 'low' ? raw < team : raw > team; cmp = <em className={good ? 'up' : 'down'}>{good ? <ArrowUp size={11}/> : <ArrowDown size={11}/>}equipe {better === 'money' ? money(team) : better === 'time' || better === 'low' ? duration(team) : `${team}${hint || ''}`}</em>; }
   return <div className="cd-kpi"><span>{label}{tip && <Tip text={tip}/>}</span><b>{value}</b>{goal && <i>meta {goal}</i>}{cmp}</div>;
+}
+
+const AI_PERIODS = [['1', 'Hoje'], ['yesterday', 'Ontem'], ['7', '7 dias'], ['30', '30 dias'], ['custom', 'Personalizado']];
+const fmtDay = (iso) => dateTime(iso).split(' ')[0];
+// Análise da IA de um chatter, com período próprio (abre na linha do placar, abaixo do nome)
+export function ChatterAI({ operatorId, filters, onOpenPanel }) {
+  const [f, setF] = useState(() => ({ period: filters?.period || '7', from: filters?.from || '', to: filters?.to || '' }));
+  const [d, setD] = useState(null), [err, setErr] = useState('');
+  const { start, end } = periodRange(f);
+  const q = new URLSearchParams(); if (start) q.set('start', start.toISOString()); if (end) q.set('end', end.toISOString());
+  useEffect(() => { setD(null); setErr(''); api.get(`/quality/chatter/${operatorId}/ai?${q.toString()}`).then(r => setD(r.data)).catch(e => setErr(errorText(e))); }, [operatorId, q.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const change = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const delta = (cur, prev) => cur != null && prev != null ? Math.round((cur - prev) * 10) / 10 : null;
+  const ds = d ? delta(d.score, d.prev_score) : null, de = d ? delta(d.engagement, d.prev_engagement) : null;
+  const arrow = (v) => v == null || v === 0 ? null : <em className={`trend ${v > 0 ? 'up' : 'down'}`}>{v > 0 ? <ArrowUp size={11}/> : <ArrowDown size={11}/>}{v > 0 ? '+' : ''}{v} vs. período anterior</em>;
+  return <div className="cai">
+    <div className="cai-head">
+      <div className="period-chips cai-chips" role="group" aria-label="Período da análise">{AI_PERIODS.map(([v, l]) => <button key={v} type="button" className={f.period === v ? 'on' : ''} onClick={() => change('period', v)}>{l}</button>)}
+        {f.period === 'custom' && <span className="date-range"><input type="date" aria-label="De" value={f.from} max={f.to || undefined} onChange={e => change('from', e.target.value)}/><span>até</span><input type="date" aria-label="Até" value={f.to} min={f.from || undefined} onChange={e => change('to', e.target.value)}/></span>}
+      </div>
+      {onOpenPanel && <button type="button" className="link-like" onClick={onOpenPanel}><LayoutDashboard size={13}/> Painel completo (números)</button>}
+    </div>
+    {err ? <Notice tone="danger">{err}</Notice> : !d ? <p className="body-muted">Carregando…</p> : !d.items.length ? <div className="inline-empty">Nenhuma análise da IA sobre este chatter neste período. A análise roda todo dia às 10h30 com as conversas do dia anterior.</div> : <>
+      {d.items.length > 1 && <div className="cai-sum"><span>Média do período: <b>{d.score ?? '—'}/10</b> {arrow(ds)}</span><span>Engajamento: <b>{d.engagement ?? '—'}/10</b> {arrow(de)}</span>{d.dry_pct != null && <span>Respostas secas: <b>{d.dry_pct}%</b></span>}<span className="body-muted">{d.items.length} análises</span></div>}
+      {d.items.map((a, i) => <div key={i} className="cai-item">
+        <div className="cai-top"><strong>{a.creator_name || 'Criadora'}</strong><span className={`score-pill ${a.score == null ? '' : a.score >= 8 ? 'good' : a.score >= 6 ? 'mid' : 'low'}`}>{a.score ?? '—'}/10</span>{a.engagement != null && <span className="cai-eng">engaj. {a.engagement}/10{a.dry_pct != null ? ` · ${a.dry_pct}% secas` : ''}</span>}<span className="body-muted">conversas de {fmtDay(a.period_start)}{fmtDay(a.period_end) !== fmtDay(a.period_start) ? ` a ${fmtDay(a.period_end)}` : ''} · analisado em {dateTime(a.created_at)}</span></div>
+        {a.strengths && <p><b>Pontos fortes:</b> {a.strengths}</p>}
+        {a.improve && <p><b>Melhorar:</b> {a.improve}</p>}
+        {a.rewrite ? <p className="rewrite">{a.rewrite}</p> : a.example && <p className="body-muted">Exemplo: {a.example}</p>}
+      </div>)}
+    </>}
+  </div>;
 }
 
 export function ChatterDashboard({ operatorId, filters }) {

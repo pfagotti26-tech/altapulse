@@ -1,16 +1,23 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock3, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight, Target, BadgeDollarSign, ShieldAlert, Hourglass, HelpCircle, ExternalLink, Copy, ArrowUpDown, AlarmClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, errorText, money, duration, dateTime } from '../lib/api';
 import { Avatar, Notice, Modal, Button, Field } from './Common';
 import { periodRange, periodText } from './MetricFilters';
-import { ChatterDashboard } from './ChatterDashboard';
+import { ChatterDashboard, ChatterAI } from './ChatterDashboard';
 
 // Qualidade como gestão de vendas: (1) quem está esperando agora, (2) placar da equipe contra as METAS, (3) alertas.
 // Cada número tem ⓘ explicando o que mede; "Como ler esta página" abre o guia completo.
 
+// Tooltip flutuante: renderizado no <body> com posição fixa, para não ser cortado pela área rolável da tabela
 export function Tip({ text, children }) {
-  return <span className="qtip" tabIndex={0} aria-label={text}>{children || <HelpCircle size={12}/>}<span className="qtip-box" role="tooltip">{text}</span></span>;
+  const ref = useRef(null); const [pos, setPos] = useState(null);
+  const show = () => { const r = ref.current && ref.current.getBoundingClientRect(); if (!r) return; const w = 240, x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8); setPos({ x, y: r.top - 8, w, below: r.top < 110, yb: r.bottom + 8, ax: r.left + r.width / 2 - x }); };
+  const hide = () => setPos(null);
+  return <span ref={ref} className="qtip" tabIndex={0} aria-label={text} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>{children || <HelpCircle size={12}/>}
+    {pos && createPortal(<span className={`qtip-float ${pos.below ? 'below' : ''}`} role="tooltip" style={pos.below ? { left: pos.x, top: pos.yb, width: pos.w, '--ax': `${pos.ax}px` } : { left: pos.x, top: pos.y, width: pos.w, transform: 'translateY(-100%)', '--ax': `${pos.ax}px` }}>{text}</span>, document.body)}
+  </span>;
 }
 
 const tone = (v) => v == null ? 'none' : v >= 80 ? 'good' : v >= 60 ? 'mid' : 'low';
@@ -132,7 +139,7 @@ function cellTone(k, c, g) {
 }
 
 export function QualityBoard({ filters, reloadKey }) {
-  const [data, setData] = useState(null), [loading, setLoading] = useState(false), [error, setError] = useState(''), [managers, setManagers] = useState(false), [goalsOpen, setGoalsOpen] = useState(false), [who, setWho] = useState(null), [nonce, setNonce] = useState(0), [sort, setSort] = useState({ k: 'score', asc: false }), [guide, setGuide] = useState(false);
+  const [data, setData] = useState(null), [loading, setLoading] = useState(false), [error, setError] = useState(''), [managers, setManagers] = useState(false), [goalsOpen, setGoalsOpen] = useState(false), [who, setWho] = useState(null), [openAI, setOpenAI] = useState(null), [nonce, setNonce] = useState(0), [sort, setSort] = useState({ k: 'score', asc: false }), [guide, setGuide] = useState(false);
   const { start, end } = periodRange(filters);
   const q = new URLSearchParams(); if (filters.creator_id) q.set('creator_id', filters.creator_id); if (start) q.set('start', start.toISOString()); if (end) q.set('end', end.toISOString()); if (managers) q.set('managers', 'true');
   const query = q.toString();
@@ -151,8 +158,8 @@ export function QualityBoard({ filters, reloadKey }) {
         <div className="row-actions"><label className="checkbox-label small"><input type="checkbox" checked={managers} onChange={e => setManagers(e.target.checked)}/><span>incluir gestores</span></label><span className="period-tag">{periodText(filters)}</span></div></div>
       {chatters.length ? <div className="table-scroll"><table className="score-table"><thead><tr><th>Chatter</th>
         {cols.map(([k, label, tip, low]) => <th key={k} className={sort.k === k ? 'sorted' : ''}><button type="button" className="th-sort" onClick={() => sortBy(k, low)}>{label}<ArrowUpDown size={11}/></button> <Tip text={tip}/></th>)}</tr></thead>
-        <tbody>{chatters.map((c, i) => <tr key={c.operator_id} data-testid={`score-${c.operator_id}`}>
-          <td><button type="button" className="who-btn" onClick={() => setWho(c)} title="Abrir o painel do chatter"><span className="qa-rank">{i + 1}º</span><Avatar name={c.name} src={c.avatar || null} size={30}/><span><strong>{c.name}</strong><small>{c.hours} h de turno · {c.fans_attended} fãs</small></span></button></td>
+        <tbody>{chatters.map((c, i) => <React.Fragment key={c.operator_id}><tr data-testid={`score-${c.operator_id}`} className={openAI === c.operator_id ? 'open' : ''}>
+          <td><button type="button" className="who-btn" onClick={() => setOpenAI(openAI === c.operator_id ? null : c.operator_id)} title="Ver a análise da IA deste chatter"><span className="qa-rank">{i + 1}º</span><Avatar name={c.name} src={c.avatar || null} size={30}/><span><strong>{c.name}</strong><small>{c.hours} h de turno · {c.fans_attended} fãs</small></span></button></td>
           <td><span className={`score-pill ${tone(c.score)}`}>{c.score ?? '—'}</span>{c.trend != null && <em className={`trend ${c.trend > 0 ? 'up' : c.trend < 0 ? 'down' : ''}`}>{c.trend > 0 ? <TrendingUp size={12}/> : c.trend < 0 ? <TrendingDown size={12}/> : <Minus size={12}/>}{c.trend > 0 ? '+' : ''}{c.trend}</em>}{c.score == null && <small className="body-muted"> poucos dados</small>}</td>
           <td className={cellTone('median_seconds', c, g)}>{duration(c.median_seconds)}<small>10% piores: {duration(c.p90_seconds)}</small></td>
           <td className={cellTone('within_goal_pct', c, g)}>{c.within_goal_pct != null ? `${c.within_goal_pct}%` : '—'}</td>
@@ -162,7 +169,7 @@ export function QualityBoard({ filters, reloadKey }) {
           <td className="tabular">{money(c.sales_cents)}</td>
           <td className={cellTone('sales_per_hour_cents', c, g)}>{c.sales_per_hour_cents != null ? money(c.sales_per_hour_cents) : '—'}</td>
           <td className={cellTone('ai_score', c, g)}>{c.ai_score != null ? `${c.ai_score}/10` : '—'}<small>{c.ai_engagement != null ? `engaj. ${c.ai_engagement}/10${c.ai_dry_pct != null ? ` · ${c.ai_dry_pct}% secas` : ''}` : 'sem análise'}</small></td>
-        </tr>)}</tbody></table></div> : <div className="inline-empty">{loading ? 'Calculando…' : 'Nenhum chatter com turno ou atendimento no período.'}</div>}
+        </tr>{openAI === c.operator_id && <tr className="ai-row"><td colSpan={cols.length + 1}><ChatterAI operatorId={c.operator_id} filters={filters} onOpenPanel={() => setWho(c)}/></td></tr>}</React.Fragment>)}</tbody></table></div> : <div className="inline-empty">{loading ? 'Calculando…' : 'Nenhum chatter com turno ou atendimento no período.'}</div>}
     </section>
     <WaitingNow filters={filters} reloadKey={reloadKey + nonce}/>
     <Alerts alerts={(data?.alerts || []).filter(a => a.kind !== 'waiting')}/>

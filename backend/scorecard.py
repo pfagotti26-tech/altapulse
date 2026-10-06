@@ -221,15 +221,31 @@ async def chatter(operator_id: str, start: datetime | None = None, end: datetime
         series.append({'day': k, 'sales_cents': x.get('sales_cents', 0), 'sales': x.get('sales', 0), 'responses': x.get('responses', 0),
                        'median_seconds': round(median(x['resp'])) if x.get('resp') else None})
         d += timedelta(days=1)
-    ai = []
-    for ins in await db.insights.find({'period_end': {'$gte': start.isoformat()}, 'period_start': {'$lt': end.isoformat()}}, {'_id': 0}).sort('created_at', -1).to_list(60):
-        for it in ins.get('items', []):
-            if (it.get('operator_name') or '').strip().lower() == u['name'].strip().lower():
-                ai.append({**it, 'insight_id': ins['id'], 'created_at': ins['created_at'], 'period_start': ins['period_start'], 'period_end': ins['period_end']})
-    scores_ai = [a['score'] for a in ai if a.get('score') is not None]
+    ai = await ai_items(u['name'], start, end)
     return {'user': u, 'start': start.isoformat(), 'end': end.isoformat(), 'goals': g, 'totals': me, 'by_creator': by_creator, 'series': series,
             'team_median': {k: med(k) for k in ['median_seconds', 'within_goal_pct', 'conversion', 'sales_per_hour_cents', 'ticket_cents', 'fans_per_hour', 'offer_rate']},
-            'ai': ai, 'ai_score': round(sum(scores_ai) / len(scores_ai), 1) if scores_ai else None}
+            'ai': ai['items'], 'ai_score': ai['score']}
+
+async def ai_items(name, start, end):
+    """Itens das análises da IA sobre um chatter cujas conversas cruzam o período (mais recente primeiro)."""
+    items = []
+    for ins in await db.insights.find({'period_end': {'$gte': start.isoformat()}, 'period_start': {'$lt': end.isoformat()}}, {'_id': 0}).sort('created_at', -1).to_list(200):
+        for it in ins.get('items', []):
+            if (it.get('operator_name') or '').strip().lower() == name.strip().lower():
+                items.append({**it, 'insight_id': ins['id'], 'created_at': ins['created_at'], 'period_start': ins['period_start'], 'period_end': ins['period_end'], 'summary': ins.get('summary'), 'recommendations': ins.get('recommendations')})
+    def avg(k):
+        xs = [a[k] for a in items if a.get(k) is not None]; return round(sum(xs) / len(xs), 1) if xs else None
+    return {'items': items, 'score': avg('score'), 'engagement': avg('engagement'), 'dry_pct': avg('dry_pct')}
+
+@router.get('/quality/chatter/{operator_id}/ai')
+async def chatter_ai(operator_id: str, start: datetime | None = None, end: datetime | None = None, user=Depends(manager)):
+    """Só a parte da IA do painel do chatter, com período próprio, e a média do período anterior de mesmo tamanho para a tendência."""
+    start, end = window(start, end)
+    u = await db.users.find_one({'id': operator_id}, {'_id': 0, 'name': 1})
+    if not u: raise HTTPException(404, 'Integrante não encontrado.')
+    cur = await ai_items(u['name'], start, end)
+    prev = await ai_items(u['name'], start - (end - start), start)
+    return {**cur, 'start': start.isoformat(), 'end': end.isoformat(), 'prev_score': prev['score'], 'prev_engagement': prev['engagement']}
 
 
 @router.get('/quality/waiting')
