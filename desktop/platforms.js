@@ -26,10 +26,10 @@ function allowedUrl(url) {
 
 // Preenche login e senha na página de login (roda DENTRO da página, atravessando shadow roots).
 // Só preenche campos visíveis; clica em "Entrar" se existir. Nada é lido da página além dos campos.
-function fillScript(login, password) {
+function fillScript(login, password, mode = 'click') {
   return String.raw`(() => {
-    const LOGIN = ${JSON.stringify(login)}; const PASS = ${JSON.stringify(password)};
-    const OPEN_LOGIN = /^(entrar|login|log in|fazer login|acessar|acessar conta|sign in)$/i;
+    const LOGIN = ${JSON.stringify(login)}; const PASS = ${JSON.stringify(password)}; const MODE = ${JSON.stringify(mode)};
+    const OPEN_LOGIN = /^(entrar|login|log in|fazer login|acessar|acessar conta|sign in|ingresar|iniciar sesi[oó]n|acceder)$/i;
     const roots = []; (function walk(root, depth) { if (depth > 6) return; roots.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0);
     const all = (sel) => roots.flatMap((r) => [...r.querySelectorAll(sel)]);
     const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
@@ -52,18 +52,26 @@ function fillScript(login, password) {
     if (keep && !keep.checked) keep.click();
     // botão de enviar DO FORMULÁRIO da senha (o primeiro "Entrar" da página pode ser o do topo ou a aba do
     // modal, e clicar nele recria o formulário vazio, como no CloseFans): mesmo form, type=submit, e depois da senha
-    const okText = (b) => { const t = (b.textContent || b.value || '').trim(); return /entrar|log ?in|sign ?in|acessar|continuar|next|avan/i.test(t) && !/google|apple|facebook|x\b|twitter|cadast|sign ?up|criar/i.test(t); };
+    const okText = (b) => { const t = (b.textContent || b.value || '').trim(); return /entrar|log ?in|sign ?in|acessar|continuar|next|avan|ingresar|iniciar sesi|acceder|continue|submit/i.test(t) && !/google|apple|facebook|x\b|twitter|cadast|sign ?up|criar|registr|crear/i.test(t); };
     const after = (b) => !!(pass.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     const form = pass.closest('form');
+    // segunda tentativa: sem clicar em botão nenhum — Enter no campo de senha (e requestSubmit do form, se houver)
+    if (MODE === 'enter') {
+      pass.focus();
+      for (const type of ['keydown', 'keypress', 'keyup']) pass.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      if (form) setTimeout(() => { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch {} }, 250);
+      return { ok: true, user: !!user, clicked: false, mode: 'enter', form: !!form };
+    }
     // botões desativados também contam: a página só libera depois de validar os campos (o clique espera liberar)
     const cands = all('button, input[type="submit"]').filter(visible);
     const btn = (form && cands.find((b) => form.contains(b) && (b.type === 'submit' || okText(b))))
       || cands.find((b) => after(b) && b.type === 'submit' && okText(b))
       || cands.find((b) => after(b) && okText(b));
     // espera o botão habilitar (a página valida os campos depois de preenchidos) e clica; até 4 s
-    if (btn) { let n = 0; const tryClick = () => { const off = btn.disabled || /disabled/i.test(btn.className || ''); if (!off || n >= 40) { btn.click(); return; } n += 1; setTimeout(tryClick, 100); }; setTimeout(tryClick, 150); }
+    // espera até 8 s o botão liberar (num computador novo a Privacy valida um "não sou robô" invisível antes)
+    if (btn) { let n = 0; const tryClick = () => { const off = btn.disabled || btn.getAttribute('aria-disabled') === 'true' || /disabled/i.test(btn.className || ''); if (!off || n >= 80) { btn.click(); window.__altaLastClick = { at: Date.now(), waited: n * 100, off }; return; } n += 1; setTimeout(tryClick, 100); }; setTimeout(tryClick, 150); }
     else if (form) setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 400);
-    return { ok: true, user: !!user, clicked: !!btn, btn: btn ? ((btn.textContent || btn.value || '').trim().slice(0, 20) + (btn.disabled ? ' (desativado)' : '')) : null, inForm: !!(form && btn && form.contains(btn)) };
+    return { ok: true, user: !!user, clicked: !!btn, btn: btn ? ((btn.textContent || btn.value || '').trim().slice(0, 20) + (btn.disabled ? ' (desativado)' : '')) : null, inForm: !!(form && btn && form.contains(btn)), form: !!form, buttons: cands.slice(0, 8).map((b) => (b.textContent || b.value || '').trim().slice(0, 16)), size: [window.innerWidth, window.innerHeight] };
   })()`;
 }
 // Sonda leve: a página atual tem um campo de senha visível? (roda dentro da página)
@@ -75,7 +83,7 @@ const LOGIN_PROBE = String.raw`(() => {
   // deslogada, com o formulário escondido atrás de um botão "Entrar" (CloseFans, FatalFans). Só vale se também
   // houver "Cadastre-se"/"Criar conta" na tela: logada, a página não oferece cadastro (evita botão falso)
   const btns = roots.flatMap((r) => [...r.querySelectorAll('button, a')]).filter(vis).map((b) => (b.textContent || '').trim());
-  return btns.some((t) => /^(entrar|login|log in|fazer login|acessar conta|sign in)$/i.test(t)) && btns.some((t) => /^(cadastre-se|cadastrar|criar conta|crie sua conta|sign up|registre-se|cadastre-se gr[aá]tis)$/i.test(t));
+  return btns.some((t) => /^(entrar|login|log in|fazer login|acessar conta|sign in|ingresar|iniciar sesi[oó]n|acceder)$/i.test(t)) && btns.some((t) => /^(cadastre-se|cadastrar|criar conta|crie sua conta|sign up|registre-se|cadastre-se gr[aá]tis|reg[ií]strate|crear cuenta)$/i.test(t));
 })()`;
 
 module.exports = { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE };

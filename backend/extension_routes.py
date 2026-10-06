@@ -288,6 +288,17 @@ async def extension_credentials(creator_id: Optional[str] = None, user=Depends(e
     from vault import extension_list
     return await extension_list(user, creator_id)
 
+@router.post('/extension/vault-result')
+async def extension_vault_result(body: dict, user=Depends(extension_user)):
+    """Diagnóstico do login automático feito pelo app (botão clicado, tamanho da janela, segunda tentativa): vai para o registro de atividade."""
+    creator = await db.creators.find_one({'id': str(body.get('creator_id') or '')}, {'_id': 0, 'name': 1})
+    if not creator: raise HTTPException(404, 'Criadora não encontrada.')
+    info = {k: v for k, v in body.items() if k not in ['creator_id', 'platform']}
+    r = info.get('result') or {}; s2 = info.get('second') or {}
+    passed = bool(s2) and not ((s2.get('after') or {}).get('login', True)) if s2 else None
+    resumo = ('entrou de primeira' if not s2 else ('entrou na 2ª tentativa (Enter)' if passed else 'continuou na tela de login'))
+    await audit(user, f'Login automático: {resumo}', f"{creator['name']} · {str(body.get('platform') or '')}", {'botao': r.get('btn'), 'no_form': r.get('inForm'), 'botoes': r.get('buttons'), 'tela': r.get('size'), 'janela': info.get('view'), 'monitor': info.get('screen'), 'app': info.get('app'), 'segunda': s2 or None})
+    return {'ok': True}
 @router.post('/extension/credentials/{credential_id}/use')
 async def extension_credential_use(credential_id: str, request: Request, user=Depends(extension_user)):
     """Login e senha para o app preencher o formulário da plataforma. Auditado; chatter não vê a senha."""
