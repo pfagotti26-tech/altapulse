@@ -17,6 +17,7 @@ class UserOut(Public):
     must_change_password: bool = False
     avatar: Optional[str] = None
     creator_order: list[str] = []
+    invite_sent: Optional[bool] = None  # só na resposta do cadastro: True se o convite por e-mail saiu
 
 class ShiftOut(Public):
     id: str

@@ -17,6 +17,7 @@ from assist import router as assist
 from scorecard import router as scorecard
 from team_live import router as team_live
 from radar import router as radar
+from password_reset import router as password_reset
 
 @asynccontextmanager
 async def lifespan(app):
@@ -27,6 +28,8 @@ async def lifespan(app):
     await db.events.create_index([('creator_id', 1), ('event_ref', 1)], unique=True)
     await db.extension_tokens.create_index('expires_at', expireAfterSeconds=0)
     await db.extension_tokens.create_index('token_hash', unique=True)
+    await db.password_resets.create_index('token_hash', sparse=True)
+    await db.password_resets.create_index([('limit_key', 1), ('created_at', -1)])
     for collection in ['events', 'reviews', 'audit', 'shifts', 'pairings', 'commands', 'creator_snapshots']:
         await db[collection].create_index('expires_at', expireAfterSeconds=0)
     await db.creator_snapshots.create_index([('creator_id', 1), ('day', 1)], unique=True)
@@ -77,7 +80,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')
