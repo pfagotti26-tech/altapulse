@@ -341,6 +341,7 @@ function zoomKeys(view, platform) {
   view.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'F11' && win) { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); return; }
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    if (input.shift && String(input.key).toLowerCase() === 'm') { event.preventDefault(); if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('focus-mode'); return; } // Ctrl+Shift+M: modo foco da lateral
     const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
     if (!dir) return; event.preventDefault(); changeZoom(platform, dir);
   });

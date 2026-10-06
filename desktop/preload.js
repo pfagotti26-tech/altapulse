@@ -62,4 +62,5 @@ contextBridge.exposeInMainWorld('pulse', {
   onPortableUpdate: (fn) => ipcRenderer.on('portable-update', (_e, m) => fn(m)),
   portableUpdate: () => ipcRenderer.invoke('portable:update'),
   onMenusHide: (fn) => ipcRenderer.on('menus:hide', () => fn()),
+  onFocusMode: (fn) => ipcRenderer.on('focus-mode', () => fn()),
 });
