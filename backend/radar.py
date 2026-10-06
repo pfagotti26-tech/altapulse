@@ -14,7 +14,6 @@ painel já tem, o servidor gera oportunidades com motivo e valor esperado:
 O chatter vê a fila no app (abre a conversa com um clique) e marca como feita ou dispensa; quando ele responde
 ou oferta para aquele fã, a oportunidade é marcada sozinha. O gestor vê o aproveitamento na Qualidade.
 """
-import re
 from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException
@@ -148,29 +147,55 @@ async def refresh_creator(creator_id):
     await settle(creator_id)
     return created
 
-async def _offer_too_old(o, t):
-    at = o.get('source_at')
-    if not at:
-        ev = await db.events.find_one({'creator_id': o['creator_id'], 'event_ref': o['ref'].split(':', 1)[1]}, {'_id': 0, 'offered_at': 1})
-        at = (ev or {}).get('offered_at')
+def _offer_too_old(o, t, offered):
+    at = o.get('source_at') or offered.get((o['creator_id'], o['ref'].split(':', 1)[1]))
     return bool(at) and at < (t - timedelta(days=OFFER_MAX_DAYS)).isoformat()
 
-async def settle(creator_id=None):
-    """Marca como 'atendida' quando houve resposta/oferta nossa ao fã depois de criada; expira as vencidas."""
-    t = now(); q = {'status': 'open'}
+_settled_at = {}
+async def settle(creator_id=None, min_gap=45):
+    """Marca como 'atendida' quando houve resposta/oferta nossa ao fã depois de criada; expira as vencidas.
+    Tudo em poucas consultas (antes era uma consulta por oportunidade e a página estourava o tempo)."""
+    from pymongo import UpdateOne
+    t = now(); key = creator_id or '*'
+    if (t - _settled_at.get(key, t - timedelta(days=1))).total_seconds() < min_gap: return
+    _settled_at[key] = t
+    q = {'status': 'open'}
     if creator_id: q['creator_id'] = creator_id
-    async for o in db.opportunities.find(q, {'_id': 0}):
-        ev = await db.events.find_one({'creator_id': o['creator_id'], 'fan_ref': o['fan_ref'], '$or': [
-            {'kind': 'response', 'responded_at': {'$gte': o['created_at']}}, {'kind': 'offer', 'offered_at': {'$gte': o['created_at']}}]}, {'_id': 0, 'kind': 1, 'responded_at': 1, 'offered_at': 1, 'operator_id': 1})
-        if ev:
-            who = await db.shifts.find_one({'creator_id': o['creator_id'], 'started_at': {'$lte': ev.get('responded_at') or ev.get('offered_at')}}, {'_id': 0, 'operator_id': 1, 'operator_name': 1}, sort=[('started_at', -1)])
-            await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'contacted', 'contacted_at': ev.get('responded_at') or ev.get('offered_at'), 'contacted_how': 'oferta' if ev['kind'] == 'offer' else 'resposta',
-                'contacted_by': (who or {}).get('operator_id'), 'contacted_name': (who or {}).get('operator_name')}})
-        elif o['kind'] == 'oferta_aberta' and await _offer_too_old(o, t):
-            # oferta antiga demais para retomar: sai da fila e não conta como perdida no quadro
-            await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'expired', 'stale': True}})
+    opens = await db.opportunities.find(q, {'_id': 0}).to_list(20000)
+    if not opens: return
+    creators = sorted({o['creator_id'] for o in opens}); since = min(o['created_at'] for o in opens)
+    # respostas/ofertas nossas desde a oportunidade mais antiga, agrupadas por (criadora, fã)
+    acts = {}
+    async for ev in db.events.find({'creator_id': {'$in': creators}, 'kind': {'$in': ['response', 'offer']}, '$or': [{'responded_at': {'$gte': since}}, {'offered_at': {'$gte': since}}]},
+                                   {'_id': 0, 'creator_id': 1, 'fan_ref': 1, 'kind': 1, 'responded_at': 1, 'offered_at': 1, 'event_ref': 1}):
+        acts.setdefault((ev['creator_id'], ev.get('fan_ref')), []).append(ev)
+    # ofertas (para saber a idade das "oferta_aberta" sem source_at)
+    offered = {}
+    refs = [(o['creator_id'], o['ref'].split(':', 1)[1]) for o in opens if o['kind'] == 'oferta_aberta' and not o.get('source_at')]
+    if refs:
+        async for ev in db.events.find({'creator_id': {'$in': sorted({c for c, _ in refs})}, 'event_ref': {'$in': sorted({r for _, r in refs})}}, {'_id': 0, 'creator_id': 1, 'event_ref': 1, 'offered_at': 1}):
+            offered[(ev['creator_id'], ev['event_ref'])] = ev.get('offered_at')
+    # turnos das criadoras (quem estava atendendo na hora da resposta)
+    shifts = {}
+    async for sh in db.shifts.find({'creator_id': {'$in': creators}}, {'_id': 0, 'creator_id': 1, 'started_at': 1, 'operator_id': 1, 'operator_name': 1}).sort('started_at', 1):
+        shifts.setdefault(sh['creator_id'], []).append(sh)
+    def who_at(cid, when):
+        best = None
+        for sh in shifts.get(cid, []):
+            if sh['started_at'] <= when: best = sh
+            else: break
+        return best or {}
+    ops = []
+    for o in opens:
+        evs = [e for e in acts.get((o['creator_id'], o['fan_ref']), []) if (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) and (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) >= o['created_at']]
+        if evs:
+            ev = min(evs, key=lambda e: e.get('responded_at') or e.get('offered_at')); when = ev.get('responded_at') or ev.get('offered_at'); who = who_at(o['creator_id'], when)
+            ops.append(UpdateOne({'id': o['id']}, {'$set': {'status': 'contacted', 'contacted_at': when, 'contacted_how': 'oferta' if ev['kind'] == 'offer' else 'resposta', 'contacted_by': who.get('operator_id'), 'contacted_name': who.get('operator_name')}}))
+        elif o['kind'] == 'oferta_aberta' and _offer_too_old(o, t, offered):
+            ops.append(UpdateOne({'id': o['id']}, {'$set': {'status': 'expired', 'stale': True}}))
         elif o['due_at'] < t.isoformat():
-            await db.opportunities.update_one({'id': o['id']}, {'$set': {'status': 'expired'}})
+            ops.append(UpdateOne({'id': o['id']}, {'$set': {'status': 'expired'}}))
+    if ops: await db.opportunities.bulk_write(ops, ordered=False)
 
 async def sweep():
     for c in await db.creators.find({'deleted_at': None}, {'_id': 0, 'id': 1}).to_list(1000):
@@ -179,14 +204,19 @@ async def sweep():
 
 # ---------- resultado (conversão) ----------
 async def with_result(rows):
+    """Vendas do fã até CONVERT_DAYS depois do atendimento: uma consulta só, somada em memória."""
+    for o in rows: o['converted_cents'] = 0; o['label'] = LABEL.get(o['kind'], o['kind'])
+    if not rows: return rows
+    creators = sorted({o['creator_id'] for o in rows}); since = min(o['created_at'] for o in rows)
+    sales = {}
+    async for s_ in db.events.find({'creator_id': {'$in': creators}, 'kind': 'sale', 'sale_status': {'$nin': ['refunded', 'cancelled']}, 'confirmed_at': {'$gte': since}},
+                                   {'_id': 0, 'creator_id': 1, 'fan_ref': 1, 'amount_cents': 1, 'confirmed_at': 1}):
+        sales.setdefault((s_['creator_id'], s_.get('fan_ref')), []).append(s_)
     for o in rows:
-        o['converted_cents'] = 0
         start = o.get('contacted_at') or o['created_at']
         until = (datetime.fromisoformat(start) + timedelta(days=CONVERT_DAYS)).isoformat()
-        async for s in db.events.find({'creator_id': o['creator_id'], 'fan_ref': o['fan_ref'], 'kind': 'sale', 'sale_status': {'$nin': ['refunded', 'cancelled']},
-                                       'confirmed_at': {'$gte': o['created_at'], '$lte': until}}, {'_id': 0, 'amount_cents': 1}):
-            o['converted_cents'] += s['amount_cents']
-        o['label'] = LABEL.get(o['kind'], o['kind'])
+        for s_ in sales.get((o['creator_id'], o['fan_ref']), []):
+            if o['created_at'] <= s_['confirmed_at'] <= until: o['converted_cents'] += s_.get('amount_cents') or 0
     return rows
 
 # ---------- app do chatter ----------

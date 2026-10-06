@@ -2,6 +2,39 @@
 const $ = (id) => document.getElementById(id);
 let S = null;               // último estado vindo do processo principal
 const closedGroups = new Set(JSON.parse(localStorage.getItem('closedGroups') || '[]'));
+// painel lateral: cada bloco pode estar aberto, minimizado ('min') ou oculto ('off'); fica salvo por usuário neste computador
+const PANEL0 = { search: 'open', turn: 'open', filter: 'open', opps: 'open', focus: false };
+let panel = { ...PANEL0 };
+const panelKey = () => `alta-panel:${(S.user && S.user.id) || 'anon'}`;
+function loadPanel() { try { panel = { ...PANEL0, ...JSON.parse(localStorage.getItem(panelKey()) || '{}') }; } catch { panel = { ...PANEL0 }; } }
+function savePanel() { try { localStorage.setItem(panelKey(), JSON.stringify(panel)); } catch {} }
+function blkState(k) { return panel.focus ? 'off' : panel[k]; }
+function setBlk(k, v) { panel[k] = v; savePanel(); applyPanel(); }
+function applyPanel() {
+  document.body.classList.toggle('focus', !!panel.focus);
+  const st = { search: blkState('search'), turn: blkState('turn'), filter: blkState('filter'), opps: blkState('opps') };
+  $('blk-search').classList.toggle('hidden', st.search !== 'open');
+  $('btn-search').classList.toggle('hidden', st.search === 'open');
+  $('my-shift').classList.toggle('gone', st.turn === 'off'); $('my-shift').classList.toggle('min', st.turn === 'min');
+  $('blk-filter').classList.toggle('hidden', st.filter !== 'open');
+  // filtro minimizado: chip na linha do turno; sem a linha do turno, vira um botãozinho no topo
+  $('btn-filter').classList.toggle('hidden', !(st.filter === 'min' && st.turn === 'off'));
+  $('btn-filter').classList.toggle('on', $('only-open').checked);
+  $('my-opps').classList.toggle('min', st.opps === 'min'); $('my-opps').classList.toggle('gone', st.opps === 'off');
+  $('btn-opps').classList.toggle('hidden', !(st.opps === 'off' && (S.opportunities || []).length));
+  $('menu-turn-start').classList.toggle('hidden', !(st.turn === 'off' && S.user && myTurn().state === 'off'));
+  $('menu-turn-end').classList.toggle('hidden', !(st.turn === 'off' && S.user && myTurn().state !== 'off'));
+  renderTurn(); renderOpps();
+}
+function toggleFocus() { panel.focus = !panel.focus; savePanel(); applyPanel(); toast(panel.focus ? 'Modo foco: só a lista de criadoras (Ctrl+Shift+M volta).' : 'Painel completo de volta.', 2500); }
+function panelDialog() {
+  const row = (k, label, hint) => `<label class="pl-row"><span><b>${label}</b><small>${hint}</small></span><select data-pl="${k}"><option value="open" ${panel[k] === 'open' ? 'selected' : ''}>Mostrar</option><option value="min" ${panel[k] === 'min' ? 'selected' : ''}>Minimizado</option><option value="off" ${panel[k] === 'off' ? 'selected' : ''}>Oculto</option></select></label>`;
+  dialog({ title: 'Painel lateral', hideOk: true, body: `<p class="muted">Escolha o que aparece acima da lista de criadoras. Vale só para você, neste computador.</p>`
+    + row('search', 'Busca e ordem', 'minimizado vira uma lupa no topo') + row('turn', 'Turno', 'oculto: iniciar/encerrar ficam no menu ⋮') + row('filter', 'Somente em atendimento', 'minimizado vira um chip na linha do turno') + row('opps', 'Oportunidades', 'oculto: fica um ícone no topo com as quentes')
+    + `<label class="pl-row"><span><b>Modo foco</b><small>esconde tudo de uma vez · Ctrl+Shift+M</small></span><input type="checkbox" data-pl="focus" ${panel.focus ? 'checked' : ''}></label>` });
+  $('dialog-body').querySelectorAll('[data-pl]').forEach((el) => el.addEventListener('change', () => { if (el.dataset.pl === 'focus') panel.focus = el.checked; else panel[el.dataset.pl] = el.value; savePanel(); applyPanel(); }));
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('.blk-min'); if (!b) return; e.preventDefault(); e.stopPropagation(); setBlk(b.dataset.blk, 'min'); }, true);
 
 // ---------- utilidades ----------
 function toast(msg, ms = 3500) { const t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), ms); }
@@ -88,6 +121,7 @@ function apply(state) {
   if (welcomedFor !== S.user.id && window.altaNextPhrase) { welcomedFor = S.user.id; showWelcome(); }
   $('me-name').textContent = S.user.name;
   setAvatar($('me-avatar'), S.user.avatar, S.user.name);
+  if (!panel._for || panel._for !== S.user.id) { loadPanel(); panel._for = S.user.id; }
   $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
   // sem foto: sinal de + na bolinha e convite ao lado do cargo
   $('me-avatar').classList.toggle('nophoto', !S.user.avatar);
@@ -97,7 +131,7 @@ function apply(state) {
   const openTasks = (S.tasks || []).filter((t) => t.status === 'open');
   $('my-list').classList.toggle('hidden', !openTasks.length);
   if (openTasks.length) { const byReason = {}; for (const t of openTasks) byReason[t.reason || 'fãs'] = (byReason[t.reason || 'fãs'] || 0) + 1; $('my-list').innerHTML = `<b>Minha lista · ${openTasks.length}</b><small>${esc(Object.entries(byReason).map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · '))}</small>`; }
-  renderList(); renderZoom(); renderOpps();
+  renderList(); renderZoom(); applyPanel();
 }
 
 function localOf(id) { return (S.local.creators && S.local.creators[id]) || {}; }
@@ -285,15 +319,18 @@ function renderTurn() {
   const box = $('my-shift'); if (!box || !S.user) return;
   const t = myTurn(); const scope = turnScope();
   const free = scope.filter((c) => !c.shift).length;
-  box.classList.remove('hidden'); box.className = `myshift ${t.state}`;
+  box.classList.remove('hidden'); box.className = `myshift ${t.state}${blkState('turn') === 'min' ? ' min' : ''}${blkState('turn') === 'off' ? ' gone' : ''}`;
+  const chip = blkState('filter') === 'min' ? `<button class="ms-chip ${$('only-open').checked ? 'on' : ''}" data-chip="filter" title="Mostrar só as criadoras em atendimento">em atendimento</button>` : '';
+  const minBtn = blkState('turn') === 'min' ? '' : '<button class="blk-min" data-blk="turn" title="Minimizar">&#9662;</button>';
   if (t.state === 'off') {
-    box.innerHTML = `<div class="ms-info"><b>Fora de turno</b><span>${scope.length ? `${scope.length} criadora${scope.length === 1 ? '' : 's'}` : (S.user.role === 'manager' ? 'abra as criadoras que vai atender' : 'nenhuma criadora liberada')}</span></div><button class="ms-btn start" data-turn="start" ${scope.length ? '' : 'disabled'} title="Inicia o turno em todas as suas criadoras de uma vez">Iniciar turno</button>`;
+    box.innerHTML = `<div class="ms-info"><b>Fora de turno</b><span>${scope.length ? `${scope.length} criadora${scope.length === 1 ? '' : 's'}` : (S.user.role === 'manager' ? 'abra as criadoras que vai atender' : 'nenhuma criadora liberada')}</span></div><button class="ms-btn start" data-turn="start" ${scope.length ? '' : 'disabled'} title="Inicia o turno em todas as suas criadoras de uma vez">Iniciar turno</button>` + chip + minBtn;
   } else {
     const n = t.mine.length;
     box.innerHTML = `<div class="ms-info"><b>${t.state === 'paused' ? 'Pausado' : 'Em turno'} · ${hm(t.since)}</b><span>${n} criadora${n === 1 ? '' : 's'}${free && S.user.role !== 'manager' ? ` · <a href="#" data-turn="start" title="Incluir no turno as criadoras que ficaram de fora">+${free}</a>` : ''}</span></div>`
-      + `<button class="ms-btn ghost" data-turn="${t.state === 'paused' ? 'resume' : 'pause'}" title="${t.state === 'paused' ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${t.state === 'paused' ? 'Retomar' : 'Pausar'}</button><button class="ms-btn end" data-turn="end">Encerrar</button>`;
+      + `<button class="ms-btn ghost" data-turn="${t.state === 'paused' ? 'resume' : 'pause'}" title="${t.state === 'paused' ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${t.state === 'paused' ? 'Retomar' : 'Pausar'}</button><button class="ms-btn end" data-turn="end">Encerrar</button>` + chip + minBtn;
   }
   box.querySelectorAll('[data-turn]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); turnAction(b.dataset.turn); }));
+  const ch = box.querySelector('[data-chip="filter"]'); if (ch) ch.onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
 }
 async function turnAction(action) {
   const t = myTurn();
@@ -569,7 +606,10 @@ function oppsVisible() {
 function renderOpps() {
   const all = S.opportunities || []; const list = oppsVisible(); const hot = list.filter((o) => o.hot).length; const el = $('my-opps');
   el.classList.toggle('hidden', !all.length);
-  if (all.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo${list.length !== all.length ? ` · ${all.length} em todas` : ''}</small>`;
+  const minBtn = blkState('opps') === 'open' ? '<span class="blk-min" data-blk="opps" title="Minimizar">&#9662;</span>' : '';
+  if (all.length && blkState('opps') === 'min') el.innerHTML = `<b>💰 ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span>` : 'nenhuma quente'}</small>`;
+  else if (all.length) el.innerHTML = `<b>💰 Oportunidades · ${list.length}</b><small>${hot ? `<span class="hot">${hot} quente${hot > 1 ? 's' : ''}</span> · ` : ''}${esc(fmtBRL(list.reduce((n, o) => n + (o.value_cents || 0), 0)))} em jogo${list.length !== all.length ? ` · ${all.length} em todas` : ''}</small>` + minBtn;
+  const ic = $('btn-opps'); ic.querySelector('.dot').classList.toggle('hidden', !hot); ic.title = hot ? `Oportunidades: ${hot} quente${hot > 1 ? 's' : ''} de ${list.length}` : `Oportunidades · ${list.length}`;
 }
 const oppOpenGroups = new Set();
 // filtros da lista (ficam salvos neste computador): criadora, tipo, plataforma, só quentes, busca pelo nome do fã e ordem
@@ -657,7 +697,12 @@ $('btn-refresh').onclick = async () => {
 $('btn-new-group').onclick = newGroupDialog;
 $('search').addEventListener('input', renderList);
 $('sort').addEventListener('change', () => { saveSort(); renderList(); });
-$('only-open').addEventListener('change', renderList);
+$('only-open').addEventListener('change', () => { renderList(); applyPanel(); });
+$('btn-search').onclick = () => { setBlk('search', 'open'); setTimeout(() => $('search').focus(), 50); };
+$('btn-filter').onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
+$('btn-opps').onclick = () => oppDialog();
+document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); toggleFocus(); } });
+if (window.pulse.onFocusMode) window.pulse.onFocusMode(toggleFocus);
 $('list').addEventListener('click', (e) => {
   const gm = e.target.closest('.gmenu'); if (gm) { e.stopPropagation(); groupMenu(gm.dataset.g, gm); return; }
   const head = e.target.closest('.group-head'); if (!head) return;
@@ -687,6 +732,10 @@ $('app-menu').addEventListener('click', async (e) => {
   if (act === 'panel') window.pulse.openExternal(`${S.origin}/criadoras`);
   if (act === 'tags') tagsDialog();
   if (act === 'hide') run(() => window.pulse.hideAll());
+  if (act === 'panel-cfg') panelDialog();
+  if (act === 'focus') toggleFocus();
+  if (act === 'turn-start') turnAction('start');
+  if (act === 'turn-end') turnAction('end');
   if (act === 'about') { const i = await window.pulse.appInfo(); dialog({ title: 'Alta Pulse desktop', body: `<p>Versão ${esc(i.version)}<br>Electron ${esc(i.electron)} · Chromium ${esc(i.chrome)}</p><p>Painel: ${esc(S.origin)}</p><p>Dados locais: ${esc(i.dataDir)}</p>`, hideOk: true }); }
 });
 

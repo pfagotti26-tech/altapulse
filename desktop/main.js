@@ -341,6 +341,7 @@ function zoomKeys(view, platform) {
   view.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'F11' && win) { event.preventDefault(); win.setFullScreen(!win.isFullScreen()); setTimeout(() => { layout(); pushState(); }, 300); return; }
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    if (input.shift && String(input.key).toLowerCase() === 'm') { event.preventDefault(); if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('focus-mode'); return; } // Ctrl+Shift+M: modo foco da lateral
     const k = input.key; const dir = k === '=' || k === '+' ? 'in' : k === '-' ? 'out' : k === '0' ? 'reset' : null;
     if (!dir) return; event.preventDefault(); changeZoom(platform, dir);
   });
@@ -461,8 +462,32 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
   }
   openProfile(creatorId, 'privacy');
   const view = views.get(creatorId); const id = cid || (fanRef && fanCids[creatorId] && fanCids[creatorId][fanRef]);
-  if (view) view.webContents.loadURL(id ? `https://privacy.com.br/chat?cid=${encodeURIComponent(id)}` : 'https://privacy.com.br/chat', { userAgent: UA });
-  return { found: !!id, name };
+  if (!view) return { found: false, name };
+  const rawId = id && !/^(n:|ff:)/.test(String(id)) ? String(id) : null;
+  await view.webContents.loadURL(rawId ? `https://privacy.com.br/chat?cid=${encodeURIComponent(rawId)}` : 'https://privacy.com.br/chat', { userAgent: UA }).catch(() => {});
+  // confere se a conversa certa abriu; se não, faz o que o chatter faria: acha o fã na lista (usando a busca da Privacy, se houver) e clica
+  const want = String(name || (id && String(id).replace(/^n:/, '')) || '').trim();
+  if (!want) return { found: !!rawId, name };
+  const PICK = `(async () => {
+    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const want = ${JSON.stringify(want)}; const w = norm(want);
+    const header = () => norm((document.querySelector('.vac-room-header .vac-list-name .vac-text-ellipsis') || document.querySelector('.vac-room-header .vac-list-name') || {}).textContent);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let i = 0; i < 12; i++) { if (header() === w) return 'ja'; if (document.querySelector('.vac-room-list .vac-room-item')) break; await sleep(400); }
+    const find = () => [...document.querySelectorAll('.vac-room-list .vac-room-item')].find((r) => norm((r.querySelector('.name') || r).textContent) === w);
+    let it = find();
+    if (!it) {
+      const box = document.querySelector('.vac-room-list input, .vac-box-search input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
+      if (box) { const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); box.focus(); d.set.call(box, want); box.dispatchEvent(new Event('input', { bubbles: true })); for (let i = 0; i < 15 && !(it = find()); i++) await sleep(400); }
+    }
+    if (!it) return 'nao';
+    it.click();
+    for (let i = 0; i < 12; i++) { await sleep(400); if (header() === w) return 'ok'; }
+    return 'clicou';
+  })()`;
+  await new Promise((r) => setTimeout(r, 1500));
+  const r = await runJs(view, PICK, 20000).catch(() => null);
+  return { found: r === 'ja' || r === 'ok' || r === 'clicou', name, how: r };
 }
 async function openOpportunity(oppId) {
   const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');
@@ -1535,7 +1560,13 @@ ipcMain.handle('order:set', async (_e, order) => {
 });
 ipcMain.handle('local:setGroups', async (_e, groups) => {
   const renamed = groups.filter((g) => { const old = local.groups.find((x) => x.id === g.id); return old && old.name !== g.name; });
-  local.groups = groups; saveLocal(); pushState();
+  // grupo excluído: some das criadoras no mesmo passo (e do painel), para não voltar na próxima sincronização
+  const removed = local.groups.filter((g) => !groups.some((x) => x.id === g.id)).map((g) => g.id);
+  local.groups = groups;
+  const touched = [];
+  for (const [id, l] of Object.entries(local.creators)) { const gs = l.groups || (l.group ? [l.group] : []); if (gs.some((g) => removed.includes(g))) { const left = gs.filter((g) => !removed.includes(g)); local.creators[id] = { ...l, groups: left, group: left[0] || '' }; touched.push(id); } }
+  saveLocal(); pushState();
+  for (const id of touched) if (token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { groups: (local.creators[id].groups || []).map(groupName).filter(Boolean) }); } catch {} }
   const groupsOfLocal = (l) => l.groups || (l.group ? [l.group] : []);
   for (const g of renamed) for (const [id, l] of Object.entries(local.creators)) if (groupsOfLocal(l).includes(g.id) && token) { try { await api('PATCH', `/extension/creators/${id}/meta`, { groups: groupsOfLocal(l).map(groupName).filter(Boolean) }); } catch {} }
   return local;

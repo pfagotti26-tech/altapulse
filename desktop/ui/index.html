@@ -31,13 +31,16 @@
     <img class="logo small" src="brand/alta-pulse-white-h.png" alt="Alta Pulse" width="170">
     <div class="tools">
       <span id="unread-total" class="bubble-total hidden"></span>
+      <button id="btn-search" class="icon hidden" title="Buscar / ordenar criadoras">&#128269;</button>
+      <button id="btn-filter" class="icon hidden" title="Somente em atendimento">&#9673;</button>
+      <button id="btn-opps" class="icon hidden" title="Oportunidades de venda">&#128176;<i class="dot hidden"></i></button>
       <button id="zoom-pill" class="zoom-pill hidden" title="Zoom da página. Clique para voltar ao normal"></button>
       <button id="btn-refresh" class="icon" title="Recarregar a página aberta e a lista">&#8635;</button>
       <button id="btn-menu" class="icon" title="Opções">&#8942;</button>
     </div>
   </header>
 
-  <div class="search">
+  <div class="search" id="blk-search">
     <input id="search" type="search" placeholder="Buscar criadora">
     <select id="sort" title="Ordenar">
       <option value="mine">Minha ordem</option>
@@ -47,9 +50,10 @@
       <option value="recent">Mais recente</option>
       <option value="old">Mais antiga</option>
     </select>
+    <button class="blk-min" data-blk="search" title="Minimizar (fica uma lupa no topo)">&#9662;</button>
   </div>
   <div id="my-shift" class="myshift hidden"></div>
-  <label class="toggle"><input id="only-open" type="checkbox"> <span>Somente em atendimento</span></label>
+  <label class="toggle" id="blk-filter"><input id="only-open" type="checkbox"> <span>Somente em atendimento</span><button class="blk-min" data-blk="filter" title="Minimizar (vira um chip na linha do turno)">&#9662;</button></label>
   <p id="warning" class="warn hidden"></p>
   <button id="my-opps" class="work opps hidden" title="Oportunidades de venda achadas nas conversas"></button>
   <button id="my-list" class="work hidden" title="Fãs que o gestor mandou para você"></button>
@@ -72,6 +76,11 @@
   <button data-act="panel">Abrir painel no navegador</button>
   <button data-act="tags">Editar etiquetas</button>
   <button data-act="hide">Ocultar perfil aberto</button>
+  <hr>
+  <button data-act="turn-start" id="menu-turn-start" class="hidden">Iniciar turno em todas</button>
+  <button data-act="turn-end" id="menu-turn-end" class="hidden">Encerrar meu turno</button>
+  <button data-act="panel-cfg">Painel lateral…</button>
+  <button data-act="focus">Modo foco <small class="kbd">Ctrl+Shift+M</small></button>
   <button data-act="about">Sobre</button>
 </div>
 
