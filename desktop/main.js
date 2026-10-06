@@ -464,19 +464,37 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
   const view = views.get(creatorId); const id = cid || (fanRef && fanCids[creatorId] && fanCids[creatorId][fanRef]);
   if (!view) return { found: false, name };
   const rawId = id && !/^(n:|ff:)/.test(String(id)) ? String(id) : null;
-  await view.webContents.loadURL(rawId ? `https://privacy.com.br/chat?cid=${encodeURIComponent(rawId)}` : 'https://privacy.com.br/chat', { userAgent: UA }).catch(() => {});
+  const chatUrl = rawId ? `https://privacy.com.br/chat?cid=${encodeURIComponent(rawId)}` : 'https://privacy.com.br/chat';
+  await view.webContents.loadURL(chatUrl, { userAgent: UA }).catch(() => {});
+  // caiu na tela de login (sessão da criadora venceu)? entra com o acesso salvo, como o chip "Entrar" faria, e volta ao chat
+  await sleep(1200);
+  if (!view.webContents.isDestroyed() && await probeLogin(view) && credentials.some((c) => c.creator_id === creatorId && c.platform === 'privacy') && !entering.has(creatorId)) {
+    setLogin(creatorId, 'privacy', true); entering.set(creatorId, 'privacy'); pushState();
+    try {
+      await vaultFill(creatorId, 'privacy', view);
+      for (let i = 0; i < 15; i++) { await sleep(700); if (view.webContents.isDestroyed()) break; if (!(await probeLogin(view))) { setLogin(creatorId, 'privacy', false); vaultErrors.delete(creatorId); break; } }
+    } catch (error) { vaultErrors.set(creatorId, { platform: 'privacy', reason: error.message }); }
+    finally { entering.delete(creatorId); pushState(); }
+    if (view.webContents.isDestroyed()) return { found: false, name };
+    if (await probeLogin(view)) { if (sidebar) sidebar.webContents.send('toast', 'Privacy ainda na tela de login: entre na criadora e tente de novo.'); return { found: true, name, how: 'login' }; }
+    if (!/privacy\.com\.br\/chat/.test(view.webContents.getURL())) await view.webContents.loadURL(chatUrl, { userAgent: UA }).catch(() => {});
+  }
   // confere se a conversa certa abriu; se não, faz o que o chatter faria: acha o fã na lista (usando a busca da Privacy, se houver) e clica
   const want = String(name || (id && String(id).replace(/^n:/, '')) || '').trim();
   if (!want) return { found: !!rawId, name };
+  // o chat da Privacy fica dentro de shadow roots (<privacy-web-chat>): toda busca atravessa os roots, refeitos a cada tentativa
   const PICK = `(async () => {
     const norm = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
     const want = ${JSON.stringify(want)}; const w = norm(want);
-    const header = () => norm((document.querySelector('.vac-room-header .vac-list-name .vac-text-ellipsis') || document.querySelector('.vac-room-header .vac-list-name') || {}).textContent);
+    const roots = () => { const out = []; (function walk(root, depth) { if (depth > 6) return; out.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0); return out; };
+    const qs = (sel) => { for (const r of roots()) { const e = r.querySelector(sel); if (e) return e; } return null; };
+    const qsa = (sel) => roots().flatMap((r) => [...r.querySelectorAll(sel)]);
+    const header = () => norm((qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name') || {}).textContent);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const rooms = () => [...document.querySelectorAll('.vac-room-list .vac-room-item, .vac-room-item, [class*="room-item"]')];
+    const rooms = () => qsa('.vac-room-list .vac-room-item, .vac-room-item');
     const nameOf = (r) => norm((r.querySelector('.name, .vac-room-name, .vac-text-ellipsis') || r).textContent);
     const find = () => rooms().find((r) => nameOf(r) === w) || rooms().find((r) => nameOf(r).startsWith(w));
-    const search = () => document.querySelector('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
+    const search = () => qs('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
     // a lista demora a montar: espera até 20 s a conversa certa, a lista ou a busca aparecerem
     for (let i = 0; i < 50; i++) { if (header() === w) return 'ja'; if (rooms().length || search()) break; await sleep(400); }
     let it = find();
