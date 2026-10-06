@@ -469,25 +469,36 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
   const want = String(name || (id && String(id).replace(/^n:/, '')) || '').trim();
   if (!want) return { found: !!rawId, name };
   const PICK = `(async () => {
-    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const norm = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
     const want = ${JSON.stringify(want)}; const w = norm(want);
     const header = () => norm((document.querySelector('.vac-room-header .vac-list-name .vac-text-ellipsis') || document.querySelector('.vac-room-header .vac-list-name') || {}).textContent);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    for (let i = 0; i < 12; i++) { if (header() === w) return 'ja'; if (document.querySelector('.vac-room-list .vac-room-item')) break; await sleep(400); }
-    const find = () => [...document.querySelectorAll('.vac-room-list .vac-room-item')].find((r) => norm((r.querySelector('.name') || r).textContent) === w);
+    const rooms = () => [...document.querySelectorAll('.vac-room-list .vac-room-item, .vac-room-item, [class*="room-item"]')];
+    const nameOf = (r) => norm((r.querySelector('.name, .vac-room-name, .vac-text-ellipsis') || r).textContent);
+    const find = () => rooms().find((r) => nameOf(r) === w) || rooms().find((r) => nameOf(r).startsWith(w));
+    const search = () => document.querySelector('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
+    // a lista demora a montar: espera até 20 s a conversa certa, a lista ou a busca aparecerem
+    for (let i = 0; i < 50; i++) { if (header() === w) return 'ja'; if (rooms().length || search()) break; await sleep(400); }
     let it = find();
     if (!it) {
-      const box = document.querySelector('.vac-room-list input, .vac-box-search input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
-      if (box) { const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); box.focus(); d.set.call(box, want); box.dispatchEvent(new Event('input', { bubbles: true })); for (let i = 0; i < 15 && !(it = find()); i++) await sleep(400); }
+      const box = search();
+      if (!box) return rooms().length ? 'sem-busca' : 'sem-lista';
+      box.focus(); box.click();
+      const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d.set.call(box, want);
+      box.dispatchEvent(new Event('input', { bubbles: true })); box.dispatchEvent(new Event('change', { bubbles: true }));
+      box.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+      for (let i = 0; i < 25 && !(it = find()); i++) await sleep(400);
+      if (!it) return 'nao:' + rooms().length;
     }
-    if (!it) return 'nao';
     it.click();
-    for (let i = 0; i < 12; i++) { await sleep(400); if (header() === w) return 'ok'; }
+    for (let i = 0; i < 15; i++) { await sleep(400); if (header() === w) return 'ok'; }
     return 'clicou';
   })()`;
-  await new Promise((r) => setTimeout(r, 1500));
-  const r = await runJs(view, PICK, 20000).catch(() => null);
-  return { found: r === 'ja' || r === 'ok' || r === 'clicou', name, how: r };
+  await new Promise((r) => setTimeout(r, 800));
+  const r = await runJs(view, PICK, 45000).catch((e) => 'erro:' + (e && e.message));
+  const found = r === 'ja' || r === 'ok' || r === 'clicou';
+  if (!found && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Não consegui abrir a conversa de "${want}" (${r}). Procure na lista.`);
+  return { found: true, name, how: r }; // a lateral já avisou; evita dois avisos
 }
 async function openOpportunity(oppId) {
   const o = opportunities.find((x) => x.id === oppId); if (!o) throw new Error('Oportunidade não encontrada.');

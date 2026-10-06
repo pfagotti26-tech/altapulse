@@ -241,8 +241,9 @@ footer { padding: 12px 16px 14px; }
 @keyframes alta-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* presença no perfil e anotações da criadora (1.4.7) */
-.card .viewers { font-size: 11px; color: #c99a3c; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .viewers.on { color: #f0b429; font-weight: 600; }
+.card .vwico { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: #9a9aa6; margin-right: 2px; cursor: default; line-height: 1; }
+.card .vwico b { font-size: 10.5px; font-weight: 600; }
+.card .vwico.on { color: #f0b429; }
 .card .ind.note { width: auto; height: auto; background: none; font-size: 11px; line-height: 1; position: relative; }
 .card .ind.note i { font-style: normal; font-size: 9px; margin-left: 1px; opacity: .8; }
 .cn-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 10px; font-size: 12px; }
@@ -355,3 +356,10 @@ body.focus #blk-search, body.focus #my-shift, body.focus #blk-filter, body.focus
 .myshift.min .ms-info { flex-direction: row; align-items: baseline; gap: 5px; flex-wrap: wrap; min-width: 0; }
 .myshift.min .ms-info b { white-space: nowrap; }
 .myshift.min .ms-info b::after { content: ' ·'; color: #6f6f7c; }
+
+/* cabeçalho: logo encolhe para os ícones nunca empurrarem o ⋮ para fora */
+header { gap: 6px; }
+header .logo.small { width: auto; max-width: 170px; height: 28px; flex: 0 1 auto; min-width: 60px; object-fit: contain; object-position: left; }
+header .tools { flex: 0 0 auto; }
+.focus-off { background: #2a1418; border: 1px solid #5a2630; color: #ff8a80; border-radius: 10px; font-size: 10px; padding: 2px 7px; cursor: pointer; white-space: nowrap; }
+.focus-off:hover { border-color: #e53935; }
