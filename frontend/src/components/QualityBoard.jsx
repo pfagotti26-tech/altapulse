@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock3, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight, Target, BadgeDollarSign, ShieldAlert, Hourglass, HelpCircle, ExternalLink, Copy, ArrowUpDown, AlarmClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, errorText, money, duration, dateTime } from '../lib/api';
@@ -9,8 +10,14 @@ import { ChatterDashboard } from './ChatterDashboard';
 // Qualidade como gestão de vendas: (1) quem está esperando agora, (2) placar da equipe contra as METAS, (3) alertas.
 // Cada número tem ⓘ explicando o que mede; "Como ler esta página" abre o guia completo.
 
+// Tooltip flutuante: renderizado no <body> com posição fixa, para não ser cortado pela área rolável da tabela
 export function Tip({ text, children }) {
-  return <span className="qtip" tabIndex={0} aria-label={text}>{children || <HelpCircle size={12}/>}<span className="qtip-box" role="tooltip">{text}</span></span>;
+  const ref = useRef(null); const [pos, setPos] = useState(null);
+  const show = () => { const r = ref.current && ref.current.getBoundingClientRect(); if (!r) return; const w = 240, x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8); setPos({ x, y: r.top - 8, w, below: r.top < 110, yb: r.bottom + 8, ax: r.left + r.width / 2 - x }); };
+  const hide = () => setPos(null);
+  return <span ref={ref} className="qtip" tabIndex={0} aria-label={text} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>{children || <HelpCircle size={12}/>}
+    {pos && createPortal(<span className={`qtip-float ${pos.below ? 'below' : ''}`} role="tooltip" style={pos.below ? { left: pos.x, top: pos.yb, width: pos.w, '--ax': `${pos.ax}px` } : { left: pos.x, top: pos.y, width: pos.w, transform: 'translateY(-100%)', '--ax': `${pos.ax}px` }}>{text}</span>, document.body)}
+  </span>;
 }
 
 const tone = (v) => v == null ? 'none' : v >= 80 ? 'good' : v >= 60 ? 'mid' : 'low';
