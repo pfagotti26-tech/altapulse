@@ -30,6 +30,9 @@ const crypto = require('crypto');
 // firewall da Privacy bloqueia isso com 403 (comprovado na fase 0). Aqui ele se apresenta como o
 // Chromium que de fato é, sem fingir outro navegador nem outro sistema.
 const UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
+// idioma das páginas das plataformas sempre em português (num Windows em espanhol a Privacy abria em espanhol e o botão virava "Ingresar")
+const LANG = 'pt-BR,pt;q=0.9,en;q=0.5';
+try { app.commandLine.appendSwitch('lang', 'pt-BR'); } catch {}
 app.userAgentFallback = UA;
 
 // ---------- configuração ----------
@@ -527,11 +530,11 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   const t = tabsOf(creatorId);
   if (t.has(platform)) { activeId = creatorId; activeTab.set(creatorId, platform); layout(); pushState(); return; }
   const ses = session.fromPartition(partitionFor(creatorId));
-  ses.setUserAgent(UA);
+  ses.setUserAgent(UA, LANG);
   const view = new WebContentsView({
     webPreferences: { partition: partitionFor(creatorId), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
-  view.webContents.setUserAgent(UA);
+  view.webContents.setUserAgent(UA, LANG);
   // pop-ups do próprio site (login social, por exemplo) abrem na mesma sessão isolada
   view.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//i.test(url) && allowedUrl(url)) {
@@ -737,7 +740,7 @@ function statsView(id) {
   const x = extratoFor(id);
   if (x.view && !x.view.webContents.isDestroyed()) return x.view;
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-  view.webContents.setUserAgent(UA);
+  view.webContents.setUserAgent(UA, LANG);
   view.webContents.setAudioMuted(true);
   view.webContents.setBackgroundThrottling(false); // sem isso a aba oculta pode não renderizar a SPA
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -955,7 +958,7 @@ function ffView(id) {
   const x = ffFor(id);
   if (x.view && !x.view.webContents.isDestroyed()) return x.view;
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-  view.webContents.setUserAgent(UA); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
+  view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
   x.view = view; return view;
@@ -1076,7 +1079,7 @@ function cfView(id) {
   const x = cfFor(id);
   if (x.view && !x.view.webContents.isDestroyed()) return x.view;
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-  view.webContents.setUserAgent(UA); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
+  view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
   x.view = view; return view;
@@ -1159,7 +1162,7 @@ async function readOFNow(id, opts = {}) {
   try {
     x.reader.options.fanNames = !!state.fan_names_allowed;
     view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-    view.webContents.setUserAgent(UA); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
+    view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds()); x.view = view;
     const run = (a) => runJs(view, OF.script(a), 10000).catch((e) => ({ error: String(e && e.message || e), rows: [] }));
@@ -1396,23 +1399,44 @@ async function probeLogin(view) { try { return !!(await runJs(view, LOGIN_PROBE,
 function probeSoon(creatorId, platform, view) {
   setTimeout(async () => { if (view.webContents.isDestroyed()) return; const was = (loginPages.get(creatorId) || []).includes(platform); const on = await probeLogin(view); if (on !== was) { setLogin(creatorId, platform, on); pushState(); } }, 700);
 }
+// estado da tela de login depois do envio: ainda tem campo de senha? está vazio (a página recusou e limpou)?
+const LOGIN_STATE = String.raw`(() => { const p = [...document.querySelectorAll('input[type="password"]')].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; }); const err = [...document.querySelectorAll('[role="alert"], .error, .alert, [class*="error" i], [class*="erro" i]')].map((e) => (e.textContent || '').trim()).filter((t) => t && t.length < 160).slice(0, 3); return { login: !!p, empty: !!p && !p.value, url: location.href.split('?')[0], err, click: window.__altaLastClick || null }; })()`;
+async function loginState(view) { try { return await runJs(view, LOGIN_STATE, 2500); } catch { return null; } }
+// diagnóstico de cada "Entrar" vai para o registro de atividade do painel (o gestor enxerga o que aconteceu no PC do chatter)
+function reportVault(creatorId, platform, info) { api('POST', '/extension/vault-result', { creator_id: creatorId, platform, ...info }).catch(() => {}); }
 async function vaultFill(creatorId, platform, view) {
   const cred = credentials.find((c) => c.creator_id === creatorId && c.platform === platform);
   if (!cred) throw new Error(`Não há acesso salvo de ${PLATFORMS[platform].label} para esta criadora. Peça ao gestor para cadastrar no painel.`);
   const t0 = Date.now();
   const data = await api('POST', `/extension/credentials/${cred.id}/use`, {});
   const tApi = Date.now() - t0;
-  let result;
-  try {
-    try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
+  let result, second = null;
+  const attempt = async (mode) => {
+    let r;
+    try { r = await runJs(view, fillScript(data.login, data.password, mode), 4000); } catch { r = { ok: false, retry: true, reason: 'carregando o login' }; }
     // formulário atrás de um botão "Entrar" (CloseFans) ou em outra página (FatalFans): espera aparecer e preenche
-    for (let i = 0; i < 16 && result && result.retry; i++) {
+    for (let i = 0; i < 16 && r && r.retry; i++) {
       await sleep(600);
-      try { result = await runJs(view, fillScript(data.login, data.password), 4000); } catch { result = { ok: false, retry: true, reason: 'carregando o login' }; }
-      if (!result) result = { ok: false, retry: true, reason: 'carregando o login' };
+      try { r = await runJs(view, fillScript(data.login, data.password, mode), 4000); } catch { r = { ok: false, retry: true, reason: 'carregando o login' }; }
+      if (!r) r = { ok: false, retry: true, reason: 'carregando o login' };
+    }
+    return r;
+  };
+  try {
+    result = await attempt('click');
+    if (result && result.ok) {
+      // a página recusou e devolveu o formulário vazio (ou o clique não enviou)? tenta de novo com Enter no campo de senha
+      let st = null;
+      for (let i = 0; i < 9; i++) { await sleep(1000); if (view.webContents.isDestroyed()) break; st = await loginState(view); if (!st || !st.login) break; }
+      if (st && st.login && !view.webContents.isDestroyed()) {
+        second = { before: st, result: await attempt('enter') };
+        for (let i = 0; i < 6; i++) { await sleep(1000); if (view.webContents.isDestroyed()) break; second.after = await loginState(view); if (!second.after || !second.after.login) break; }
+      }
     }
   } finally { data.password = null; }
-  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], ms_painel: tApi, ms_total: Date.now() - t0, result }, null, 1)); } catch {}
+  const size = (() => { try { const b = view.getBounds(); return [b.width, b.height]; } catch { return null; } })();
+  reportVault(creatorId, platform, { ms_painel: tApi, ms_total: Date.now() - t0, result, second, view: size, screen: (() => { try { const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize; return [width, height]; } catch { return null; } })(), app: app.getVersion() });
+  if (isPortable()) try { fs.mkdirSync(calibDir(), { recursive: true }); fs.writeFileSync(path.join(calibDir(), 'cofre-ultimo-entrar.json'), JSON.stringify({ at: new Date().toISOString(), creator: creatorId.slice(0, 6), platform, url: view.webContents.getURL().split('?')[0], ms_painel: tApi, ms_total: Date.now() - t0, result, second }, null, 2)); } catch {}
   if (!result || !result.ok) throw new Error('Não encontrei o formulário de login nesta tela (' + ((result && result.reason) || 'sem resposta') + ').');
   return result;
 }
