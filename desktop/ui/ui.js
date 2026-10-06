@@ -12,6 +12,7 @@ function blkState(k) { return panel.focus ? 'off' : panel[k]; }
 function setBlk(k, v) { panel[k] = v; savePanel(); applyPanel(); }
 function applyPanel() {
   document.body.classList.toggle('focus', !!panel.focus);
+  $('btn-focus-off').classList.toggle('hidden', !panel.focus);
   const st = { search: blkState('search'), turn: blkState('turn'), filter: blkState('filter'), opps: blkState('opps') };
   $('blk-search').classList.toggle('hidden', st.search !== 'open');
   $('btn-search').classList.toggle('hidden', st.search === 'open');
@@ -141,7 +142,7 @@ function statusOf(c) {
   if (c.shift && mine) return { cls: c.shift.paused ? 'paused' : 'mine', text: c.shift.paused ? 'Seu turno · pausado' : 'Você · em atendimento' };
   if (c.shift) return { cls: 'other', text: `${c.shift.operator_name} · em atendimento` };
   if (c.browser && c.browser.state === 'open') return { cls: 'other', text: `${c.browser.operator_name || 'Alguém'} · aba aberta` };
-  return { cls: '', text: S.open.includes(c.id) ? 'Aberta aqui · sem turno' : 'Livre' };
+  return { cls: '', text: 'Sem turno' };
 }
 
 // ---------- lista ----------
@@ -227,16 +228,17 @@ function card(c, groupItems) {
   }
   // quem mais está neste perfil agora (outros chatters/gestor com a criadora aberta no app)
   const vw = c.viewers || [];
-  const viewers = vw.length ? `<div class="viewers${vw.some((v) => v.active) ? ' on' : ''}" title="${esc(vw.map((v) => `${v.name}${v.active ? ' (na tela agora)' : ' (aberta em segundo plano)'}`).join(' · '))}">👀 ${esc(vw.map((v) => v.name.split(' ')[0]).slice(0, 3).join(', '))}${vw.length > 3 ? ` +${vw.length - 3}` : ''} ${vw.length === 1 ? 'está' : 'estão'} neste perfil</div>` : '';
+  // quem está neste perfil: ícone discreto no canto do card com a quantidade; os nomes aparecem ao passar o mouse
+  const viewers = vw.length ? `<span class="vwico${vw.some((v) => v.active) ? ' on' : ''}" title="${esc(vw.map((v) => `${v.name}${v.active ? ' (na tela agora)' : ' (aberta em segundo plano)'}`).join('\n'))}">👤<b>${vw.length}</b></span>` : '';
   const ni = c.notes_info;
   if (ni) inds += `<span class="ind note" title="${esc(`${ni.count} anotaç${ni.count === 1 ? 'ão' : 'ões'} · ${ni.last.author}: ${ni.last.text}`)}">📝${ni.count > 1 ? `<i>${ni.count}</i>` : ''}</span>`;
   const unread = rd && rd.waitingRecent ? rd.waitingRecent : 0;
   const bubble = unread ? `<span class="bubble" title="${unread} conversa${unread === 1 ? '' : 's'} sem resposta nas últimas 24 h">${unread > 99 ? '99+' : unread}</span>` : '';
   const face = c.avatar && /^data:image\//.test(c.avatar) ? `<img class="creator-photo" src="${esc(c.avatar)}" alt="">` : esc(initials(c.name));
   el.innerHTML = `<div class="avatar ${esc(c.color)}${c.avatar ? ' has-photo' : ''}">${face}${bubble}</div>
-    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${viewers}${chips}${queue}${shiftBtn}</div>
+    <div class="info"><div class="name">${esc(c.name)}</div><div class="status ${st.cls}">${c.shift && c.shift.operator_avatar && /^data:image\//.test(c.shift.operator_avatar) ? `<img class="op-photo" src="${esc(c.shift.operator_avatar)}" alt="">` : ''}${esc(st.text)}</div>${chips}${queue}${shiftBtn}</div>
     ${inds}${tag ? `<span class="tagdot" style="background:${esc(tag.color)}" title="${esc(tag.name)}"></span>` : ''}
-    ${steps}<button class="cmenu" title="Opções">⋮</button>`;
+    ${viewers}${steps}<button class="cmenu" title="Opções">⋮</button>`;
   el.addEventListener('click', (e) => {
     if (e.target.closest('.cmenu') || e.target.closest('.chip') || e.target.closest('.shift-btn') || e.target.closest('.steps')) return;
     // clique no card: abre/mostra a plataforma e, se ela estiver na tela de login e houver acesso salvo, já entra
@@ -701,6 +703,7 @@ $('only-open').addEventListener('change', () => { renderList(); applyPanel(); })
 $('btn-search').onclick = () => { setBlk('search', 'open'); setTimeout(() => $('search').focus(), 50); };
 $('btn-filter').onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
 $('btn-opps').onclick = () => oppDialog();
+$('btn-focus-off').onclick = () => toggleFocus();
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); toggleFocus(); } });
 if (window.pulse.onFocusMode) window.pulse.onFocusMode(toggleFocus);
 $('list').addEventListener('click', (e) => {
