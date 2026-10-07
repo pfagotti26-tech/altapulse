@@ -27,6 +27,7 @@ function applyPanel() {
   $('menu-turn-start').classList.toggle('hidden', !(st.turn === 'off' && S.user && myTurn().state === 'off'));
   $('menu-turn-end').classList.toggle('hidden', !(st.turn === 'off' && S.user && myTurn().state !== 'off'));
   renderTurn(); renderOpps();
+  renderPlantao();
 }
 function toggleFocus() { panel.focus = !panel.focus; savePanel(); applyPanel(); toast(panel.focus ? 'Modo foco: só a lista de criadoras (Ctrl+Shift+M volta).' : 'Painel completo de volta.', 2500); }
 function panelDialog() {
@@ -704,6 +705,44 @@ $('only-open').addEventListener('change', () => { renderList(); applyPanel(); })
 $('btn-search').onclick = () => { setBlk('search', 'open'); setTimeout(() => $('search').focus(), 50); };
 $('btn-filter').onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
 $('btn-opps').onclick = () => oppDialog();
+// ---------- Plantão (copiloto): fila de abordagens; "Abrir e preencher" deixa o texto na caixa, o envio é da pessoa ----------
+const plHasPerm = () => !!(S && S.user && (S.user.owner || (S.user.perms || []).includes('plantao')));
+let plQ = null;
+function renderPlantao() {
+  const b = $('my-plantao'); if (!b) return;
+  if (!plHasPerm()) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  const on = plQ ? plQ.creators.length : 0; const n = plQ ? plQ.creators.reduce((a, c) => a + c.items.length, 0) : 0; const pend = plQ ? plQ.pending.length : 0;
+  b.innerHTML = `🌙 <b>Plantão</b> · ${on ? `${on} criadora${on > 1 ? 's' : ''} ligada${on > 1 ? 's' : ''} · ${n} na fila` : 'nenhuma criadora ligada'}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
+}
+async function plLoad(refresh) { try { plQ = refresh ? await window.pulse.plantaoRefresh() : await window.pulse.plantaoQueue(); } catch (e) { plQ = null; } renderPlantao(); return plQ; }
+async function plantaoDialog() {
+  const q = await plLoad(true); if (!q) return toast('Não consegui carregar o plantão.');
+  const money = (c) => c ? fmtBRL(c) : 'nunca gastou';
+  const groups = q.creators.map((c) => {
+    const st = !c.open ? 'abra a Privacy desta criadora no app para montar a fila' : c.in_shift && c.only_without_shift ? 'chatter em turno · fila pausada' : c.in_window ? 'dentro da janela' : `fora da janela (${c.window})`;
+    const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${esc(it.name)}</b><small>${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : '<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora</small>';
+    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}</span></div>${items}`;
+  }).join('');
+  const pend = q.pending.map((p) => `<div class="pl-item pend" data-c="${esc(p.key.split('|')[0])}" data-f="${esc(p.key.split('|')[1])}"><div class="who"><b>${esc(p.name)}</b><small>texto na caixa, aguardando você enviar</small><span class="txt">${esc(p.text)}</span></div><button class="ghost" data-cancel="1">Desfazer</button></div>`).join('');
+  const sent = q.sent.slice(-20).reverse().map((p) => `<div class="pl-item sent"><div class="who"><b>${esc(p.name)}</b><small>${p.replied ? '✅ respondeu — está nas Oportunidades' : 'enviada · aguardando resposta'}</small><span class="txt">${esc(p.text)}</span></div></div>`).join('');
+  const body = `<p style="margin:0 0 6px;font-size:12px;color:#9a9ab0">Quem abordar e com qual abertura, pelas regras do painel. "Abrir e preencher" abre a conversa com o texto na caixa; <b>você envia</b>. O app registra o envio e avisa quando o fã responder.</p>
+    ${pend ? `<div class="pl-group"><b>Aguardando envio</b></div>${pend}` : ''}
+    ${groups || '<small>Nenhuma criadora com plantão ligado. Ligue no painel → Plantão noturno.</small>'}
+    ${sent ? `<div class="pl-group"><b>Enviadas nesta sessão</b></div>${sent}` : ''}`;
+  const p = dialog({ title: 'Plantão · fila de abordagens', body, hideOk: true });
+  const B = $('dialog-body');
+  B.querySelectorAll('[data-prep]').forEach((btn) => btn.onclick = async () => {
+    const it = btn.closest('.pl-item'); btn.disabled = true; btn.textContent = 'Abrindo…';
+    const r = await window.pulse.plantaoPrepare({ creator_id: it.dataset.c, fan_ref: it.dataset.f, name: it.dataset.n, rid: it.dataset.r || null, text: it.querySelector('.txt').title });
+    if (r && r.ok) { toast(`Texto pronto na conversa de ${it.dataset.n}. Confira e envie.`); $('dialog-cancel').onclick(); }
+    else { toast(`Não consegui preparar: ${(r && r.reason) || 'erro'}`); btn.disabled = false; btn.textContent = 'Abrir e preencher'; }
+  });
+  B.querySelectorAll('[data-cancel]').forEach((btn) => btn.onclick = async () => { const it = btn.closest('.pl-item'); await window.pulse.plantaoCancel({ creator_id: it.dataset.c, fan_ref: it.dataset.f }); $('dialog-cancel').onclick(); plantaoDialog(); });
+  return p;
+}
+$('my-plantao').onclick = () => plantaoDialog();
+setInterval(() => { if (plHasPerm()) plLoad(false); }, 60000); setTimeout(() => { if (plHasPerm()) plLoad(false); }, 15000);
 $('btn-focus-off').onclick = () => toggleFocus();
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); toggleFocus(); } });
 if (window.pulse.onFocusMode) window.pulse.onFocusMode(toggleFocus);
