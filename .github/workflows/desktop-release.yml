@@ -3,12 +3,16 @@ name: Publicar app desktop
 # Gera o instalador do Alta Pulse e publica os artefatos em backend/desktop_dist, de onde o painel
 # serve o download e a atualização rápida (app-<versão>.asar).
 #
-# Roda em ubuntu-latest (x86-64) com Wine, do mesmo jeito que as versões até a 1.4.19 foram geradas:
-# assim o desktop/release.sh roda sem nenhuma mudança (zip e openssl já existem no runner).
+# Roda em windows-latest: o NSIS do electron-builder roda nativo, sem Wine e sem apt. O Wine do
+# ubuntu-24.04 não serve porque não tem mais suporte a 32 bits (syswow64\rundll32.exe, c0000135).
 #
 # Só manual: Actions -> "Publicar app desktop" -> Run workflow -> informe a versão (ex.: 1.4.20).
 # Nada roda a cada push, porque cada versão acrescenta uns 260 MB ao repositório.
 # Depois do push, peça o deploy no Emergent para o painel passar a servir a versão nova.
+#
+# Ferramentas usadas pelo release.sh no Git Bash do runner: node (setup-node), 7z (vem no runner),
+# split e ls (coreutils do Git for Windows). O sha512 do asar é calculado pelo node, então o script
+# não depende de openssl nem de "base64 -w0".
 
 on:
   workflow_dispatch:
@@ -21,15 +25,23 @@ on:
         required: true
         default: main
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   empacotar:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: windows-latest
+    timeout-minutes: 40
     permissions:
       contents: write
-    env:
-      WINEDEBUG: '-all'
     steps:
+      # sem conversão de fim de linha: o release.sh precisa de LF e os .exe/.asar são binários
+      - name: Desligar conversão de fim de linha
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
@@ -39,13 +51,14 @@ jobs:
         with:
           node-version: 20
 
-      # o passo NSIS do electron-builder executa o uninstaller .exe (PE x86-64): precisa de Wine.
-      # zip, openssl, split e base64 já vêm no runner.
-      - name: Instalar Wine
+      - name: Conferir ferramentas no Git Bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq wine64 zip
-          wine64 --version || wine --version
+          echo "bash:  $BASH_VERSION"
+          echo "node:  $(node -v)"
+          echo "7z:    $(command -v 7z || echo 'FALTANDO')"
+          echo "split: $(command -v split || echo 'FALTANDO')"
+          command -v 7z >/dev/null || { echo '7z não encontrado no runner' >&2; exit 1; }
+          command -v split >/dev/null || { echo 'split não encontrado no Git Bash' >&2; exit 1; }
 
       - name: Empacotar e publicar em backend/desktop_dist
         run: bash desktop/release.sh "${{ inputs.version }}"
