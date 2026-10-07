@@ -26,6 +26,20 @@ function daysSilent(when, now = new Date()) {
   if (dm) { let y = dm[3] ? +dm[3] : now.getFullYear(); if (y < 100) y += 2000; let d = new Date(y, +dm[2] - 1, +dm[1]); if (d > now && !dm[3]) d = new Date(y - 1, +dm[2] - 1, +dm[1]); return Math.max(0, Math.round((now - d) / 86400000)); }
   return null;
 }
+// primeiro nome "de gente" a partir do nome exibido na Privacy; null quando parece apelido/usuário
+// ("map1982", "Cfp1520", "7F") — aí a abertura sai sem o nome, sem deixar "{nome}" nem vírgula sobrando
+function firstName(name) {
+  const w = String(name || '').normalize('NFC').replace(/[^\p{L}\s'-]/gu, ' ').trim().split(/\s+/)[0] || '';
+  if (w.length < 2 || w.length > 14 || /\d/.test(String(name || '').split(/\s+/)[0] || '')) return null;
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+}
+// troca {nome} pelo primeiro nome; sem nome, remove o marcador e a pontuação que ficaria solta
+function fill(template, name) {
+  const t = String(template || ''); if (!/\{nome\}/i.test(t)) return t;
+  const n = firstName(name);
+  if (n) return t.replace(/\{nome\}/gi, n);
+  return t.replace(/\s*,?\s*\{nome\}\s*,?/gi, (m) => (/,\s*$/.test(m) && !/^\s*,/.test(m) ? ', ' : ' ')).replace(/\s+([,.!?…])/g, '$1').replace(/^[\s,]+/, '').replace(/\s{2,}/g, ' ').trim();
+}
 const hm = (d) => d.getHours() * 60 + d.getMinutes();
 const parseHM = (s) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? +m[1] * 60 + +m[2] : null; };
 // dentro da janela? Janela que cruza a meia-noite (22:00–02:00) conta o dia da semana do início
@@ -43,6 +57,7 @@ function create(deps) {
   const pl = { configs: [], fetchedAt: 0, rooms: new Map(), recent: new Map(), noted: new Map(), dismissed: new Set(),
     pending: new Map(), // `${creatorId}|${ref}` -> { text, at, name } (texto preenchido, esperando a pessoa enviar)
     sent: new Map(),    // `${creatorId}|${ref}` -> { text, at, name, replied }
+    templates: new Map(), // texto final -> abertura aprovada de onde ele saiu (para não repetir a mesma abertura na noite)
   };
   const enabled = () => { const u = getState().user; return !!(u && (u.owner || (u.perms || []).includes('plantao'))); };
 
@@ -105,29 +120,38 @@ function create(deps) {
   // a fila completa, por criadora ligada, com a abertura sorteada para cada fã (sem repetir na mesma noite)
   function queue() {
     const st = getState(); const now = new Date(); const out = [];
-    const usedTexts = new Set([...pl.sent.values(), ...pl.pending.values()].map((x) => x.text));
+    const usedTexts = new Set([...pl.sent.values(), ...pl.pending.values()].map((x) => x.template || x.text));
     for (const cfg of pl.configs) {
       const c = (st.creators || []).find((x) => x.id === cfg.creator_id); if (!c) continue;
+      const f = cfg.filters || {};
+      // quem aparece com a bolinha verde na lista de conversas aberta agora
+      const onlineRefs = new Set((pl.rooms.get(cfg.creator_id) || []).filter((r) => r.online && r.name).map((r) => roomKey(cfg.creator_id, r.name)));
       // candidatos do painel (histórico: última mensagem do FÃ) + o que a lista aberta da Privacy mostrar a mais
       const server = (cfg.candidates || []).map((it) => ({ ...it }));
       const local = candidates(cfg, cfg.creator_id) || [];
       const seen = new Set(server.map((x) => x.fan_ref));
-      const items = server.length || pl.rooms.has(cfg.creator_id) ? [...server, ...local.filter((x) => !seen.has(x.fan_ref))].filter((x) => !pl.pending.has(`${cfg.creator_id}|${x.fan_ref}`) && !pl.sent.has(`${cfg.creator_id}|${x.fan_ref}`)) : null;
-      const openers = cfg.openers || [];
-      const pickText = () => { const pool = openers.filter((o) => !usedTexts.has(o)); const src = pool.length ? pool : openers; return src.length ? src[Math.floor(Math.random() * src.length)] : ''; };
+      let items = server.length || pl.rooms.has(cfg.creator_id) ? [...server, ...local.filter((x) => !seen.has(x.fan_ref))].filter((x) => !pl.pending.has(`${cfg.creator_id}|${x.fan_ref}`) && !pl.sent.has(`${cfg.creator_id}|${x.fan_ref}`)) : null;
+      if (items) {
+        items = items.map((x, i) => ({ ...x, online: onlineRefs.has(x.fan_ref), _i: i }));
+        if (f.only_online) items = items.filter((x) => x.online);
+        // online primeiro (a ordem de prioridade do painel continua valendo dentro de cada grupo)
+        if (f.prioritize_online !== false) items.sort((a, b) => (b.online - a.online) || (a._i - b._i));
+      }
+      const openers = (cfg.openers || []).map((o) => String(o).trim()).filter(Boolean);
+      const pickTemplate = () => { const pool = openers.filter((o) => !usedTexts.has(o)); const src = pool.length ? pool : openers; const t = src.length ? src[Math.floor(Math.random() * src.length)] : ''; usedTexts.add(t); return t; };
       out.push({ creator_id: cfg.creator_id, creator_name: c.name, in_window: inWindow(cfg, now), in_shift: !!(c.shift && c.shift.active !== false), only_without_shift: cfg.only_without_shift,
-        window: `${cfg.window_start}–${cfg.window_end}`, open: items !== null, from_panel: server.length, per_hour: cfg.per_hour,
-        items: (items || []).slice(0, 30).map((it) => ({ ...it, text: pickText() })) });
+        window: `${cfg.window_start}–${cfg.window_end}`, open: items !== null, from_panel: server.length, per_hour: cfg.per_hour, inactive_days: f.inactive_days || 7, online: items ? items.filter((x) => x.online).length : 0,
+        items: (items || []).slice(0, 30).map(({ _i, ...it }) => { const template = pickTemplate(); const text = fill(template, it.name); pl.templates.set(text, template); return { ...it, text, template }; }) });
     }
     const pend = [...pl.pending.entries()].map(([k, v]) => ({ key: k, ...v })), sent = [...pl.sent.entries()].map(([k, v]) => ({ key: k, ...v }));
     return { enabled: enabled(), creators: out, pending: pend, sent };
   }
   // a pessoa clicou "Abrir e preencher": quem abre a conversa e preenche é o main.js; aqui só fica a pendência
-  function prepared(creatorId, fanRef, name, text) { pl.pending.set(`${creatorId}|${fanRef}`, { text, at: Date.now(), name }); }
+  function prepared(creatorId, fanRef, name, text) { pl.pending.set(`${creatorId}|${fanRef}`, { text, template: pl.templates.get(text) || text, at: Date.now(), name }); }
   function cancel(creatorId, fanRef) { pl.pending.delete(`${creatorId}|${fanRef}`); }
   // // ALTA AUTO: depois que o plantão responde no modo "segurar", a conversa volta a escutar o fã
   function rearm(creatorId, fanRef) { const s = pl.sent.get(`${creatorId}|${fanRef}`); if (s) s.replied = false; }
   function cfgOf(creatorId) { return pl.configs.find((c) => c.creator_id === creatorId) || null; }
   return { fetchConfigs, onRooms, queue, prepared, cancel, rearm, cfgOf, enabled, inWindow, daysSilent, get configs() { return pl.configs; }, get fetchedAt() { return pl.fetchedAt; } };
 }
-module.exports = { create, daysSilent, inWindow };
+module.exports = { create, daysSilent, inWindow, fill, firstName };

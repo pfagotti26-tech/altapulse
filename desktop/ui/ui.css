@@ -378,3 +378,5 @@ header .tools { flex: 0 0 auto; }
 .pl-item button { display: inline-block; width: auto; margin: 6px 0 0; padding: 5px 10px; font-size: 12px; white-space: nowrap; }
 .pl-item.pend { border-color: #8a6d3b; }
 .pl-item.sent { opacity: .7; }
+.pl-item.online { border-color: #2f7a4d; }
+.pl-on { color: #4ade80; font-weight: 600; }

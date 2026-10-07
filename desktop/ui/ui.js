@@ -713,16 +713,21 @@ function renderPlantao() {
   if (!plHasPerm()) { b.classList.add('hidden'); return; }
   b.classList.remove('hidden');
   const on = plQ ? plQ.creators.length : 0; const n = plQ ? plQ.creators.reduce((a, c) => a + c.items.length, 0) : 0; const pend = plQ ? plQ.pending.length : 0;
-  b.innerHTML = `🌙 <b>Plantão</b> · ${on ? `${on} criadora${on > 1 ? 's' : ''} ligada${on > 1 ? 's' : ''} · ${n} na fila` : 'nenhuma criadora ligada'}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
+  const onl = plQ ? plQ.creators.reduce((a, c) => a + (c.online || 0), 0) : 0;
+  b.innerHTML = `🌙 <b>Plantão</b> · ${on ? `${on} criadora${on > 1 ? 's' : ''} ligada${on > 1 ? 's' : ''} · ${n} na fila` : 'nenhuma criadora ligada'}${onl ? ` · <span class="pl-on">● ${onl} online</span>` : ''}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
 }
 async function plLoad(refresh) { try { plQ = refresh ? await window.pulse.plantaoRefresh() : await window.pulse.plantaoQueue(); } catch (e) { plQ = null; } renderPlantao(); return plQ; }
 async function plantaoDialog() {
   const q = await plLoad(true); if (!q) return toast('Não consegui carregar o plantão.');
   const money = (c) => c ? fmtBRL(c) : 'nunca gastou';
   const groups = q.creators.map((c) => {
-    const st = !c.open ? 'sem histórico ainda: abra a Privacy desta criadora no app' : c.in_shift && c.only_without_shift ? 'chatter em turno · fila pausada' : c.in_window ? 'dentro da janela' : `fora da janela (${c.window})`;
-    const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${esc(it.name)}</b><small>${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : '<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora</small>';
-    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}</span></div>${items}`;
+    // no copiloto quem envia é a pessoa: a regra "só sem chatter em turno" vale só para o modo autônomo.
+    // Com chatter em turno é até melhor — quem responder cai direto na fila dele.
+    const st = !c.open ? 'abra o Chat desta criadora no app para montar a fila' : c.in_shift ? 'chatter em turno · bom momento: quem responder cai para ele' : 'sem chatter em turno · quem responder fica nas Oportunidades';
+    const onl = c.online ? ` · <span class="pl-on">● ${c.online} online agora</span>` : '';
+    const empty = `<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora${c.inactive_days ? ` (parados há ${c.inactive_days}+ dias)` : ''}. Veja o motivo no painel → Plantão noturno → Fila agora.</small>`;
+    const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item${it.online ? ' online' : ''}" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${it.online ? '<span class="pl-on" title="online agora">●</span> ' : ''}${esc(it.name)}</b><small>${it.online ? 'online agora · ' : ''}${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : empty;
+    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}${onl}</span></div>${items}`;
   }).join('');
   const pend = q.pending.map((p) => `<div class="pl-item pend" data-c="${esc(p.key.split('|')[0])}" data-f="${esc(p.key.split('|')[1])}"><div class="who"><b>${esc(p.name)}</b><small>texto na caixa, aguardando você enviar</small><span class="txt">${esc(p.text)}</span></div><button class="ghost" data-cancel="1">Desfazer</button></div>`).join('');
   const sent = q.sent.slice(-20).reverse().map((p) => `<div class="pl-item sent"><div class="who"><b>${esc(p.name)}</b><small>${p.replied ? '✅ respondeu — está nas Oportunidades' : 'enviada · aguardando resposta'}</small><span class="txt">${esc(p.text)}</span></div></div>`).join('');

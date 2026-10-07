@@ -33,6 +33,8 @@ class Filters(BaseModel):
     never_spent: bool = False                               # incluir quem nunca gastou (se False e min_spent None, ambos entram)
     skip_dismissed: bool = True                             # pula "dispensar" das Oportunidades
     skip_with_notes: bool = True                            # pula quem tem anotação da equipe
+    prioritize_online: bool = True                          # quem está online agora vem primeiro na fila (app lê a bolinha verde)
+    only_online: bool = False                               # só quem está online agora
 
 class ConfigIn(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)

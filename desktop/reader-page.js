@@ -23,8 +23,20 @@ module.exports = String.raw`(() => {
     const v = parseFloat(n);
     return isNaN(v) ? null : { cents: Math.round(v * 100), approx: false };
   };
+  // online agora: a bolinha verde no avatar da conversa. Primeiro por classe; se a Privacy não usar classe com
+  // "online", procura um ponto pequeno, redondo e verde dentro do avatar (só olha elementos pequenos).
+  const isGreen = (c) => { const m = String(c).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/); return !!m && +m[2] > 150 && +m[2] > +m[1] + 40 && +m[2] > +m[3] + 20; };
+  const online = (r) => {
+    if (r.querySelector('.vac-state-online, [class*="online" i]')) return true;
+    for (const el of r.querySelectorAll('.vac-avatar *, .vac-room-avatar *, [class*="avatar" i] *, [class*="status" i]')) {
+      const b = el.getBoundingClientRect(); if (!b.width || b.width > 16 || b.height > 16) continue;
+      const s = getComputedStyle(el); if (isGreen(s.backgroundColor) && parseFloat(s.borderRadius) >= b.width / 3) return true;
+    }
+    return false;
+  };
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
+    online: online(r),
     spent: money(txt(r.querySelector('.spent, .never-spent'))),
     ours: !!r.querySelector('.message-last .vac-icon-check'),
     unread: parseInt(txt(r.querySelector('.cn-unread-number')), 10) || 0,
