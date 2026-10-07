@@ -1,0 +1,67 @@
+name: Publicar app desktop
+
+# Gera o instalador do Alta Pulse no Windows e publica os artefatos em backend/desktop_dist,
+# de onde o painel serve o download e a atualização rápida (app-<versão>.asar).
+# Rodar em: Actions -> "Publicar app desktop" -> Run workflow -> informe a versão (ex.: 1.4.20).
+# Depois do push, peça o deploy no Emergent para o painel passar a servir a versão nova.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do app (só números e pontos, ex.: 1.4.20)'
+        required: true
+      branch:
+        description: 'Branch de destino'
+        required: true
+        default: main
+
+jobs:
+  empacotar:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      # sem conversão de fim de linha: o release.sh precisa de LF e os .exe/.asar são binários
+      - name: Desligar conversão de fim de linha
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar zip
+        run: choco install zip -y --no-progress
+
+      - name: Empacotar e publicar em backend/desktop_dist
+        shell: bash
+        run: bash desktop/release.sh "${{ inputs.version }}"
+
+      - name: Commit e push na ${{ inputs.branch }}
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A backend/desktop_dist desktop/package.json
+          if git diff --cached --quiet; then echo 'Nada mudou: nenhum commit.'; exit 0; fi
+          git commit -m "App desktop ${{ inputs.version }}: instalador, asar e zip sem instalador publicados"
+          git push origin HEAD:${{ inputs.branch }}
+
+      - name: Resumo
+        shell: bash
+        run: |
+          echo "### App desktop ${{ inputs.version }} publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Arquivos em `backend/desktop_dist`:' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -la backend/desktop_dist >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Agora peça o deploy no Emergent para o painel servir esta versão.' >> "$GITHUB_STEP_SUMMARY"
