@@ -22,7 +22,9 @@ from stations import ingest
 
 router = APIRouter()
 SOURCE = Path(__file__).parent.parent / 'extension'
-VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
+# a versão da extensão não pode derrubar o backend no import: sem a pasta (imagem sem 'extension/'),
+# o processo morria ao subir e o Cloudflare devolvia 520 em vez de servir o painel
+VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version'] if (SOURCE / 'manifest.json').exists() else '0.0.0'
 DESKTOP = Path(__file__).parent.parent / 'desktop'
 DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
 DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json', 'iniciar.log'}
