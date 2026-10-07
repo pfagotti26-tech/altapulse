@@ -23,6 +23,7 @@ const AVATAR_SCRIPT = require('./avatar-page.js').script;
 const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
 const FF_CHAT_SCRIPT = require('./fatalfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
+const plantaoApp = require('./plantao-app.js');
 const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------
@@ -698,6 +699,7 @@ async function readAllNow() {
     // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
     if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
+    if (data && data.page === 'chat') plantao.onRooms(id, data.rooms);
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary, radar;
@@ -1330,6 +1332,21 @@ ipcMain.handle('assist:use', async (_e, text) => {
   if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
   return { filled };
 });
+// ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
+const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
+ipcMain.handle('plantao:queue', async () => { if (Date.now() - (plantao.fetchedAt || 0) > 120000) await plantao.fetchConfigs(); return plantao.queue(); });
+ipcMain.handle('plantao:refresh', async () => { await plantao.fetchConfigs(); return plantao.queue(); });
+ipcMain.handle('plantao:prepare', async (_e, { creator_id, fan_ref, name, rid, text }) => {
+  const t = String(text || '').slice(0, 400); if (!t) return { ok: false, reason: 'sem texto' };
+  const r = await openConversation(creator_id, 'privacy', rid || null, name, fan_ref).catch((e) => ({ found: false, how: e.message }));
+  if (!r || !['ja', 'ok', 'clicou'].includes(r.how)) return { ok: false, reason: (r && r.how) || 'não abriu' };
+  await sleep(1200);
+  const view = views.get(creator_id); let filled = false;
+  if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
+  if (filled) plantao.prepared(creator_id, fan_ref, name, t);
+  return { ok: filled, reason: filled ? null : 'caixa de mensagem não encontrada' };
+});
+ipcMain.handle('plantao:cancel', (_e, { creator_id, fan_ref }) => { plantao.cancel(creator_id, fan_ref); return plantao.queue(); });
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
@@ -1651,6 +1668,7 @@ app.whenReady().then(async () => {
   if (pendingLink) setTimeout(() => { handleDeepLink(pendingLink); pendingLink = null; }, 8000); // app aberto pelo link do painel
   setInterval(() => loadOpportunities().catch(() => {}), 60000); setInterval(() => radarFatalFans().catch(() => {}), 90000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
+  setTimeout(() => plantao.fetchConfigs().catch(() => {}), 12000); setInterval(() => plantao.fetchConfigs().catch(() => {}), 5 * 60000);
 });
 
 app.on('window-all-closed', () => app.quit());

@@ -43,7 +43,9 @@ class ConfigIn(BaseModel):
     gap_min: int = Field(default=2, ge=1, le=30)   # minutos
     gap_max: int = Field(default=6, ge=1, le=60)
     cooldown_days: int = Field(default=7, ge=1, le=90)  # 1 abordagem por fã a cada Z dias
-    mode: Literal['list', 'ai'] = 'list'           # 'list' = só as aberturas aprovadas; 'ai' = gera na persona (só abertura)
+    mode: Literal['list', 'ai'] = 'list'           # 'list' = só as aberturas aprovadas; 'ai' = gera na persona (módulo autônomo)
+    after_reply: Literal['handoff', 'hold'] = 'handoff'  # handoff = entrega ao chatter; hold = módulo autônomo segura a conversa até hold_max respostas
+    hold_max: int = Field(default=2, ge=1, le=5)
     openers: list[str] = Field(default_factory=lambda: list(DEFAULT_OPENERS), max_length=40)
     filters: Filters = Field(default_factory=Filters)
     @field_validator('days')
@@ -170,7 +172,8 @@ async def app_configs(user=Depends(app_user)):
         if c.get('paused_day') == td: continue
         since = (now() - timedelta(days=c.get('cooldown_days', 7))).isoformat()
         recent = await db.plantao_log.find({'creator_id': c['creator_id'], 'sent_at': {'$gt': since}}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
-        out.append({**c, 'recent_fans': sorted({r['fan_ref'] for r in recent})})
+        noted = await db.fan_notes.find({'creator_id': c['creator_id']}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
+        out.append({**c, 'recent_fans': sorted({r['fan_ref'] for r in recent}), 'noted_fans': sorted({n['fan_ref'] for n in noted})})
     since = (now() - timedelta(days=30)).isoformat()
     dismissed = await db.opportunities.find({'status': 'dismissed', 'dismissed_at': {'$gt': since}}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1}).to_list(20000)
     return {'configs': out, 'dismissed': [[d['creator_id'], d['fan_ref']] for d in dismissed], 'server_time': iso()}
@@ -185,9 +188,41 @@ async def app_sent(body: SentIn, user=Depends(app_user)):
 
 @router.post('/extension/plantao/replied')
 async def app_replied(body: RepliedIn, user=Depends(app_user)):
-    r = await db.plantao_log.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'replied_at': None}, {'_id': 0, 'id': 1}, sort=[('sent_at', -1)])
-    if r: await db.plantao_log.update_one({'id': r['id']}, {'$set': {'replied_at': iso()}})
+    r = await db.plantao_log.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'replied_at': None}, {'_id': 0}, sort=[('sent_at', -1)])
+    if r:
+        await db.plantao_log.update_one({'id': r['id']}, {'$set': {'replied_at': iso()}})
+        await mark_opportunity(body.creator_id, body.fan_ref, r.get('fan_name'), r.get('platform') or 'privacy', hot=False)
     return {'ok': True, 'matched': bool(r)}
+
+async def mark_opportunity(creator_id, fan_ref, fan_name, platform, hot):
+    """Oportunidade 'Voltou a falar' para o chatter assumir. O motivo real (abordagem do plantão) só aparece para quem
+    tem a permissão; os demais veem a etiqueta neutra (ver my_opportunities em radar.py)."""
+    creator = await db.creators.find_one({'id': creator_id}, {'_id': 0, 'name': 1})
+    t = now(); hm = (t - timedelta(hours=3)).strftime('%Hh%M')
+    doc = {'creator_name': creator['name'] if creator else '?', 'fan_name': fan_name, 'platform': platform, 'kind': 'voltou', 'reason': f'Voltou a falar às {hm}',
+        'plantao': True, 'plantao_at': iso(), 'hot': hot, 'status': 'open', 'due_at': (t + timedelta(hours=18)).isoformat(), 'expires_at': await expiration()}
+    await db.opportunities.update_one({'creator_id': creator_id, 'fan_ref': fan_ref, 'ref': f'plantao:{fan_ref}'},
+        {'$set': doc, '$setOnInsert': {'id': uid(), 'creator_id': creator_id, 'fan_ref': fan_ref, 'ref': f'plantao:{fan_ref}', 'value_cents': 0, 'source_at': iso(), 'created_at': iso()}}, upsert=True)
+
+# ---- contrato do módulo autônomo (// ALTA AUTO: implementado no Emergent) ----
+class Msg(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    ours: bool
+    text: str = Field(max_length=400)
+class ReplyIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    creator_id: str
+    fan_ref: str = Field(max_length=120)
+    fan_name: Optional[str] = Field(default=None, max_length=80)
+    msgs: list[Msg] = Field(max_length=8)   # últimas mensagens, já mascaradas pelo app (sem e-mail/telefone/@/links)
+    hold_count: int = Field(default=0, ge=0, le=10)
+
+@router.post('/extension/plantao/reply')
+async def app_reply(body: ReplyIn, user=Depends(app_user)):
+    """Modo 'segurar a conversa'. Contrato: devolve {'stop': True, 'reason': str} para entregar ao chatter ou
+    {'stop': False, 'text': str} com a próxima mensagem. Enquanto o módulo autônomo não está instalado, sempre entrega."""
+    await mark_opportunity(body.creator_id, body.fan_ref, body.fan_name, 'privacy', hot=False)
+    return {'stop': True, 'reason': 'módulo autônomo não instalado'}
 
 @router.post('/extension/plantao/run')
 async def app_run(body: RunIn, user=Depends(app_user)):

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from core import db, now, iso, uid, staff, is_staff, settings, clean_time, WORKSPACE
+from core import db, now, iso, uid, staff, is_staff, has_perm, settings, clean_time, WORKSPACE
 from schemas import Strict
 
 router = APIRouter()
@@ -229,7 +229,14 @@ async def my_opportunities(user):
     for o in rows:
         k = (o['creator_id'], o['fan_ref'])
         if k in seen: continue
-        seen.add(k); o['label'] = LABEL.get(o['kind'], o['kind']); out.append(o)
+        seen.add(k); o['label'] = LABEL.get(o['kind'], o['kind'])
+        # abordagem do plantão: quem tem a permissão vê o motivo real; os demais só "Voltou a falar"
+        if o.get('plantao') and has_perm(user, 'plantao'): o['reason'] = 'Abordado pelo plantão · ' + str(o.get('reason') or '')
+        out.append(o)
+    # as abordagens do plantão que o fã respondeu sobem para o topo (sem passar na frente das quentes)
+    out.sort(key=lambda o: (not o.get('hot'), not o.get('plantao_at')))
+    if not has_perm(user, 'plantao'):
+        for o in out: o.pop('plantao', None); o.pop('plantao_at', None)
     return out[:2000]
 
 class OppAction(Strict):
