@@ -1,3 +1,5 @@
 g++-mingw-w64-x86-64-posix=12.2.0-14+deb12u1+25.2+b1
+libc6-amd64-cross=2.36-8cross1
 nsis=3.08-3+deb12u1
 p7zip-full=16.02+really26.02+dfsg-0+deb12u1
+qemu-user-static=1:7.2+dfsg-7+deb12u18+b3

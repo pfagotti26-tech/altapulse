@@ -46,6 +46,18 @@ Restrições declaradas pelo usuário:
   - Teste: `backend/tests/test_alta_auto_plantao.py` (19 asserções, todas passando) + testes em node
     dos scripts injetados e do gatilho `onHold`/`rearm`.
 
+- **07/10/2026 — Guarda do 520** (commit `9ef99d9`): `backend/extension_routes.py` lia
+  `extension/manifest.json` no import sem guarda; sem a pasta na imagem o processo morria ao subir e o
+  Cloudflare devolvia 520. Agora usa `.exists()` com fallback `'0.0.0'`.
+- **07/10/2026 — Empacotamento do app** (commits `62891e8`, `587d588`): `desktop/release.sh` (script do
+  usuário) + `.github/workflows/desktop-release.yml` (workflow manual em `windows-latest`).
+  **O instalador NÃO pode ser gerado neste pod**: é ARM64 e o Wine do Debian arm64 não executa PE
+  x86-64, então o passo NSIS do electron-builder falha (`wine is required`). O `makensis` x86-64 roda
+  sob `qemu-user-static` + glibc amd64, mas o passo do uninstaller precisa de Wine de verdade.
+  Caminho definitivo: rodar o workflow em `windows-latest`, que commita os artefatos; depois é só
+  merge + deploy. Instalador/asar/portátil seguem em 1.4.19 (versão de `desktop/package.json` revertida
+  de propósito para não mentir no `/api/desktop/release`).
+
 ## Backlog
 - P0: aguardar validação do usuário do Alta Auto em produção (Fase 3 do plano: envio autônomo).
 - P1: `extension_routes.py:23` lê `/app/extension/manifest.json` no import **sem guarda** — se a pasta
