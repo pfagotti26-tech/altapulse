@@ -17,7 +17,7 @@ for f in AltaPulse-* app-*.asar app-*.json latest.yml; do [ -e "$f" ] && { git -
 cp "$D/dist/latest.yml" "$D/dist/AltaPulse-Setup-$V.exe.blockmap" .
 split -b 60m -d -a 2 "$D/dist/AltaPulse-Setup-$V.exe" "AltaPulse-Setup-$V.exe.part"
 cp "$D/dist/win-unpacked/resources/app.asar" "app-$V.asar"
-ELECTRON="$(node -p "require('$D/node_modules/electron/package.json').version")"
+ELECTRON="$(cd "$D" && node -p "require('./node_modules/electron/package.json').version")"
 SHA="$(node -e "const c=require('crypto'),fs=require('fs');process.stdout.write(c.createHash('sha512').update(fs.readFileSync(process.argv[1])).digest('base64'))" "app-$V.asar")"
 printf '{"sha512": "%s", "electron": "%s"}\n' "$SHA" "$ELECTRON" > "app-$V.json"
 ( cd "$D/dist/win-unpacked" && rm -f "/tmp/AltaPulse-$V-sem-instalador.zip" && \
