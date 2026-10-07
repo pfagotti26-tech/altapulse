@@ -537,6 +537,11 @@ async function handleDeepLink(url) {
 }
 let pendingLink = process.argv.find((a) => /^altapulse:\/\//i.test(a)) || null;
 ipcMain.handle('opp:open', (_e, id) => openOpportunity(id));
+// "N esperando" no card: abre a conversa de quem está esperando (mesmo que esteja lá no fim da lista da Privacy)
+ipcMain.handle('wait:open', (_e, w) => {
+  if (!w || !w.creator_id || !w.name || !(state.creators || []).some((c) => c.id === w.creator_id)) throw new Error('Conversa não encontrada.');
+  return openConversation(w.creator_id, 'privacy', w.rid || null, String(w.name).slice(0, 120), readerFor(w.creator_id).reader.roomKey(w.name));
+});
 ipcMain.handle('opp:action', async (_e, { id, action, reason }) => { await api('POST', `/extension/opportunities/${encodeURIComponent(id)}/action`, { action, reason: reason || '' }); await loadOpportunities(); return publicState(); });
 ipcMain.handle('opp:reload', async () => { await loadOpportunities(); return publicState(); });
 async function loadTasks() {

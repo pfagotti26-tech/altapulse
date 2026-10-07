@@ -379,4 +379,7 @@ header .tools { flex: 0 0 auto; }
 .pl-item.pend { border-color: #8a6d3b; }
 .pl-item.sent { opacity: .7; }
 .pl-item.online { border-color: #2f7a4d; }
+.pl-item.late { border-color: #7a2f3a; }
+.queue.wait-link { cursor: pointer; }
+.queue.wait-link:hover { text-decoration: underline; }
 .pl-on { color: #4ade80; font-weight: 600; }

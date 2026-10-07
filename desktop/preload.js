@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('pulse', {
   fanNoteAdd: (text) => ipcRenderer.invoke('fan:note:add', text),
   fanNoteDel: (id) => ipcRenderer.invoke('fan:note:del', id),
   oppOpen: (id) => ipcRenderer.invoke('opp:open', id),
+  waitOpen: (w) => ipcRenderer.invoke('wait:open', w),
   oppAction: (id, action, reason) => ipcRenderer.invoke('opp:action', { id, action, reason }),
   oppReload: () => ipcRenderer.invoke('opp:reload'),
   plantaoQueue: () => ipcRenderer.invoke('plantao:queue'),

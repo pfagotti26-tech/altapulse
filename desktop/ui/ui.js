@@ -184,7 +184,7 @@ function card(c, groupItems) {
   const rd = S.readers && S.readers[c.id];
   let queue = '';
   if (rd && rd.page === 'chat') {
-    if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue ${late ? 'late' : ''}">${rd.waiting} esperando${wt}</div>`; }
+    if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue wait-link ${late ? 'late' : ''}" title="Ver quem está esperando e abrir a conversa">${rd.waiting} esperando${wt} ›</div>`; }
     else queue = '<div class="queue ok">fila zerada</div>';
   }
   const ex = S.extratos && S.extratos[c.id];
@@ -249,6 +249,7 @@ function card(c, groupItems) {
     openCreator(c).then(() => { if (S.open.includes(c.id)) enterPlatform(c, (S.activeTab && S.activeTab[c.id]) || 'privacy', true); });
   });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
+  el.querySelectorAll('.wait-link').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); waitingDialog(c); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
     const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
@@ -705,6 +706,27 @@ $('only-open').addEventListener('change', () => { renderList(); applyPanel(); })
 $('btn-search').onclick = () => { setBlk('search', 'open'); setTimeout(() => $('search').focus(), 50); };
 $('btn-filter').onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
 $('btn-opps').onclick = () => oppDialog();
+// ---------- "N esperando": quem está esperando resposta nesta criadora, da espera mais antiga para a mais nova ----------
+// A lista vem da leitura da lista de conversas da Privacy (fica só no app). "Abrir conversa" abre direto a conversa,
+// mesmo que ela esteja lá no fim da lista; respondendo, a espera zera sozinha na próxima leitura.
+function waitingDialog(c) {
+  const rd = S.readers && S.readers[c.id]; const list = (rd && rd.waitingList) || [];
+  const ago = (m) => m == null ? 'há um tempo' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `há ${Math.floor(m / 1440)} dia${m >= 2880 ? 's' : ''}`;
+  const sla = S.sla_minutes || 5;
+  const rows = list.map((w, i) => `<div class="pl-item${w.waitMin != null && w.waitMin > sla ? ' late' : ''}" data-i="${i}"><div class="who"><b>${esc(w.name)}</b><small>esperando ${esc(ago(w.waitMin))} · ${w.spent_cents ? esc(fmtBRL(w.spent_cents)) : 'nunca gastou'}</small></div><button class="primary" data-open="1">Abrir conversa</button></div>`).join('');
+  const body = `<p style="margin:0 0 6px;font-size:12px;color:#9a9ab0">Quem mandou a última mensagem e ainda não teve resposta, da espera mais antiga para a mais nova. Abra, responda e a espera zera sozinha.</p>
+    ${rows || '<small style="color:#9a9ab0">Ninguém esperando agora (a lista atualiza a cada 10 s com o Chat da criadora aberto).</small>'}
+    ${list.length && rd.waiting > list.length ? `<small style="color:#9a9ab0">Mostrando as ${list.length} mais antigas de ${rd.waiting}.</small>` : ''}`;
+  const p = dialog({ title: `${c.name} · esperando resposta`, body, hideOk: true });
+  $('dialog-body').querySelectorAll('[data-open]').forEach((btn) => btn.onclick = async () => {
+    const w = list[Number(btn.closest('.pl-item').dataset.i)]; if (!w) return;
+    btn.disabled = true; btn.textContent = 'Abrindo…';
+    try { await window.pulse.waitOpen({ creator_id: c.id, name: w.name, rid: w.rid }); $('dialog-cancel').onclick(); }
+    catch (e) { toast(`Não consegui abrir: ${e.message || e}`); btn.disabled = false; btn.textContent = 'Abrir conversa'; }
+  });
+  return p;
+}
+
 // ---------- Plantão (copiloto): fila de abordagens; "Abrir e preencher" deixa o texto na caixa, o envio é da pessoa ----------
 const plHasPerm = () => !!(S && S.user && (S.user.owner || (S.user.perms || []).includes('plantao')));
 let plQ = null;

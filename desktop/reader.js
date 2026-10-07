@@ -62,13 +62,15 @@ class CreatorReader {
     this.s.lastObservedAt = observedAt;
 
     // ---- fila (só local) + vendas por total gasto na lista ----
-    let waiting = 0, oldest = null, recent = 0;
+    let waiting = 0, oldest = null, recent = 0; const waitList = [];
     for (const r of data.rooms || []) {
       const key = this.roomKey(r.name);
       if (!r.ours) {
         waiting += 1;
         const t = listAt(r.when, now);
         if (t && (!oldest || t < oldest)) oldest = t;
+        // quem está esperando (só fica no app, para o chatter achar a conversa: nunca vai para o painel)
+        waitList.push({ name: r.name, rid: r.rid || null, at: t ? t.getTime() : null, spent_cents: r.spent ? r.spent.cents : null });
         // balão vermelho: só conversas em que o fã falou por último nas últimas 24 h
         if (t && now - t < 864e5) recent += 1;
       }
@@ -130,7 +132,10 @@ class CreatorReader {
       radar.push({ ...this.fan(r.name), cid: r.rid || null, spent_cents: r.spent ? r.spent.cents : null, last_from: r.ours ? 'us' : 'fan',
         last_at: t ? isoLocal(t) : null, unread: r.unread || 0, intent: !!r.intent });
     }
-    return { events, radar, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
+    // mais antiga primeiro; sem horário conhecido vai para o fim
+    const waitingList = waitList.sort((a, b) => (a.at == null) - (b.at == null) || (a.at || 0) - (b.at || 0)).slice(0, 40)
+      .map((w) => ({ name: w.name, rid: w.rid, spent_cents: w.spent_cents, waitMin: w.at == null ? null : Math.max(0, Math.round((now - w.at) / 60000)) }));
+    return { events, radar, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, waitingList, page: data.page, readAt: isoLocal(now) } };
   }
 }
 
