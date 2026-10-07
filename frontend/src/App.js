@@ -15,6 +15,7 @@ import Quality from './pages/Quality';
 import Team from './pages/Team';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
+import Plantao, { canPlantao } from './pages/Plantao';
 import InstallExtension from './pages/InstallExtension';
 import Account, { PasswordSetup } from './pages/Account';
 import './App.css';
@@ -44,19 +45,22 @@ export default function App() {
   const logout = async () => { await api.post('/auth/logout'); setUser(null); setCreators([]); };
   if (loading) return <div className="app-loading" data-testid="app-loading"><Brand/><i/></div>;
   if (connectionError) return <div className="app-loading" data-testid="connection-error"><h2>Não foi possível conectar</h2><button data-testid="retry-connection" onClick={load}>Tentar novamente</button></div>;
+  // gestor e supervisor veem as páginas de acompanhamento; só o gestor entra em Configurações
+  const staff = user && (user.role === 'manager' || user.role === 'supervisor');
   return <Context.Provider value={{ user, config, setConfig, creators, refresh, logout, refreshIdentity: login }}><BrowserRouter><Routes>
     <Route path="/instalar" element={<InstallExtension/>}/>
     <Route path="/baixar" element={<Navigate to="/instalar" replace/>}/>
     <Route path="/redefinir-senha" element={<ResetPassword onLogin={login}/>}/>
     <Route path="*" element={!user ? <Auth setup={setup} onLogin={login}/> : user.must_change_password ? <PasswordSetup/> : <Shell><Routes>
       <Route path="/" element={<Creators/>}/>
-      <Route path="/operacao" element={user.role === 'manager' ? <Operation/> : <Navigate to="/"/>}/>
-      <Route path="/vendas" element={user.role === 'manager' ? <Sales/> : <Navigate to="/"/>}/>
-      <Route path="/desempenho" element={user.role === 'manager' ? <Performance/> : <Navigate to="/"/>}/>
-      <Route path="/assinantes" element={user.role === 'manager' ? <Fans/> : <Navigate to="/"/>}/>
-      <Route path="/qualidade" element={user.role === 'manager' ? <Quality/> : <Navigate to="/"/>}/>
+      <Route path="/operacao" element={staff ? <Operation/> : <Navigate to="/"/>}/>
+      <Route path="/vendas" element={staff ? <Sales/> : <Navigate to="/"/>}/>
+      <Route path="/desempenho" element={staff ? <Performance/> : <Navigate to="/"/>}/>
+      <Route path="/assinantes" element={staff ? <Fans/> : <Navigate to="/"/>}/>
+      <Route path="/qualidade" element={staff ? <Quality/> : <Navigate to="/"/>}/>
       <Route path="/equipe" element={<Team/>}/>
-      <Route path="/relatorios" element={user.role === 'manager' ? <Reports/> : <Navigate to="/"/>}/>
+      <Route path="/relatorios" element={staff ? <Reports/> : <Navigate to="/"/>}/>
+      <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/minha-conta" element={<Account/>}/>
       <Route path="*" element={<Navigate to="/"/>}/>

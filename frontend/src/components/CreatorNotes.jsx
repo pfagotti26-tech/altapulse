@@ -18,7 +18,7 @@ export function CreatorNotes({ creator, user, onChange }) {
     {rows == null ? <p className="body-muted">Carregando…</p> : rows.length ? <div className="note-list">{rows.map(n => <div key={n.id} className={`note-item ${n.pinned ? 'pinned' : ''}`}>
       <p>{n.text}</p><div className="note-meta"><span>{n.pinned ? '📌 ' : ''}{n.author} · {dateTime(n.created_at)}</span><span className="row-actions">
         <button className="icon-btn" title={n.pinned ? 'Desafixar' : 'Fixar no topo'} onClick={() => pin(n)}>{n.pinned ? <PinOff size={14}/> : <Pin size={14}/>}</button>
-        {(n.author_id === user.id || user.role === 'manager') && <button className="icon-btn" title="Apagar" onClick={() => del(n)}><Trash2 size={14}/></button>}</span></div></div>)}</div>
+        {(n.author_id === user.id || user.role !== 'chatter') &&<button className="icon-btn" title="Apagar" onClick={() => del(n)}><Trash2 size={14}/></button>}</span></div></div>)}</div>
       : <div className="inline-empty">Nenhuma anotação ainda.</div>}
   </div>;
 }

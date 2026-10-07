@@ -10,7 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
-from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN
+from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN, is_staff
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta, AvatarIn
 from performance import SnapshotIn
 from quality_ai import SampleIn
@@ -116,7 +116,7 @@ class OrderIn(Strict):
     order: list[str] = Field(max_length=2000)
 @router.put('/extension/me/order')
 async def extension_order(body: OrderIn, user=Depends(extension_user)):
-    allowed = None if user['role'] == 'manager' else set(user['creator_ids'])
+    allowed = None if is_staff(user) else set(user['creator_ids'])
     seen, order = set(), []
     for cid in body.order:
         if cid in seen or (allowed is not None and cid not in allowed): continue
@@ -151,7 +151,7 @@ async def heartbeat(body: HeartbeatIn, user=Depends(extension_user)):
 async def observations(body: ObservationBatch, user=Depends(extension_user)):
     results = []
     for event in body.events:
-        if user['role'] != 'manager' and event.creator_id not in user['creator_ids']:
+        if not is_staff(user) and event.creator_id not in user['creator_ids']:
             results.append({'event_ref': event.event_ref, 'ok': False, 'detail': 'Criadora não autorizada.'}); continue
         try:
             outcome = await ingest(event, {'source': 'desktop-extrato' if event.sale_source == 'extrato' else 'extension', 'operator_id': user['id']})
@@ -166,7 +166,7 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
     from core import creator_access
     creator = await creator_access(creator_id, user)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
-    if user['role'] != 'manager': patch = {k: v for k, v in patch.items() if k == 'notes'}
+    if not is_staff(user): patch = {k: v for k, v in patch.items() if k == 'notes'}
     if 'groups' in patch:
         names = []
         for g in patch['groups']:
@@ -371,7 +371,7 @@ async def extension_creator_avatar(creator_id: str, body: AvatarIn, user=Depends
     """Foto de perfil da criadora lida pelo app na plataforma; não substitui uma foto escolhida pelo gestor."""
     creator = await db.creators.find_one({'id': creator_id}, {'_id': 0, 'id': 1, 'avatar_source': 1})
     if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
-    if user['role'] != 'manager' and creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
     if creator.get('avatar_source') == 'manual': return {'ok': True, 'kept': True}
     await db.creators.update_one({'id': creator_id}, {'$set': {'avatar': body.image, 'avatar_source': 'auto'}})
     return {'ok': True}

@@ -13,7 +13,7 @@ from typing import Optional, Literal, Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field, StringConstraints
 from cryptography.fernet import Fernet, InvalidToken
-from core import db, now, iso, uid, current_user, manager, creator_access, audit, lock
+from core import db, now, iso, uid, current_user, manager, is_staff, creator_access, audit, lock
 from schemas import Strict
 
 router = APIRouter()
@@ -59,7 +59,7 @@ def public(row, user):
     return out
 
 async def creators_allowed(user):
-    return None if user['role'] == 'manager' else user['creator_ids']
+    return None if is_staff(user) else user['creator_ids']
 
 async def list_credentials(user, creator_id=None):
     query = {}
