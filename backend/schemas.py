@@ -12,7 +12,7 @@ class Setup(Login):
     agency_name: str = Field(min_length=2, max_length=70)
 class Operator(Login):
     name: str = Field(min_length=2, max_length=70)
-    role: Literal['manager', 'chatter'] = 'chatter'
+    role: Literal['manager', 'supervisor', 'chatter'] = 'chatter'
     creator_ids: list[str] = Field(default_factory=list, max_length=1000)  # limite de negócio (150) validado em people.py
     temporary_password: bool = False
 
@@ -39,7 +39,8 @@ class OperatorUpdate(Strict):
     active: bool = True
     name: Optional[str] = Field(default=None, min_length=2, max_length=70)
     email: Optional[EmailStr] = None
-    role: Optional[Literal['manager', 'chatter']] = None
+    role: Optional[Literal['manager', 'supervisor', 'chatter']] = None
+    perms: Optional[list[Literal['plantao']]] = None  # permissões especiais: só o dono da conta altera
     new_password: Optional[str] = Field(default=None, min_length=8, max_length=128)  # nova senha inicial (obriga a trocar no 1º acesso)
 class Creator(Strict):
     name: str = Field(min_length=2, max_length=70)

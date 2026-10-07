@@ -9,7 +9,7 @@ from datetime import timedelta, datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from core import db, now, iso, uid, current_user, manager, creator_access, audit, WORKSPACE
+from core import db, now, iso, uid, current_user, manager, is_staff, creator_access, audit, WORKSPACE
 from schemas import Strict, Reason
 
 router = APIRouter()
@@ -23,7 +23,7 @@ class PresenceIn(Strict):
     active: Optional[str] = Field(default=None, max_length=64)
 
 async def save_presence(user, body: PresenceIn):
-    allowed = None if user['role'] == 'manager' else set(user.get('creator_ids') or [])
+    allowed = None if is_staff(user) else set(user.get('creator_ids') or [])
     keep = lambda cid: cid and (allowed is None or cid in allowed)
     open_ids = list(dict.fromkeys(c for c in body.open if keep(c)))[:300]
     active = body.active if keep(body.active) else None
@@ -64,7 +64,7 @@ async def remove_note(note_id, user):
     note = await db.creator_notes.find_one({'id': note_id}, {'_id': 0})
     if not note: raise HTTPException(404, 'Anotação não encontrada.')
     await creator_access(note['creator_id'], user)
-    if note['author_id'] != user['id'] and user['role'] != 'manager': raise HTTPException(403, 'Só quem escreveu (ou o gestor) apaga esta anotação.')
+    if note['author_id'] != user['id'] and not is_staff(user): raise HTTPException(403, 'Só quem escreveu (ou o gestor) apaga esta anotação.')
     await db.creator_notes.delete_one({'id': note_id})
     return {'ok': True}
 

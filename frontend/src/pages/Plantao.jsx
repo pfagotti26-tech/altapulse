@@ -1,0 +1,57 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { MoonStar, Pencil, Pause, Play, RefreshCw, History } from 'lucide-react';
+import { toast } from 'sonner';
+import { useApp } from '../App';
+import { api, errorText, dateTime } from '../lib/api';
+import { PageHeading, Button, Badge, Modal, Field, Select, Submit, FormError, Empty, Notice, Avatar } from '../components/Common';
+
+// Plantão noturno: só quem tem a permissão especial chega aqui (a rota e o menu ficam escondidos para os demais;
+// o servidor também recusa). O agente roda dentro do app em um PC ligado de madrugada, nas criadoras ligadas abaixo.
+const DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+export const canPlantao = user => !!(user && (user.owner || (user.perms || []).includes('plantao')));
+
+export default function Plantao() {
+  const { user } = useApp();
+  const [data, setData] = useState(null), [log, setLog] = useState([]), [tab, setTab] = useState('creators'), [modal, setModal] = useState(null), [cfg, setCfg] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [loadError, setLoadError] = useState('');
+  const load = useCallback(async () => { try { const [o, l] = await Promise.all([api.get('/plantao'), api.get('/plantao/log/list', { params: { days: 7 } })]); setData(o.data); setLog(l.data); setLoadError(''); } catch (e) { setLoadError(errorText(e)); } }, []);
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  async function toggle(c) { try { const r = await api.post(`/plantao/${c.creator_id}/toggle`); toast.success(r.data.enabled ? `Plantão ligado para ${c.name}.` : `Plantão desligado para ${c.name}.`); await load(); } catch (e) { toast.error(errorText(e)); } }
+  async function pause(c) { try { const r = await api.post(`/plantao/${c.creator_id}/pause`); toast.success(r.data.paused_today ? `${c.name}: pausada só hoje.` : `${c.name}: pausa de hoje removida.`); await load(); } catch (e) { toast.error(errorText(e)); } }
+  async function edit(c) { setError(''); try { const r = await api.get(`/plantao/${c.creator_id}`); const { creator_id, updated_at, updated_by, paused_day, ...rest } = r.data; setCfg(rest); setModal(c); } catch (e) { toast.error(errorText(e)); } }
+  async function save(e) { e.preventDefault(); setBusy(true); setError('');
+    try { await api.put(`/plantao/${modal.creator_id}`, cfg); setModal(null); await load(); toast.success('Plantão salvo.'); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }
+  const set = (k, v) => setCfg(c => ({ ...c, [k]: v })), setF = (k, v) => setCfg(c => ({ ...c, filters: { ...c.filters, [k]: v } }));
+  if (!canPlantao(user)) return <Empty id="plantao-denied" title="Área restrita" description="Você não tem acesso ao plantão noturno."/>;
+  const rows = data?.creators || [], on = rows.filter(r => r.enabled);
+  const runText = r => { if (!r) return 'nunca rodou'; const when = dateTime(r.at); return r.event === 'start' ? `rodando desde ${when} (${r.user})` : r.event === 'stop' ? `parou ${when}${r.detail ? ' · ' + r.detail : ''}` : r.event === 'error' ? `erro ${when}: ${r.detail || ''}` : `${r.detail || r.event} · ${when}`; };
+  return <><PageHeading eyebrow="AGENTE DE ABORDAGEM" title="Plantão noturno" description="Abre conversa com assinantes parados, na persona da criadora, só na janela e nas criadoras que você ligar. Quem responde aparece nas Oportunidades para o chatter assumir."><Button variant="outline" onClick={load}><RefreshCw size={15}/>Atualizar</Button></PageHeading>
+    <div className="page-tabs"><button className={tab === 'creators' ? 'selected' : ''} onClick={() => setTab('creators')}><MoonStar size={16}/>Criadoras<span>{on.length} ligadas</span></button><button className={tab === 'log' ? 'selected' : ''} onClick={() => setTab('log')}><History size={16}/>Abordagens · 7 dias<span>{log.length}</span></button></div>
+    {loadError && <Notice id="plantao-load-error" tone="danger">{loadError}</Notice>}
+    <Notice id="plantao-howto" tone="amber">O agente roda dentro do Alta Pulse (app) de um PC ligado na janela, com você logado e a criadora entrada na Privacy. Ele só manda a abertura; nunca responde ao fã. A Privacy não permite automação: comece por uma criadora e acompanhe.</Notice>
+    {tab === 'creators' ? <section className="data-section"><div className="table-scroll"><table><thead><tr><th>Criadora</th><th>Plantão</th><th>Janela</th><th>Última noite</th><th>Estado</th><th/></tr></thead><tbody>{rows.map(c => <tr key={c.creator_id}><td><div className="person-cell"><Avatar name={c.name} src={c.avatar} className="green"/><div><strong>{c.name}</strong>{c.in_shift && <span>em turno agora</span>}</div></div></td>
+      <td><button type="button" className={`switch ${c.enabled ? 'on' : ''}`} data-testid={`plantao-toggle-${c.creator_id}`} title={c.enabled ? 'Desligar' : 'Ligar'} onClick={() => toggle(c)} aria-pressed={c.enabled}><i/></button>{c.paused_today && <Badge tone="amber">pausada hoje</Badge>}</td>
+      <td>{c.window || <span className="body-muted">padrão {data?.defaults.window_start}–{data?.defaults.window_end}</span>}</td>
+      <td>{c.stats.sent ? <><strong>{c.stats.sent}</strong> abordagens · <strong>{c.stats.replied}</strong> responderam</> : <span className="body-muted">—</span>}</td>
+      <td className="body-muted" style={{ fontSize: 12 }}>{c.enabled ? runText(c.last_run) : 'desligado'}</td>
+      <td><div className="row-actions"><button className="icon-btn" title="Configurar" onClick={() => edit(c)}><Pencil size={15}/></button>{c.enabled && <button className="icon-btn" title={c.paused_today ? 'Tirar a pausa de hoje' : 'Pausar só hoje'} onClick={() => pause(c)}>{c.paused_today ? <Play size={15}/> : <Pause size={15}/>}</button>}</div></td></tr>)}</tbody></table></div></section>
+    : <section className="data-section">{log.length ? <div className="table-scroll"><table><thead><tr><th>Quando</th><th>Criadora</th><th>Assinante</th><th>Mensagem</th><th>Respondeu</th></tr></thead><tbody>{log.map(r => <tr key={r.id}><td>{dateTime(r.sent_at)}</td><td>{r.creator_name}</td><td>{r.fan_name || <span className="body-muted">{r.fan_ref.slice(0, 8)}…</span>}</td><td className="body-muted">{r.text}</td><td>{r.replied_at ? <Badge tone="green">{dateTime(r.replied_at)}</Badge> : <span className="body-muted">ainda não</span>}</td></tr>)}</tbody></table></div> : <Empty id="plantao-log-empty" icon={History} title="Nenhuma abordagem ainda" description="Quando o app rodar o plantão, cada mensagem enviada aparece aqui com quem respondeu."/>}</section>}
+    <Modal title={`Plantão · ${modal?.name || ''}`} description="Regras desta criadora. A chave Ligado/Desligado também fica na lista." open={!!modal && !!cfg} onClose={() => setModal(null)} id="plantao-modal" wide>{cfg && <form className="form-stack" onSubmit={save}>
+      <div className="form-grid"><Field id="pl-enabled" label="Plantão"><Select id="pl-enabled" value={String(cfg.enabled)} onChange={e => set('enabled', e.target.value === 'true')}><option value="true">Ligado</option><option value="false">Desligado</option></Select></Field>
+        <Field id="pl-start" label="Começa às" type="time" value={cfg.window_start} onChange={e => set('window_start', e.target.value)}/><Field id="pl-end" label="Termina às" type="time" value={cfg.window_end} onChange={e => set('window_end', e.target.value)}/></div>
+      <div className="field"><span>Dias da semana</span><div className="permissions-list" style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>{DAYS.map((d, i) => <label key={d}><input type="checkbox" checked={cfg.days.includes(i)} onChange={e => set('days', e.target.checked ? [...cfg.days, i].sort() : cfg.days.filter(x => x !== i))}/><span>{d}</span></label>)}</div></div>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.only_without_shift} onChange={e => set('only_without_shift', e.target.checked)}/><span>Só agir quando ninguém estiver em turno nesta criadora (chatter inicia turno → agente para)</span></label>
+      <h3 style={{ margin: '8px 0 0', fontSize: 14 }}>Quem abordar</h3>
+      <div className="form-grid"><Field id="pl-inactive" label="Sem mensagem há (dias)" type="number" min={1} max={90} value={cfg.filters.inactive_days} onChange={e => setF('inactive_days', +e.target.value)}/><Field id="pl-minspent" label="Já gastou pelo menos (R$) · vazio = tanto faz" type="number" min={0} step="1" value={cfg.filters.min_spent_cents == null ? '' : cfg.filters.min_spent_cents / 100} onChange={e => setF('min_spent_cents', e.target.value === '' ? null : Math.round(+e.target.value * 100))}/></div>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.filters.never_messaged} onChange={e => setF('never_messaged', e.target.checked)}/><span>Incluir quem nunca mandou mensagem</span></label>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.filters.ghosted} onChange={e => setF('ghosted', e.target.checked)}/><span>Incluir quem sumiu depois da criadora responder</span></label>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.filters.never_spent} onChange={e => setF('never_spent', e.target.checked)}/><span>Só quem nunca gastou (ignora o valor mínimo acima)</span></label>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.filters.skip_dismissed} onChange={e => setF('skip_dismissed', e.target.checked)}/><span>Pular quem foi "dispensado" nas Oportunidades</span></label>
+      <label className="checkbox-label"><input type="checkbox" checked={cfg.filters.skip_with_notes} onChange={e => setF('skip_with_notes', e.target.checked)}/><span>Pular quem tem anotação da equipe</span></label>
+      <h3 style={{ margin: '8px 0 0', fontSize: 14 }}>Ritmo</h3>
+      <div className="form-grid"><Field id="pl-perhour" label="Máx. por hora" type="number" min={1} max={30} value={cfg.per_hour} onChange={e => set('per_hour', +e.target.value)}/><Field id="pl-gapmin" label="Intervalo mín. (min)" type="number" min={1} max={30} value={cfg.gap_min} onChange={e => set('gap_min', +e.target.value)}/><Field id="pl-gapmax" label="Intervalo máx. (min)" type="number" min={1} max={60} value={cfg.gap_max} onChange={e => set('gap_max', +e.target.value)}/><Field id="pl-cooldown" label="1 abordagem por fã a cada (dias)" type="number" min={1} max={90} value={cfg.cooldown_days} onChange={e => set('cooldown_days', +e.target.value)}/></div>
+      <h3 style={{ margin: '8px 0 0', fontSize: 14 }}>Mensagem</h3>
+      <Field id="pl-mode" label="Como gerar"><Select id="pl-mode" value={cfg.mode} onChange={e => set('mode', e.target.value)}><option value="list">Só as aberturas aprovadas abaixo (o agente varia entre elas)</option><option value="ai">Gerar na persona da criadora (Alta Ajuda) — só abertura, sem preço</option></Select></Field>
+      <div className="field"><span>Aberturas aprovadas · uma por linha</span><textarea rows={6} value={cfg.openers.join('\n')} onChange={e => set('openers', e.target.value.split('\n'))} style={{ width: '100%', font: 'inherit', padding: 10, borderRadius: 8, border: '1px solid var(--line)' }}/></div>
+      <FormError error={error}/><div className="form-actions"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Submit id="save-plantao" busy={busy}>Salvar</Submit></div></form>}</Modal>
+  </>;
+}

@@ -87,7 +87,7 @@ function renderBody() {
   h += `<div class="sec-row"><button class="sec-t" data-tg="notes">${on ? '▾' : '▸'} Anotações da equipe <span>${notes.length}</span></button><button class="icon add-note" id="add-note" title="Escrever uma anotação sobre este fã para a equipe">+ anotação</button></div>`;
   if (on) {
     for (const n of notes) {
-      const mine = F.user && (n.author_id === F.user.id || F.user.role === 'manager');
+      const mine = F.user && (n.author_id === F.user.id || F.user.role !== 'chatter');
       h += `<div class="note">${esc(n.text)}<small>${esc(n.author_name)} · ${day(n.created_at)}</small>${mine ? `<button class="icon del" data-del="${esc(n.id)}" title="Apagar">×</button>` : ''}</div>`;
     }
     if (!notes.length && !noteOpen) h += '<div class="muted">Nenhuma anotação ainda.</div>';

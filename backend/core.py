@@ -37,13 +37,38 @@ async def current_user(request: Request):
     if user.get('must_change_password') and request.url.path not in {'/api/auth/me', '/api/auth/password', '/api/auth/logout'}:
         raise HTTPException(403, 'Defina sua senha pessoal antes de acessar o painel.')
     return user
+# Papéis: gestor (tudo), supervisor (acompanha equipe e qualidade, sem cofre/configurações), chatter (só as criadoras dele).
+# O dono da conta (owner) é quem concede permissões especiais (ex.: plantão noturno) — nenhum papel as ganha sozinho.
+STAFF = ('manager', 'supervisor')
+ROLE_LABEL = {'manager': 'Gestor', 'supervisor': 'Supervisor', 'chatter': 'Chatter'}
+def is_staff(user): return user.get('role') in STAFF
+def has_perm(user, name): return bool(user.get('owner')) or name in (user.get('perms') or [])
 async def manager(user=Depends(current_user)):
     if user['role'] != 'manager': raise HTTPException(403, 'Acesso exclusivo do gestor.')
     return user
+async def staff(user=Depends(current_user)):
+    if not is_staff(user): raise HTTPException(403, 'Acesso exclusivo de gestores e supervisores.')
+    return user
+async def owner(user=Depends(current_user)):
+    if not user.get('owner'): raise HTTPException(403, 'Acesso exclusivo do dono da conta.')
+    return user
+def perm(name):
+    """Dependência para rotas de uma permissão especial; a tentativa sem permissão fica no registro de atividade."""
+    async def dep(request: Request, user=Depends(current_user)):
+        if not has_perm(user, name):
+            await audit(user, f'Tentou acessar área restrita ({name}) sem permissão', request.url.path)
+            raise HTTPException(403, 'Você não tem acesso a esta área.')
+        return user
+    return dep
+async def ensure_owner():
+    """Na subida: se ninguém é dono ainda, o gestor mais antigo vira (quem fez a configuração inicial)."""
+    if await db.users.count_documents({'owner': True}): return
+    first = await db.users.find_one({'role': 'manager', 'active': True}, {'_id': 0, 'id': 1}, sort=[('created_at', 1)])
+    if first: await db.users.update_one({'id': first['id']}, {'$set': {'owner': True}})
 async def creator_access(creator_id, user):
     creator = await db.creators.find_one({'id': creator_id, 'deleted_at': None}, {'_id': 0})
     if not creator: raise HTTPException(404, 'Criadora não encontrada.')
-    if user['role'] != 'manager' and creator_id not in user['creator_ids']:
+    if not is_staff(user) and creator_id not in user['creator_ids']:
         raise HTTPException(403, 'Este perfil não está autorizado para você.')
     return creator
 async def assign_shift(creator_id, at):

@@ -1,6 +1,7 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 let S = null;               // último estado vindo do processo principal
+const isStaff = () => !!(S && S.user && (S.user.role === 'manager' || S.user.role === 'supervisor')); // gestor e supervisor enxergam todas as criadoras
 const closedGroups = new Set(JSON.parse(localStorage.getItem('closedGroups') || '[]'));
 // painel lateral: cada bloco pode estar aberto, minimizado ('min') ou oculto ('off'); fica salvo por usuário neste computador
 const PANEL0 = { search: 'open', turn: 'open', filter: 'open', opps: 'open', focus: false };
@@ -123,7 +124,7 @@ function apply(state) {
   $('me-name').textContent = S.user.name;
   setAvatar($('me-avatar'), S.user.avatar, S.user.name);
   if (!panel._for || panel._for !== S.user.id) { loadPanel(); panel._for = S.user.id; }
-  $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : 'Chatter';
+  $('me-role').textContent = S.user.role === 'manager' ? 'Gestor' : S.user.role === 'supervisor' ? 'Supervisor' : 'Chatter';
   // sem foto: sinal de + na bolinha e convite ao lado do cargo
   $('me-avatar').classList.toggle('nophoto', !S.user.avatar);
   if (!S.user.avatar) { const a = document.createElement('a'); a.href = '#'; a.className = 'photo-nudge'; a.textContent = 'Colocar sua foto'; a.onclick = (e) => { e.preventDefault(); photoMenu(); }; $('me-role').append(' · ', a); }
@@ -307,7 +308,7 @@ async function offerShift(c) {
 function myShifts() { return S.creators.filter((c) => c.shift && c.shift.operator_id === S.user.id); }
 function turnScope() {
   // chatter: as criadoras liberadas para ele; gestor: as que estão abertas neste app (ou já no turno dele)
-  if (S.user.role !== 'manager') return S.creators;
+  if (!isStaff()) return S.creators;
   return S.creators.filter((c) => S.open.includes(c.id) || (c.shift && c.shift.operator_id === S.user.id));
 }
 function myTurn() {
@@ -325,10 +326,10 @@ function renderTurn() {
   const chip = blkState('filter') === 'min' ? `<button class="ms-chip ${$('only-open').checked ? 'on' : ''}" data-chip="filter" title="Mostrar só as criadoras em atendimento">em atendimento</button>` : '';
   const minBtn = blkState('turn') === 'min' ? '' : '<button class="blk-min" data-blk="turn" title="Minimizar">&#9662;</button>';
   if (t.state === 'off') {
-    box.innerHTML = `<div class="ms-info"><b>Fora de turno</b><span>${scope.length ? `${scope.length} criadora${scope.length === 1 ? '' : 's'}` : (S.user.role === 'manager' ? 'abra as criadoras que vai atender' : 'nenhuma criadora liberada')}</span></div><button class="ms-btn start" data-turn="start" ${scope.length ? '' : 'disabled'} title="Inicia o turno em todas as suas criadoras de uma vez">Iniciar turno</button>` + chip + minBtn;
+    box.innerHTML = `<div class="ms-info"><b>Fora de turno</b><span>${scope.length ? `${scope.length} criadora${scope.length === 1 ? '' : 's'}` : (isStaff() ? 'abra as criadoras que vai atender' : 'nenhuma criadora liberada')}</span></div><button class="ms-btn start" data-turn="start" ${scope.length ? '' : 'disabled'} title="Inicia o turno em todas as suas criadoras de uma vez">Iniciar turno</button>` + chip + minBtn;
   } else {
     const n = t.mine.length;
-    box.innerHTML = `<div class="ms-info"><b>${t.state === 'paused' ? 'Pausado' : 'Em turno'} · ${hm(t.since)}</b><span>${n} criadora${n === 1 ? '' : 's'}${free && S.user.role !== 'manager' ? ` · <a href="#" data-turn="start" title="Incluir no turno as criadoras que ficaram de fora">+${free}</a>` : ''}</span></div>`
+    box.innerHTML = `<div class="ms-info"><b>${t.state === 'paused' ? 'Pausado' : 'Em turno'} · ${hm(t.since)}</b><span>${n} criadora${n === 1 ? '' : 's'}${free && !isStaff() ? ` · <a href="#" data-turn="start" title="Incluir no turno as criadoras que ficaram de fora">+${free}</a>` : ''}</span></div>`
       + `<button class="ms-btn ghost" data-turn="${t.state === 'paused' ? 'resume' : 'pause'}" title="${t.state === 'paused' ? 'Voltar a atender' : 'Pausa rápida (banheiro, almoço)'}">${t.state === 'paused' ? 'Retomar' : 'Pausar'}</button><button class="ms-btn end" data-turn="end">Encerrar</button>` + chip + minBtn;
   }
   box.querySelectorAll('[data-turn]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); turnAction(b.dataset.turn); }));
@@ -345,7 +346,7 @@ async function turnAction(action) {
     if (ok) toast(`Turno iniciado em ${ok} criadora${ok === 1 ? '' : 's'}.`);
     if (busy.length) {
       const names = busy.map((c) => `<li><b>${esc(c.name)}</b> ainda está com ${esc(c.shift.operator_name)}</li>`).join('');
-      const canEnd = S.user.role === 'manager';
+      const canEnd = isStaff();
       const r = await dialog({ title: 'Criadoras com outro chatter', body: `<p>Estas ficaram fora do seu turno porque outro chatter ainda não encerrou:</p><ul>${names}</ul><p class="muted">${canEnd ? 'Você pode encerrar o turno dele e assumir agora.' : 'Peça para ele encerrar, ou avise o gestor. Depois clique no “+” da barra Meu turno.'}</p>`, okText: canEnd ? 'Encerrar e assumir' : 'Entendi', hideOk: false });
       if (r && canEnd) {
         let l2 = null;
@@ -431,7 +432,7 @@ document.addEventListener('keydown', (e) => {
   items[n].focus();
 });
 function creatorMenu(c, anchor) {
-  const m = $('creator-menu'); const isOpen = S.open.includes(c.id); const isMgr = S.user.role === 'manager';
+  const m = $('creator-menu'); const isOpen = S.open.includes(c.id); const isMgr = S.user.role === 'manager'; const staff = isStaff();
   const mine = c.shift && c.shift.operator_id === S.user.id;
   const st = statusOf(c); const tabsHere = (S.tabs && S.tabs[c.id]) || [];
   const labelOf = (p) => (S.platforms && S.platforms[p] ? S.platforms[p].label : p);
@@ -447,7 +448,7 @@ function creatorMenu(c, anchor) {
   if (!c.shift) shiftBtns.push({ label: '▶ Iniciar turno', cls: 'go', fn: () => run(() => window.pulse.startShift(c.id), 'Turno iniciado.') });
   if (mine && !c.shift.paused) shiftBtns.push({ label: 'Pausar', cls: 'soft', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'pause'), 'Turno pausado.') });
   if (mine && c.shift.paused) shiftBtns.push({ label: 'Retomar', cls: 'go', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'resume'), 'Turno retomado.') });
-  if (mine || (c.shift && isMgr)) shiftBtns.push({ label: mine ? 'Encerrar' : `Encerrar turno de ${c.shift.operator_name.split(' ')[0]}`, cls: 'stop', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.') });
+  if (mine || (c.shift && staff)) shiftBtns.push({ label: mine ? 'Encerrar' : `Encerrar turno de ${c.shift.operator_name.split(' ')[0]}`, cls: 'stop', fn: () => run(() => window.pulse.shiftAction(c.shift.id, 'end'), 'Turno encerrado.') });
   const enter = [];
   for (const lp of (S.loginPages && S.loginPages[c.id]) || []) if ((S.credentials || []).some((x) => x.creator_id === c.id && x.platform === lp)) enter.push({ icon: '🔑', label: `Entrar na ${labelOf(lp)}`, sub: 'com o acesso salvo (senha não aparece)', fn: () => vaultLogin(c, lp) });
   if (!isOpen) enter.unshift({ icon: '▣', label: 'Abrir perfil', fn: () => openCreator(c) });
@@ -508,7 +509,7 @@ async function notesDialog(c) {
     let rows = [];
     try { rows = await window.pulse.creatorNotes(c.id); } catch (e) { $('cn-list').innerHTML = `<p class="muted">${esc(e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''))}</p>`; return; }
     const old = legacy ? `<div class="cn-item old"><p>${esc(legacy)}</p><small>nota antiga (versões anteriores)</small></div>` : '';
-    $('cn-list').innerHTML = rows.length || legacy ? old + rows.map((n) => `<div class="cn-item${n.pinned ? ' pinned' : ''}"><p>${esc(n.text)}</p><small>${n.pinned ? '📌 ' : ''}${esc(n.author)} · ${fmt(n.created_at)}<span><button class="link" data-pin="${esc(n.id)}" data-v="${n.pinned ? '' : '1'}">${n.pinned ? 'desafixar' : 'fixar'}</button>${n.author_id === S.user.id || S.user.role === 'manager' ? `<button class="link danger" data-del="${esc(n.id)}">apagar</button>` : ''}</span></small></div>`).join('') : '<p class="muted">Nenhuma anotação ainda. Use para recados de passagem de turno.</p>';
+    $('cn-list').innerHTML = rows.length || legacy ? old + rows.map((n) => `<div class="cn-item${n.pinned ? ' pinned' : ''}"><p>${esc(n.text)}</p><small>${n.pinned ? '📌 ' : ''}${esc(n.author)} · ${fmt(n.created_at)}<span><button class="link" data-pin="${esc(n.id)}" data-v="${n.pinned ? '' : '1'}">${n.pinned ? 'desafixar' : 'fixar'}</button>${n.author_id === S.user.id || isStaff() ? `<button class="link danger" data-del="${esc(n.id)}">apagar</button>` : ''}</span></small></div>`).join('') : '<p class="muted">Nenhuma anotação ainda. Use para recados de passagem de turno.</p>';
     $('cn-list').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNoteDel(b.dataset.del)); draw(); });
     $('cn-list').querySelectorAll('[data-pin]').forEach((b) => b.onclick = async () => { await run(() => window.pulse.creatorNotePin(b.dataset.pin, !!b.dataset.v)); draw(); });
   };
@@ -601,7 +602,7 @@ const fmtBRL = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2).replace('.', ',');
 function oppScope() { try { return localStorage.getItem('alta-opp-scope') || 'minhas'; } catch { return 'minhas'; } }
 function oppsVisible() {
   const list = S.opportunities || [];
-  if (!S.user || S.user.role !== 'manager' || oppScope() === 'todas') return list;
+  if (!S.user || !isStaff() || oppScope() === 'todas') return list;
   const mine = new Set([...(S.open || []), ...(S.creators || []).filter((c) => c.shift && c.shift.operator_id === S.user.id).map((c) => c.id)]);
   return list.filter((o) => mine.has(o.creator_id));
 }
@@ -626,7 +627,7 @@ function oppFiltered(list) {
   return out.sort(by[oppF.sort] || by.valor);
 }
 function oppDialog() {
-  const base = oppsVisible(); const list = oppFiltered(base); const isMgr = S.user && S.user.role === 'manager';
+  const base = oppsVisible(); const list = oppFiltered(base); const isMgr = S.user && isStaff();
   const opt = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`;
   const count = (fn) => base.filter(fn).length;
   const creators = [...new Map(base.map((o) => [o.creator_id, o.creator_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
