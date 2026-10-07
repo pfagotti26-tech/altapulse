@@ -61,7 +61,17 @@ def perm(name):
         return user
     return dep
 async def ensure_owner():
-    """Na subida: se ninguém é dono ainda, o gestor mais antigo vira (quem fez a configuração inicial)."""
+    """Na subida: OWNER_EMAIL (variável de ambiente) define o dono da conta; sem ela, se ninguém é dono ainda,
+    o gestor mais antigo vira (quem fez a configuração inicial)."""
+    email = os.environ.get('OWNER_EMAIL', '').strip().lower()
+    if email:
+        who = await db.users.find_one({'email': email, 'active': True}, {'_id': 0, 'id': 1, 'owner': 1})
+        if who:
+            if not who.get('owner'):
+                await db.users.update_many({'owner': True}, {'$set': {'owner': False}})
+                await db.users.update_one({'id': who['id'], 'role': 'chatter'}, {'$set': {'role': 'manager'}})
+                await db.users.update_one({'id': who['id']}, {'$set': {'owner': True}})
+            return
     if await db.users.count_documents({'owner': True}): return
     first = await db.users.find_one({'role': 'manager', 'active': True}, {'_id': 0, 'id': 1}, sort=[('created_at', 1)])
     if first: await db.users.update_one({'id': first['id']}, {'$set': {'owner': True}})
