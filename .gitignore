@@ -83,6 +83,9 @@ android-sdk/
 
 # overlay black-box crash/user-report dumps — session data, never history
 **/.emergent/recordings/
+# relatórios e sobras de teste: caminhos enormes (Code Cache do Electron) estouravam o
+# checkout no Windows com "Filename too long"
+test_reports/
 desktop-tools/node-v22.23.3-linux-arm64/bin/node
 desktop/node_modules/electron/dist/electron
 desktop/release/Alta-Core-0.2.1-Setup-x64.exe

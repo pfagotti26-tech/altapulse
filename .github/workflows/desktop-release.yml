@@ -36,16 +36,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      # sem conversão de fim de linha: o release.sh precisa de LF e os .exe/.asar são binários
-      - name: Desligar conversão de fim de linha
+      # caminhos longos: sobras de teste do Electron (Code Cache) passavam de 260 caracteres
+      # e o checkout no Windows falhava com "Filename too long"
+      - name: Permitir caminhos longos
         run: |
+          git config --system core.longpaths true || git config --global core.longpaths true
           git config --global core.autocrlf false
           git config --global core.eol lf
 
+      # só o que o empacotamento usa: desktop/ (código e release.sh) e backend/desktop_dist (saída).
+      # No modo cone o checkout também traz os arquivos da raiz, então .gitignore vem junto.
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
           fetch-depth: 1
+          sparse-checkout: |
+            desktop
+            backend/desktop_dist
 
       - uses: actions/setup-node@v4
         with:
@@ -59,6 +66,8 @@ jobs:
           echo "split: $(command -v split || echo 'FALTANDO')"
           command -v 7z >/dev/null || { echo '7z não encontrado no runner' >&2; exit 1; }
           command -v split >/dev/null || { echo 'split não encontrado no Git Bash' >&2; exit 1; }
+          echo 'sparse-checkout:'; git sparse-checkout list
+          [ -f desktop/release.sh ] || { echo 'desktop/release.sh não veio no sparse-checkout' >&2; exit 1; }
 
       - name: Empacotar e publicar em backend/desktop_dist
         run: bash desktop/release.sh "${{ inputs.version }}"
@@ -70,6 +79,9 @@ jobs:
           git add -A backend/desktop_dist desktop/package.json
           if git diff --cached --quiet; then echo 'Nada mudou: nenhum commit.'; exit 0; fi
           git commit -m "App desktop ${{ inputs.version }}: instalador, asar e zip sem instalador publicados"
+          # confere que o sparse-checkout não apagou nada de fora do cone antes de empurrar
+          FORA=$(git diff --name-only HEAD~1 HEAD -- . ':(exclude)backend/desktop_dist' ':(exclude)desktop' | head -20)
+          if [ -n "$FORA" ]; then echo "commit mexeu em arquivos fora do cone, abortando:"; echo "$FORA"; exit 1; fi
           git push origin HEAD:${{ inputs.branch }}
 
       - name: Resumo
