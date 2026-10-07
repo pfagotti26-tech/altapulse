@@ -348,7 +348,7 @@ footer { padding: 12px 16px 14px; }
 header .icon .dot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #e53935; top: 3px; right: 3px; }
 header .icon { position: relative; }
 #btn-filter.on { color: #ff8a80; }
-body.focus #blk-search, body.focus #my-shift, body.focus #blk-filter, body.focus #my-opps { display: none !important; }
+body.focus #blk-search, body.focus #my-shift, body.focus #blk-filter, body.focus #my-opps, body.focus #my-plantao { display: none !important; }
 .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #2a2a30; }
 .pl-row span { display: flex; flex-direction: column; } .pl-row small { color: #8a8a96; font-size: 10.5px; }
 .pl-row select { width: 120px; } .pl-row input[type=checkbox] { width: auto; }
@@ -363,3 +363,18 @@ header .logo.small { width: auto; max-width: 170px; height: 28px; flex: 0 1 auto
 header .tools { flex: 0 0 auto; }
 .focus-off { background: #2a1418; border: 1px solid #5a2630; color: #ff8a80; border-radius: 10px; font-size: 10px; padding: 2px 7px; cursor: pointer; white-space: nowrap; }
 .focus-off:hover { border-color: #e53935; }
+
+/* Plantão (fila de abordagens) */
+.work.plantao { background: #1b1830; border-color: #4a3f8a; }
+.work.plantao b { color: #c3b6ff; }
+.pl-group { margin: 10px 0 4px; display: flex; align-items: center; gap: 8px; }
+.pl-group b { font-size: 13px; }
+.pl-group .st { font-size: 11px; color: #9a9ab0; }
+.pl-item { display: block; padding: 7px 8px; border: 1px solid #2f2f3d; border-radius: 8px; margin: 4px 0; background: #16161c; }
+.pl-item .who { min-width: 0; }
+.pl-item .who b { display: block; font-size: 13px; }
+.pl-item .who small { color: #9a9ab0; font-size: 11px; display: block; white-space: normal; }
+.pl-item .txt { display: block; font-size: 12px; color: #d9d2ff; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-item button { display: inline-block; width: auto; margin: 6px 0 0; padding: 5px 10px; font-size: 12px; white-space: nowrap; }
+.pl-item.pend { border-color: #8a6d3b; }
+.pl-item.sent { opacity: .7; }
