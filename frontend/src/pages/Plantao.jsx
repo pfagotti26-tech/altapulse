@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MoonStar, Pencil, Pause, Play, RefreshCw, History } from 'lucide-react';
+import { MoonStar, Pencil, Pause, Play, RefreshCw, History, ListChecks } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApp } from '../App';
 import { api, errorText, dateTime } from '../lib/api';
@@ -17,6 +17,8 @@ export default function Plantao() {
   useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
   async function toggle(c) { try { const r = await api.post(`/plantao/${c.creator_id}/toggle`); toast.success(r.data.enabled ? `Plantão ligado para ${c.name}.` : `Plantão desligado para ${c.name}.`); await load(); } catch (e) { toast.error(errorText(e)); } }
   async function pause(c) { try { const r = await api.post(`/plantao/${c.creator_id}/pause`); toast.success(r.data.paused_today ? `${c.name}: pausada só hoje.` : `${c.name}: pausa de hoje removida.`); await load(); } catch (e) { toast.error(errorText(e)); } }
+  const [preview, setPreview] = useState(null); // { creator, data | null (carregando), error }
+  async function showPreview(c) { setPreview({ creator: c, data: null }); try { const r = await api.get(`/plantao/${c.creator_id}/preview`); setPreview({ creator: c, data: r.data }); } catch (e) { setPreview({ creator: c, error: errorText(e) }); } }
   async function edit(c) { setError(''); try { const r = await api.get(`/plantao/${c.creator_id}`); const { creator_id, updated_at, updated_by, paused_day, ...rest } = r.data; setCfg(rest); setModal(c); } catch (e) { toast.error(errorText(e)); } }
   async function save(e) { e.preventDefault(); setBusy(true); setError('');
     try { await api.put(`/plantao/${modal.creator_id}`, cfg); setModal(null); await load(); toast.success('Plantão salvo.'); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }
@@ -33,7 +35,7 @@ export default function Plantao() {
       <td>{c.window || <span className="body-muted">padrão {data?.defaults.window_start}–{data?.defaults.window_end}</span>}</td>
       <td>{c.stats.sent ? <><strong>{c.stats.sent}</strong> abordagens · <strong>{c.stats.replied}</strong> responderam</> : <span className="body-muted">—</span>}</td>
       <td className="body-muted" style={{ fontSize: 12 }}>{c.enabled ? runText(c.last_run) : 'desligado'}</td>
-      <td><div className="row-actions"><button className="icon-btn" title="Configurar" onClick={() => edit(c)}><Pencil size={15}/></button>{c.enabled && <button className="icon-btn" title={c.paused_today ? 'Tirar a pausa de hoje' : 'Pausar só hoje'} onClick={() => pause(c)}>{c.paused_today ? <Play size={15}/> : <Pause size={15}/>}</button>}</div></td></tr>)}</tbody></table></div></section>
+      <td><div className="row-actions"><button className="icon-btn" title="Ver quem entraria na fila agora" data-testid={`plantao-preview-${c.creator_id}`} onClick={() => showPreview(c)}><ListChecks size={15}/></button><button className="icon-btn" title="Configurar" onClick={() => edit(c)}><Pencil size={15}/></button>{c.enabled && <button className="icon-btn" title={c.paused_today ? 'Tirar a pausa de hoje' : 'Pausar só hoje'} onClick={() => pause(c)}>{c.paused_today ? <Play size={15}/> : <Pause size={15}/>}</button>}</div></td></tr>)}</tbody></table></div></section>
     : <section className="data-section">{log.length ? <div className="table-scroll"><table><thead><tr><th>Quando</th><th>Criadora</th><th>Assinante</th><th>Mensagem</th><th>Respondeu</th></tr></thead><tbody>{log.map(r => <tr key={r.id}><td>{dateTime(r.sent_at)}</td><td>{r.creator_name}</td><td>{r.fan_name || <span className="body-muted">{r.fan_ref.slice(0, 8)}…</span>}</td><td className="body-muted">{r.text}</td><td>{r.replied_at ? <Badge tone="green">{dateTime(r.replied_at)}</Badge> : <span className="body-muted">ainda não</span>}</td></tr>)}</tbody></table></div> : <Empty id="plantao-log-empty" icon={History} title="Nenhuma abordagem ainda" description="Quando o app rodar o plantão, cada mensagem enviada aparece aqui com quem respondeu."/>}</section>}
     <Modal title={`Plantão · ${modal?.name || ''}`} description="Regras desta criadora. A chave Ligado/Desligado também fica na lista." open={!!modal && !!cfg} onClose={() => setModal(null)} id="plantao-modal" wide>{cfg && <form className="form-stack" onSubmit={save}>
       <div className="form-grid"><Field id="pl-enabled" label="Plantão"><Select id="pl-enabled" value={String(cfg.enabled)} onChange={e => set('enabled', e.target.value === 'true')}><option value="true">Ligado</option><option value="false">Desligado</option></Select></Field>
@@ -56,5 +58,18 @@ export default function Plantao() {
       <Field id="pl-mode" label="Como gerar"><Select id="pl-mode" value={cfg.mode} onChange={e => set('mode', e.target.value)}><option value="list">Só as aberturas aprovadas abaixo (o agente varia entre elas)</option><option value="ai">Gerar na persona da criadora (módulo autônomo) — só abertura, sem preço</option></Select></Field>
       <div className="field"><span>Aberturas aprovadas · uma por linha</span><textarea rows={6} value={cfg.openers.join('\n')} onChange={e => set('openers', e.target.value.split('\n'))} style={{ width: '100%', font: 'inherit', padding: 10, borderRadius: 8, border: '1px solid var(--line)' }}/></div>
       <FormError error={error}/><div className="form-actions"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Submit id="save-plantao" busy={busy}>Salvar</Submit></div></form>}</Modal>
+    <Modal title={`Fila agora · ${preview?.creator?.name || ''}`} description="Quem o app abordaria neste momento com as regras salvas, pelo histórico do painel (última mensagem do fã). A lista aberta da Privacy no app pode acrescentar mais gente." open={!!preview} onClose={() => setPreview(null)} id="plantao-preview" wide>
+      {preview && (preview.error ? <Notice id="plantao-preview-error" tone="danger">{preview.error}</Notice> : !preview.data ? <p className="body-muted">Montando a fila…</p> : <PreviewBody d={preview.data}/>)}</Modal>
   </>;
+}
+
+const STAT_LABEL = { sem_historico: 'sem registro de mensagem do fã', falou_recente: 'falaram há menos dias que o filtro', abordado: 'já abordados dentro do intervalo', com_nota: 'com anotação da equipe', dispensado: 'dispensados nas Oportunidades', sumiu_desligado: 'sumiram depois da criadora responder (filtro desligado)', gasto: 'fora do filtro de gasto', sem_nome: 'sem nome gravado' };
+function PreviewBody({ d }) {
+  const st = d.stats || {}; const why = Object.keys(STAT_LABEL).filter(k => st[k]);
+  return <div className="form-stack">
+    <p className="body-muted" style={{ margin: 0 }}><strong>{st.fila || 0}</strong> na fila · {st.radar || 0} assinantes conhecidos pelo radar desta criadora · {st.eventos || 0} com atendimento registrado.</p>
+    {!st.fila && <Notice id="plantao-preview-empty" tone="amber">{!st.radar ? 'O painel ainda não conhece os assinantes desta criadora: abra a Privacy dela no app (aba Chat) por alguns minutos para o radar gravar a lista.' : st.sem_historico === st.radar ? 'O radar conhece os assinantes, mas ainda não tem a data da última mensagem DO FÃ de nenhum deles — isso passou a ser gravado nesta versão e vai aparecendo conforme o app lê as conversas. Dica: abrir o chat da criadora no app por alguns minutos já preenche.' : 'Ninguém passou nos filtros agora. Veja abaixo o que tirou cada um da fila e ajuste a configuração.'}</Notice>}
+    {why.length > 0 && <ul style={{ margin: 0, paddingLeft: 18 }}>{why.map(k => <li key={k}><strong>{st[k]}</strong> {STAT_LABEL[k]}</li>)}</ul>}
+    {d.items.length > 0 && <div className="table-scroll"><table><thead><tr><th>Assinante</th><th>Dias sem falar</th><th>Já gastou</th><th>Situação</th></tr></thead><tbody>{d.items.map(it => <tr key={it.fan_ref}><td><strong>{it.name}</strong></td><td>{it.days}</td><td>{it.spent_cents ? `R$ ${(it.spent_cents / 100).toFixed(2)}` : <span className="body-muted">nunca</span>}</td><td>{it.ghosted ? <Badge tone="amber">sumiu após resposta</Badge> : <Badge tone="neutral">última foi do fã</Badge>}</td></tr>)}</tbody></table></div>}
+  </div>;
 }
