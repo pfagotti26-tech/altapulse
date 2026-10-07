@@ -1,8 +1,13 @@
 name: Publicar app desktop
 
-# Gera o instalador do Alta Pulse no Windows e publica os artefatos em backend/desktop_dist,
-# de onde o painel serve o download e a atualização rápida (app-<versão>.asar).
-# Rodar em: Actions -> "Publicar app desktop" -> Run workflow -> informe a versão (ex.: 1.4.20).
+# Gera o instalador do Alta Pulse e publica os artefatos em backend/desktop_dist, de onde o painel
+# serve o download e a atualização rápida (app-<versão>.asar).
+#
+# Roda em ubuntu-latest (x86-64) com Wine, do mesmo jeito que as versões até a 1.4.19 foram geradas:
+# assim o desktop/release.sh roda sem nenhuma mudança (zip e openssl já existem no runner).
+#
+# Só manual: Actions -> "Publicar app desktop" -> Run workflow -> informe a versão (ex.: 1.4.20).
+# Nada roda a cada push, porque cada versão acrescenta uns 260 MB ao repositório.
 # Depois do push, peça o deploy no Emergent para o painel passar a servir a versão nova.
 
 on:
@@ -18,17 +23,13 @@ on:
 
 jobs:
   empacotar:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: write
+    env:
+      WINEDEBUG: '-all'
     steps:
-      # sem conversão de fim de linha: o release.sh precisa de LF e os .exe/.asar são binários
-      - name: Desligar conversão de fim de linha
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
@@ -38,15 +39,18 @@ jobs:
         with:
           node-version: 20
 
-      - name: Instalar zip
-        run: choco install zip -y --no-progress
+      # o passo NSIS do electron-builder executa o uninstaller .exe (PE x86-64): precisa de Wine.
+      # zip, openssl, split e base64 já vêm no runner.
+      - name: Instalar Wine
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wine64 zip
+          wine64 --version || wine --version
 
       - name: Empacotar e publicar em backend/desktop_dist
-        shell: bash
         run: bash desktop/release.sh "${{ inputs.version }}"
 
       - name: Commit e push na ${{ inputs.branch }}
-        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -56,7 +60,6 @@ jobs:
           git push origin HEAD:${{ inputs.branch }}
 
       - name: Resumo
-        shell: bash
         run: |
           echo "### App desktop ${{ inputs.version }} publicado" >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
