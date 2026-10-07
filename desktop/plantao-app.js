@@ -103,11 +103,15 @@ function create(deps) {
     const usedTexts = new Set([...pl.sent.values(), ...pl.pending.values()].map((x) => x.text));
     for (const cfg of pl.configs) {
       const c = (st.creators || []).find((x) => x.id === cfg.creator_id); if (!c) continue;
-      const items = candidates(cfg, cfg.creator_id);
+      // candidatos do painel (histórico: última mensagem do FÃ) + o que a lista aberta da Privacy mostrar a mais
+      const server = (cfg.candidates || []).map((it) => ({ ...it }));
+      const local = candidates(cfg, cfg.creator_id) || [];
+      const seen = new Set(server.map((x) => x.fan_ref));
+      const items = server.length || pl.rooms.has(cfg.creator_id) ? [...server, ...local.filter((x) => !seen.has(x.fan_ref))].filter((x) => !pl.pending.has(`${cfg.creator_id}|${x.fan_ref}`) && !pl.sent.has(`${cfg.creator_id}|${x.fan_ref}`)) : null;
       const openers = cfg.openers || [];
       const pickText = () => { const pool = openers.filter((o) => !usedTexts.has(o)); const src = pool.length ? pool : openers; return src.length ? src[Math.floor(Math.random() * src.length)] : ''; };
       out.push({ creator_id: cfg.creator_id, creator_name: c.name, in_window: inWindow(cfg, now), in_shift: !!(c.shift && c.shift.active !== false), only_without_shift: cfg.only_without_shift,
-        window: `${cfg.window_start}–${cfg.window_end}`, open: items !== null, per_hour: cfg.per_hour,
+        window: `${cfg.window_start}–${cfg.window_end}`, open: items !== null, from_panel: server.length, per_hour: cfg.per_hour,
         items: (items || []).slice(0, 30).map((it) => ({ ...it, text: pickText() })) });
     }
     const pend = [...pl.pending.entries()].map(([k, v]) => ({ key: k, ...v })), sent = [...pl.sent.entries()].map(([k, v]) => ({ key: k, ...v }));
