@@ -1333,7 +1333,7 @@ ipcMain.handle('assist:use', async (_e, text) => {
   return { filled };
 });
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
-const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
+const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name), onHold: (info) => altaAutoOnHold(info) });
 ipcMain.handle('plantao:queue', async () => { if (Date.now() - (plantao.fetchedAt || 0) > 120000) await plantao.fetchConfigs(); return plantao.queue(); });
 ipcMain.handle('plantao:refresh', async () => { await plantao.fetchConfigs(); return plantao.queue(); });
 ipcMain.handle('plantao:prepare', async (_e, { creator_id, fan_ref, name, rid, text }) => {
@@ -1347,6 +1347,163 @@ ipcMain.handle('plantao:prepare', async (_e, { creator_id, fan_ref, name, rid, t
   return { ok: filled, reason: filled ? null : 'caixa de mensagem não encontrada' };
 });
 ipcMain.handle('plantao:cancel', (_e, { creator_id, fan_ref }) => { plantao.cancel(creator_id, fan_ref); return plantao.queue(); });
+// ------------------------------------------------------------------ ALTA AUTO ------------------------------------------------------------------
+// Módulo autônomo do plantão: usa a MESMA fila, a mesma configuração e os mesmos registros do copiloto. A diferença é que,
+// em vez de deixar o texto na caixa e esperar a pessoa, ele digita com cadência humana e envia; e, no modo "segurar a
+// conversa", pede a próxima mensagem ao servidor (/extension/plantao/reply) quando o fã responde.
+// Só roda para quem tem a permissão 'plantao', nas criadoras ligadas, dentro da janela e sem chatter em turno (se configurado).
+
+// digita caractere a caractere dentro da página (45–150 ms, pausa maior na pontuação) e envia com Enter
+const TYPE_SCRIPT = (text) => `(async () => {
+  const roots = () => { const out = []; (function walk(r, d) { if (d > 6) return; out.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0); return out; };
+  const qs = (sel) => { for (const r of roots()) { const e = r.querySelector(sel); if (e) return e; } return null; };
+  const ta = qs('textarea.ce-textarea, .vac-room-footer textarea');
+  if (!ta) return 'sem-caixa';
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const put = (v) => { set.call(ta, v); ta.dispatchEvent(new Event('input', { bubbles: true, composed: true })); };
+  ta.focus(); ta.click(); put('');
+  const txt = ${JSON.stringify(text)};
+  let cur = '';
+  for (const ch of txt) {
+    cur += ch; put(cur);
+    let d = 45 + Math.random() * 105;
+    if ('.,!?;…'.includes(ch)) d += 180 + Math.random() * 320;
+    else if (ch === ' ' && Math.random() < 0.08) d += 250 + Math.random() * 550;
+    await sleep(d);
+  }
+  await sleep(400 + Math.random() * 900);
+  const key = (type) => ta.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+  key('keydown'); key('keypress'); key('keyup');
+  for (let i = 0; i < 12; i++) { await sleep(400); if (!ta.value) return 'ok'; }
+  const btn = qs('.vac-icon-textarea .vac-svg-button, .vac-send-icon, .vac-icon-send');
+  if (btn) { btn.click(); for (let i = 0; i < 12; i++) { await sleep(400); if (!ta.value) return 'ok'; } }
+  return 'nao-enviou';
+})()`;
+// confirmação pelo DOM: caixa vazia e a última mensagem da conversa é nossa
+const SENT_PROBE = `(() => {
+  const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+  const qs = (sel) => { for (const r of roots) { const e = r.querySelector(sel); if (e) return e; } return null; };
+  const qsa = (sel) => roots.flatMap((r) => [...r.querySelectorAll(sel)]);
+  const ta = qs('textarea.ce-textarea, .vac-room-footer textarea');
+  const msgs = qsa('.vac-message-wrapper-msg');
+  const last = msgs[msgs.length - 1];
+  return { empty: !ta || !ta.value, ours: !!(last && last.classList.contains('vac-offset-current')) };
+})()`;
+
+const auto = { busy: false, day: '', jitter: new Map(), byCreator: new Map(), holds: new Map(), queue: [] };
+const autoLog = (...a) => console.log('[alta-auto]', ...a);
+const autoFor = (id) => { if (!auto.byCreator.has(id)) auto.byCreator.set(id, { sends: [], nextAt: 0 }); return auto.byCreator.get(id); };
+const autoDay = () => new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+// a janela anda alguns minutos para cada lado, sorteados uma vez por dia (não começa sempre no mesmo minuto)
+function jitterCfg(cfg) {
+  const day = autoDay();
+  if (auto.day !== day) { auto.day = day; auto.jitter.clear(); auto.holds.clear(); }
+  let j = auto.jitter.get(cfg.creator_id);
+  if (!j) { j = { s: Math.round(Math.random() * 12) - 6, e: Math.round(Math.random() * 12) - 6 }; auto.jitter.set(cfg.creator_id, j); }
+  const move = (hhmm, min) => {
+    const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/); if (!m) return hhmm;
+    const t = (+m[1] * 60 + +m[2] + min + 1440) % 1440;
+    return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  };
+  return { ...cfg, window_start: move(cfg.window_start, j.s), window_end: move(cfg.window_end, j.e) };
+}
+const autoGap = (cfg) => Math.round(((cfg.gap_min || 2) + Math.random() * Math.max(0, (cfg.gap_max || 6) - (cfg.gap_min || 2))) * 60000);
+const autoRun = (id, event, detail) => api('POST', '/extension/plantao/run', { creator_id: id, event, detail: detail ? String(detail).slice(0, 300) : null }).catch(() => {});
+
+// digita e envia na conversa já aberta; devolve true só com a confirmação no DOM
+async function autoType(creatorId, text) {
+  const view = views.get(creatorId);
+  if (!view || view.webContents.isDestroyed()) return false;
+  const typed = await runJs(view, TYPE_SCRIPT(text), text.length * 400 + 25000).catch((e) => 'erro:' + (e && e.message));
+  if (typed !== 'ok') { autoLog('não enviou', typed); return false; }
+  const probe = await runJs(view, SENT_PROBE, 4000).catch(() => null);
+  return !!(probe && probe.empty && probe.ours);
+}
+// abre a conversa (o openConversation já entra com o acesso salvo se a criadora caiu no login)
+async function autoOpen(cfg, item) {
+  const r = await openConversation(cfg.creator_id, 'privacy', item.rid || null, item.name, item.fan_ref).catch((e) => ({ how: 'erro: ' + (e && e.message) }));
+  if (r && r.how === 'login') { await autoRun(cfg.creator_id, 'stop', 'a criadora está na tela de login e o acesso salvo não entrou'); return false; }
+  if (!r || !['ja', 'ok', 'clicou'].includes(r.how)) { await autoRun(cfg.creator_id, 'skip', `não abri a conversa (${(r && r.how) || '?'})`); return false; }
+  await sleep(1500 + Math.random() * 2500);
+  return true;
+}
+// abertura: lista aprovada (mode 'list') ou gerada na persona pelo servidor (mode 'ai')
+async function autoOpener(cfg, item) {
+  if (cfg.mode !== 'ai') return item.text || '';
+  try {
+    const r = await api('POST', '/extension/plantao/opener', { creator_id: cfg.creator_id, fan_name: state.fan_names_allowed ? (item.name || null) : null, days: item.days || 0, has_spent: !!(item.spent_cents > 0) });
+    return (r && r.text) || item.text || '';
+  } catch (e) { autoLog('abertura', e.message); return item.text || ''; }
+}
+// uma abordagem: respeita per_hour, o intervalo sorteado e uma conversa por vez
+async function autoApproach(cfg) {
+  const row = (plantao.queue().creators || []).find((c) => c.creator_id === cfg.creator_id);
+  if (!row || !row.open || !row.items.length) return false;
+  if (cfg.only_without_shift && row.in_shift) return false;
+  const a = autoFor(cfg.creator_id); const t = Date.now();
+  a.sends = a.sends.filter((x) => t - x < 3600000);
+  if (a.sends.length >= (cfg.per_hour || 8) || t < a.nextAt) return false;
+  const item = row.items[0];
+  const text = await autoOpener(cfg, item);
+  if (!text) { await autoRun(cfg.creator_id, 'skip', 'sem abertura disponível'); return false; }
+  await autoRun(cfg.creator_id, 'start', `abordando ${item.name || 'um assinante'} (${item.days || 0} dias parado)`);
+  if (!(await autoOpen(cfg, item))) return true;
+  plantao.prepared(cfg.creator_id, item.fan_ref, item.name, text);
+  if (!(await autoType(cfg.creator_id, text))) {
+    plantao.cancel(cfg.creator_id, item.fan_ref);
+    await autoRun(cfg.creator_id, 'error', 'não confirmei o envio da abertura');
+    a.nextAt = Date.now() + autoGap(cfg);
+    return true;
+  }
+  a.sends.push(Date.now()); a.nextAt = Date.now() + autoGap(cfg);
+  autoLog('abordou', cfg.creator_id.slice(0, 6), item.name);
+  return true;
+}
+// o fã respondeu e a configuração está em "segurar a conversa": entra na fila com 40 s a 4 min de atraso
+function altaAutoOnHold(info) {
+  const key = `${info.creatorId}|${info.fanRef}`;
+  if (auto.queue.some((h) => h.key === key)) return;
+  auto.queue.push({ ...info, key, at: Date.now() + 40000 + Math.random() * 200000 });
+}
+async function autoHold() {
+  const i = auto.queue.findIndex((h) => Date.now() >= h.at);
+  if (i < 0) return false;
+  const h = auto.queue.splice(i, 1)[0];
+  const cfg = plantao.cfgOf(h.creatorId);
+  if (!cfg || !cfg.enabled || cfg.after_reply !== 'hold') return true;
+  const count = auto.holds.get(h.key) || 0;
+  if (count >= (cfg.hold_max || 2)) return true;
+  if (!(await autoOpen(cfg, { rid: h.rid, name: h.name, fan_ref: h.fanRef }))) return true;
+  const view = views.get(h.creatorId);
+  if (!view || view.webContents.isDestroyed()) return true;
+  const data = await runJs(view, SAMPLE_SCRIPT, 6000).catch(() => null);
+  const msgs = (((data && data.msgs) || []).slice(-8)).map((m) => ({ ours: !!m.ours, text: String(m.text || '').slice(0, 400) })).filter((m) => m.text);
+  if (!msgs.length) return true;
+  let out;
+  try { out = await api('POST', '/extension/plantao/reply', { creator_id: h.creatorId, fan_ref: h.fanRef, fan_name: state.fan_names_allowed ? (h.name || null) : null, msgs, hold_count: count }); }
+  catch (e) { autoLog('resposta', e.message); return true; }
+  if (!out || out.stop || !out.text) { autoLog('entregue ao chatter', out && out.reason); return true; }
+  if (await autoType(h.creatorId, out.text)) { auto.holds.set(h.key, count + 1); plantao.rearm(h.creatorId, h.fanRef); autoLog('respondeu', h.name); }
+  else await autoRun(h.creatorId, 'error', 'não confirmei o envio da resposta');
+  return true;
+}
+// laço principal: uma ação por rodada (responder tem prioridade sobre abordar)
+async function altaAutoTick() {
+  if (auto.busy || !token || !state.user || !plantao.enabled()) return;
+  auto.busy = true;
+  try {
+    if (await autoHold()) return;
+    const nowDate = new Date();
+    for (const cfg of plantao.configs) {
+      if (!cfg.enabled || !plantao.inWindow(jitterCfg(cfg), nowDate)) continue;
+      if (await autoApproach(cfg)) break;
+    }
+  } catch (error) { autoLog('erro', error && error.message); }
+  finally { auto.busy = false; }
+}
+setInterval(() => altaAutoTick().catch(() => {}), 60000);
+// ---------------------------------------------------------------- fim ALTA AUTO ----------------------------------------------------------------
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });

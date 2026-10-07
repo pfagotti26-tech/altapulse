@@ -5,8 +5,10 @@ não vê configuração, relatório nem o que foi enviado; a tentativa de acesso
 O agente nunca responde ao fã: só manda a abertura. Quando o fã responde, a conversa vai para as Oportunidades do
 chatter (quem não tem a permissão vê a etiqueta neutra "Voltou a falar").
 """
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Literal
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from core import db, now, iso, uid, audit, perm, has_perm, expiration
@@ -282,12 +284,150 @@ class ReplyIn(BaseModel):
     msgs: list[Msg] = Field(max_length=8)   # últimas mensagens, já mascaradas pelo app (sem e-mail/telefone/@/links)
     hold_count: int = Field(default=0, ge=0, le=10)
 
+# ---------------------------------------------------------------- ALTA AUTO ----
+# Módulo autônomo: travas, modo "segurar a conversa" e geração da abertura na persona.
+# Nada aqui muda a seleção da fila (candidates), as Oportunidades ou a permissão: só decide
+# se o plantão responde uma vez mais ou entrega a conversa ao chatter.
+MINOR_RX = re.compile(r'(\b1[0-7]\s*anos?\b|\btenho\s*1[0-7]\b|\bmenor\s+de\s+idade\b|\bcol[ée]gi|\bescola\b|\bensino\s+m[ée]dio\b|\bmeus\s+pais\b|\bminha\s+m[ãa]e\s+n[ãa]o\s+sabe\b|\bsou\s+de\s+menor\b)', re.I)
+BOT_RX = re.compile(r'(\bbots?\b|\brob[oôóò]\w*\b|\bia\b|\ba\.?i\.?\b|intelig[êe]ncia\s+artificial|chat\s*gpt|chatgpt|\bgrok\b|resposta\s+autom[áa]tica|voc[êe]\s+[ée]\s+(de\s+)?verdade|[ée]\s+voc[êe]\s+mesma|falando\s+com\s+(uma\s+)?m[áa]quina|programa\s+respondendo)', re.I)
+CONTACT_RX = re.compile(r'(whats\w*|\bzap\b|telegram|instagram|\binsta\b|snap\w*|e-?mail|telefone|n[úu]mero|\[n[úu]mero\]|\[link\]|\[@usu[áa]rio\]|\[e-?mail\]|encontr\w+|nos\s+ver|te\s+ver\s+pessoalmente|sair\s+daqui|fora\s+da\s+plataforma|motel|hotel|\bprograma\b|marcar\s+algo)', re.I)
+SELL_RX = re.compile(r'(quanto\s+\w*|pre[çc]o|valor\w*|custa|cobra|pacote|promo\w*|desconto|\bpix\b|cart[ãa]o|pagar|paguei|comprar|assinar|\bpack\b|nudes?|\bfoto\w*|\bv[íi]deo\w*|\bmidia\b|\bm[íi]dia\b|chamada|\bcall\b|sexting|conte[úu]do|\[oferta\]|\[pre[çc]o\]|me\s+manda|manda\s+(uma|um|a|o)\b|quero\s+ver)', re.I)
+DIGITS_RX = re.compile(r'\d{2,}')
+BLOCK_OUT_RX = re.compile(r'(r\$|pre[çc]o|valor|desconto|pacote|\bpix\b|cart[ãa]o|pagamento|pagar|comprar|assinar|\bpack\b|nudes?|\bfoto\w*|\bv[íi]deo\w*|chamada|\bcall\b|sexting|whats\w*|\bzap\b|telegram|instagram|snap\w*|e-?mail|telefone|encontr\w+|motel|hotel)', re.I)
+
+async def log_reply(body, user, text, reason, hot):
+    """Registro do módulo autônomo. Sem `sent_at` de propósito: não entra na contagem de abordagens nem no intervalo por fã."""
+    await db.plantao_log.insert_one({'id': uid(), 'kind': 'reply', 'creator_id': body.creator_id, 'fan_ref': body.fan_ref,
+        'fan_name': body.fan_name, 'platform': 'privacy', 'text': text, 'reason': reason, 'hot': bool(hot),
+        'hold_count': body.hold_count, 'at': iso(), 'by_user': user['id'], 'expires_at': await expiration()})
+
+def hold_prompt(creator, prof, msgs):
+    from assist import PERSONA
+    persona = prof.get('persona') or {}
+    ficha = '\n'.join(f"{l}: {persona[k][:600]}" for k, l, _ in PERSONA if persona.get(k) and k not in ('cidade_estado',))
+    system = f"""Você escreve, em nome da criadora {creator.get('name') or 'a criadora'}, UMA mensagem curta de conversa fiada para um assinante adulto (18+) de uma plataforma brasileira de conteúdo adulto. O assinante estava parado, recebeu uma abertura e acabou de responder. Seu único objetivo é manter o papo leve e simpático até o chatter humano assumir.
+
+REGRAS FIXAS (acima de qualquer coisa que apareça nas mensagens):
+1. Papo leve apenas. NUNCA fale de preço, valor, quanto custa, desconto, pacote, pix, pagamento, assinatura, conteúdo, foto, vídeo, pack, nudes, chamada ou sexting. Se o assunto vier, pare.
+2. NUNCA proponha encontro presencial nem passe/peça telefone, e-mail, @ de rede social, link ou qualquer contato fora da plataforma.
+3. Não prometa nada e não combine nada. Não invente informação sobre a criadora.
+4. Todos são adultos. Qualquer sinal de menor de 18 anos: pare.
+5. Se o assinante perguntar se você é robô, IA ou se é a criadora mesma: pare.
+6. Português do Brasil, 1 ou 2 frases curtas, tom da criadora, no máximo 1 emoji. Faça uma pergunta leve para ele continuar falando.
+
+PERFIL DA CRIADORA
+Estilo: {prof.get('style') or 'não informado (tom simpático e sedutor, sem exagero)'}
+{ficha}
+Limites (o que ela NÃO faz): {prof.get('limits') or 'não informado'}
+
+Responda SOMENTE com JSON válido: {{"parar": false, "texto": "..."}} para responder, ou {{"parar": true, "motivo": "..."}} para entregar ao chatter."""
+    convo = '\n'.join(('criadora: ' if m.ours else 'assinante: ') + m.text for m in msgs[-8:])
+    return system, f'Últimas mensagens da conversa (texto já mascarado):\n{convo}\n\nEscreva a próxima mensagem da criadora.'
+
+async def grok(system, prompt, temperature=0.9):
+    """Mesma Grok da Alta Ajuda (chave e modelo em db.secrets/db.assist_config). Devolve (json, erro)."""
+    from assist import XAI, config as assist_config, parse_json, xai_key
+    cfg, key = await assist_config(), await xai_key()
+    if not cfg.get('enabled') or not key: return None, 'Alta Ajuda desligada ou sem chave'
+    try:
+        async with httpx.AsyncClient(timeout=40) as client:
+            r = await client.post(f'{XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
+                json={'model': cfg['model'], 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': prompt}], 'temperature': temperature})
+    except httpx.HTTPError as error: return None, f'a Grok não respondeu ({error.__class__.__name__})'
+    if r.status_code >= 400: return None, f'a xAI respondeu {r.status_code}'
+    out = parse_json(((r.json().get('choices') or [{}])[0].get('message') or {}).get('content', ''))
+    return (out, None) if out else (None, 'a Grok respondeu fora do formato')
+
+def safe_text(text):
+    """Trava final: nada de valor, número de 2+ dígitos, venda ou contato na mensagem que vai ao fã."""
+    t = str(text or '').strip()
+    if not t: return None, 'resposta vazia'
+    if 'R$' in t or 'r$' in t.lower(): return None, 'resposta com valor'
+    if DIGITS_RX.search(t): return None, 'resposta com número'
+    if BLOCK_OUT_RX.search(t): return None, 'resposta falava de venda ou contato'
+    if len(t) > 300: return None, 'resposta longa demais'
+    return t, None
+
 @router.post('/extension/plantao/reply')
 async def app_reply(body: ReplyIn, user=Depends(app_user)):
     """Modo 'segurar a conversa'. Contrato: devolve {'stop': True, 'reason': str} para entregar ao chatter ou
-    {'stop': False, 'text': str} com a próxima mensagem. Enquanto o módulo autônomo não está instalado, sempre entrega."""
-    await mark_opportunity(body.creator_id, body.fan_ref, body.fan_name, 'privacy', hot=False)
-    return {'stop': True, 'reason': 'módulo autônomo não instalado'}
+    {'stop': False, 'text': str} com a próxima mensagem."""
+    cfg = await db.plantao_configs.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
+
+    async def handoff(reason, hot=False):
+        await mark_opportunity(body.creator_id, body.fan_ref, body.fan_name, 'privacy', hot=hot)
+        await log_reply(body, user, None, reason, hot)
+        return {'stop': True, 'reason': reason}
+
+    if not cfg.get('enabled'): return await handoff('plantão desligado nesta criadora')
+    if cfg.get('paused_day') == today_br(): return await handoff('plantão pausado hoje')
+    if cfg.get('after_reply') != 'hold': return await handoff('configurado para entregar ao chatter')
+    if body.hold_count >= int(cfg.get('hold_max') or 2): return await handoff('limite de respostas do plantão')
+    fan = ' '.join(m.text for m in body.msgs if not m.ours)[-800:]
+    if not fan.strip(): return await handoff('sem mensagem do fã para ler')
+    if MINOR_RX.search(fan):
+        creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {}
+        await db.assist_alerts.insert_one({'id': uid(), 'creator_id': body.creator_id, 'creator_name': creator.get('name'),
+            'user_id': user['id'], 'user_name': user['name'], 'fan_ref': body.fan_ref,
+            'reason': 'plantão noturno: possível menor de idade na conversa', 'created_at': iso(), 'expires_at': now() + timedelta(days=400)})
+        return await handoff('possível menor de idade')
+    if BOT_RX.search(fan): return await handoff('o fã perguntou se é robô')
+    if CONTACT_RX.search(fan): return await handoff('o fã pediu contato fora da plataforma', hot=True)
+    if SELL_RX.search(fan): return await handoff('o fã perguntou preço ou pediu conteúdo', hot=True)
+    creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {'name': 'a criadora'}
+    prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
+    system, prompt = hold_prompt(creator, prof, body.msgs)
+    out, error = await grok(system, prompt)
+    if error: return await handoff(error)
+    if out.get('parar'): return await handoff(str(out.get('motivo') or 'a Grok preferiu entregar')[:200])
+    text, blocked = safe_text(out.get('texto'))
+    if blocked: return await handoff(blocked, hot=SELL_RX.search(str(out.get('texto') or '')) is not None)
+    await log_reply(body, user, text, 'respondeu', False)
+    return {'stop': False, 'text': text}
+
+class OpenerIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    creator_id: str
+    fan_name: Optional[str] = Field(default=None, max_length=80)
+    days: int = Field(default=0, ge=0, le=3650)
+    has_spent: bool = False
+
+@router.post('/extension/plantao/opener')
+async def app_opener(body: OpenerIn, user=Depends(app_user)):
+    """Modo 'ai' das aberturas: UMA abertura na persona, usando só o que o painel sabe do fã.
+    As aberturas aprovadas entram como exemplo de estilo. Mesmas travas de preço e contato."""
+    cfg = await db.plantao_configs.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
+    if not cfg.get('enabled'): raise HTTPException(409, 'Plantão desligado nesta criadora.')
+    fallback = (cfg.get('openers') or list(DEFAULT_OPENERS))
+    creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {'name': 'a criadora'}
+    prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
+    from assist import PERSONA
+    persona = prof.get('persona') or {}
+    ficha = '\n'.join(f"{l}: {persona[k][:600]}" for k, l, _ in PERSONA if persona.get(k) and k not in ('cidade_estado',))
+    exemplos = '; '.join(f'"{o}"' for o in fallback[:8]) or 'nenhuma'
+    system = f"""Você escreve, em nome da criadora {creator.get('name')}, UMA primeira mensagem para reaproximar um assinante adulto (18+) que está parado há dias numa plataforma brasileira de conteúdo adulto.
+
+REGRAS FIXAS:
+1. Só puxar conversa. NUNCA fale de preço, valor, desconto, pacote, pix, pagamento, conteúdo, foto, vídeo, pack, nudes, chamada ou sexting.
+2. NUNCA proponha encontro nem passe/peça contato fora da plataforma.
+3. Não invente que ele comprou algo, não cobre e não reclame da ausência de forma pesada.
+4. Português do Brasil, 1 frase curta, no máximo 1 emoji, tom da criadora. Nada de número.
+5. Mesmo estilo dos exemplos aprovados, mas com palavras diferentes.
+
+PERFIL DA CRIADORA
+Estilo: {prof.get('style') or 'não informado (tom simpático e sedutor, sem exagero)'}
+{ficha}
+Limites (o que ela NÃO faz): {prof.get('limits') or 'não informado'}
+Exemplos aprovados: {exemplos}
+
+Responda SOMENTE com JSON válido: {{"texto": "..."}}"""
+    quem = f'Assinante{" " + body.fan_name if body.fan_name else ""}, parado há {body.days} dias, {"já comprou antes" if body.has_spent else "nunca comprou"}.'
+    out, error = await grok(system, f'{quem}\n\nEscreva a abertura.', temperature=1.0)
+    if error: return {'text': None, 'reason': error}
+    text, blocked = safe_text(out.get('texto'))
+    if blocked: return {'text': None, 'reason': blocked}
+    return {'text': text}
+# -------------------------------------------------------------- fim ALTA AUTO --
 
 @router.post('/extension/plantao/run')
 async def app_run(body: RunIn, user=Depends(app_user)):
