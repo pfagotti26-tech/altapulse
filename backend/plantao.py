@@ -176,10 +176,17 @@ async def candidates(cfg, recent, noted, dismissed, limit=40, stats=None):
         if e.get('at'): last[e['_id']] = e['at']
     st['eventos'] = len(last)
     out = []
-    async for r in db.fan_radar.find({'creator_id': cid, 'platform': 'privacy'}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1, 'spent_cents': 1, 'last_from': 1, 'last_at': 1, 'fan_last_at': 1}):
+    async for r in db.fan_radar.find({'creator_id': cid, 'platform': 'privacy'}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1, 'spent_cents': 1, 'last_from': 1, 'last_at': 1, 'fan_last_at': 1, 'first_seen_at': 1}):
         ref = r['fan_ref']; st['radar'] += 1
         fla = max([x for x in [r.get('fan_last_at'), last.get(ref), r.get('last_at') if r.get('last_from') == 'fan' else None] if x] or [None])
-        if not fla: st['sem_historico'] += 1; continue
+        basis = 'fan'
+        if not fla:
+            # sem registro de mensagem do fã. Se a última da conversa é NOSSA e é antiga, o fã não fala desde antes dela
+            # (limite superior seguro). Se "incluir quem nunca mandou mensagem" está ligado, vale quem o radar acompanha há
+            # mais tempo que o filtro sem nunca ter visto o fã escrever (os disparos em massa deixam a última sempre nossa).
+            if r.get('last_from') == 'us' and r.get('last_at') and r['last_at'] <= cutoff: fla, basis = r['last_at'], 'ours'
+            elif f.get('never_messaged') and r.get('first_seen_at') and r['first_seen_at'] <= cutoff: fla, basis = r['first_seen_at'], 'never'
+            else: st['sem_historico'] += 1; continue
         if fla > cutoff: st['falou_recente'] += 1; continue
         if ref in recent: st['abordado'] += 1; continue
         if ref in noted and f.get('skip_with_notes', True): st['com_nota'] += 1; continue
@@ -193,7 +200,9 @@ async def candidates(cfg, recent, noted, dismissed, limit=40, stats=None):
         try: days = max(0, (t - datetime.fromisoformat(fla)).days)
         except ValueError: st['sem_historico'] += 1; continue
         if not r.get('fan_name'): st['sem_nome'] += 1; continue
-        out.append({'fan_ref': ref, 'name': r.get('fan_name'), 'rid': r.get('cid'), 'days': days, 'spent_cents': spent, 'ghosted': ghosted, 'score': (1000 if ghosted else 0) + min(spent, 100000) / 100})
+        # prioridade: quem já falou (sumiu depois da resposta) > última do fã conhecida > nunca visto escrevendo; gasto desempata
+        out.append({'fan_ref': ref, 'name': r.get('fan_name'), 'rid': r.get('cid'), 'days': days, 'spent_cents': spent, 'ghosted': ghosted, 'basis': basis,
+            'score': (1000 if ghosted and basis != 'never' else 0) + (-500 if basis == 'never' else 0) + min(spent, 100000) / 100})
     out.sort(key=lambda x: -x['score'])
     st['fila'] = len(out)
     return out[:limit]
