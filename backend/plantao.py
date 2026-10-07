@@ -162,33 +162,59 @@ async def app_user(request: Request):
     if not has_perm(user, PERM): raise HTTPException(403, 'Sem permissão para o plantão.')
     return user
 
-async def candidates(cfg, recent, noted, dismissed, limit=40):
+async def candidates(cfg, recent, noted, dismissed, limit=40, stats=None):
     """Quem abordar, pelo histórico do painel (radar + eventos), não pela lista da Privacy: a lista mostra 'última mensagem
-    hoje' para todo mundo por causa dos disparos em massa. Conta os dias desde a última mensagem DO FÃ."""
+    hoje' para todo mundo por causa dos disparos em massa. Conta os dias desde a última mensagem DO FÃ.
+    `stats` (dict) recebe a contagem de quem ficou de fora e por quê — para o painel mostrar 'por que a fila está vazia'."""
     f = cfg.get('filters') or {}; cid = cfg['creator_id']; t = now()
     cutoff = (t - timedelta(days=int(f.get('inactive_days') or 7))).isoformat()
+    st = stats if stats is not None else {}
+    for k in ['radar', 'sem_historico', 'falou_recente', 'abordado', 'com_nota', 'dispensado', 'sumiu_desligado', 'gasto', 'sem_nome']: st[k] = 0
     # última mensagem do fã: fan_last_at (radar) ou início de uma resposta/pendência registrada (eventos)
     last = {}
     async for e in db.events.aggregate([{'$match': {'creator_id': cid, 'kind': {'$in': ['response', 'pending']}, 'fan_ref': {'$ne': None}}}, {'$group': {'_id': '$fan_ref', 'at': {'$max': '$started_at'}}}]):
         if e.get('at'): last[e['_id']] = e['at']
+    st['eventos'] = len(last)
     out = []
     async for r in db.fan_radar.find({'creator_id': cid, 'platform': 'privacy'}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1, 'spent_cents': 1, 'last_from': 1, 'last_at': 1, 'fan_last_at': 1}):
-        ref = r['fan_ref']
+        ref = r['fan_ref']; st['radar'] += 1
         fla = max([x for x in [r.get('fan_last_at'), last.get(ref), r.get('last_at') if r.get('last_from') == 'fan' else None] if x] or [None])
-        if not fla or fla > cutoff: continue
-        if ref in recent or ref in noted and f.get('skip_with_notes', True): continue
-        if f.get('skip_dismissed', True) and (cid, ref) in dismissed: continue
+        if not fla: st['sem_historico'] += 1; continue
+        if fla > cutoff: st['falou_recente'] += 1; continue
+        if ref in recent: st['abordado'] += 1; continue
+        if ref in noted and f.get('skip_with_notes', True): st['com_nota'] += 1; continue
+        if f.get('skip_dismissed', True) and (cid, ref) in dismissed: st['dispensado'] += 1; continue
         ghosted = r.get('last_from') == 'us'
-        if not f.get('ghosted', True) and ghosted: continue
+        if not f.get('ghosted', True) and ghosted: st['sumiu_desligado'] += 1; continue
         spent = int(r.get('spent_cents') or 0)
         if f.get('never_spent'):
-            if spent > 0: continue
-        elif f.get('min_spent_cents') is not None and spent < f['min_spent_cents']: continue
+            if spent > 0: st['gasto'] += 1; continue
+        elif f.get('min_spent_cents') is not None and spent < f['min_spent_cents']: st['gasto'] += 1; continue
         try: days = max(0, (t - datetime.fromisoformat(fla)).days)
-        except ValueError: continue
+        except ValueError: st['sem_historico'] += 1; continue
+        if not r.get('fan_name'): st['sem_nome'] += 1; continue
         out.append({'fan_ref': ref, 'name': r.get('fan_name'), 'rid': r.get('cid'), 'days': days, 'spent_cents': spent, 'ghosted': ghosted, 'score': (1000 if ghosted else 0) + min(spent, 100000) / 100})
     out.sort(key=lambda x: -x['score'])
-    return [x for x in out if x.get('name')][:limit]
+    st['fila'] = len(out)
+    return out[:limit]
+
+async def exclusions(creator_id, cfg):
+    """Conjuntos que tiram um fã da fila: abordado dentro do intervalo, com anotação, dispensado nos últimos 30 dias."""
+    since = (now() - timedelta(days=cfg.get('cooldown_days', 7))).isoformat()
+    since30 = (now() - timedelta(days=30)).isoformat()
+    recent = await db.plantao_log.find({'creator_id': creator_id, 'sent_at': {'$gt': since}}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
+    noted = await db.fan_notes.find({'creator_id': creator_id}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
+    dismissed = await db.opportunities.find({'creator_id': creator_id, 'status': 'dismissed', 'dismissed_at': {'$gt': since30}}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
+    return {r['fan_ref'] for r in recent}, {n['fan_ref'] for n in noted}, {(creator_id, d['fan_ref']) for d in dismissed}
+
+@router.get('/plantao/{creator_id}/preview')
+async def preview(creator_id: str, user=Depends(plantao_user)):
+    """Quem entraria na fila agora com a configuração salva, e quantos ficaram de fora por cada motivo."""
+    cfg = await db.plantao_configs.find_one({'creator_id': creator_id}, {'_id': 0}) or {**defaults(), 'creator_id': creator_id}
+    rset, nset, dset = await exclusions(creator_id, cfg)
+    st = {}
+    items = await candidates(cfg, rset, nset, dset, limit=40, stats=st)
+    return {'items': items, 'stats': st, 'filters': cfg.get('filters') or {}, 'cooldown_days': cfg.get('cooldown_days', 7)}
 
 @router.get('/extension/plantao')
 async def app_configs(user=Depends(app_user)):
