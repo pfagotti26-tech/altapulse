@@ -5,7 +5,7 @@ não vê configuração, relatório nem o que foi enviado; a tentativa de acesso
 O agente nunca responde ao fã: só manda a abertura. Quando o fã responde, a conversa vai para as Oportunidades do
 chatter (quem não tem a permissão vê a etiqueta neutra "Voltou a falar").
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -162,20 +162,50 @@ async def app_user(request: Request):
     if not has_perm(user, PERM): raise HTTPException(403, 'Sem permissão para o plantão.')
     return user
 
+async def candidates(cfg, recent, noted, dismissed, limit=40):
+    """Quem abordar, pelo histórico do painel (radar + eventos), não pela lista da Privacy: a lista mostra 'última mensagem
+    hoje' para todo mundo por causa dos disparos em massa. Conta os dias desde a última mensagem DO FÃ."""
+    f = cfg.get('filters') or {}; cid = cfg['creator_id']; t = now()
+    cutoff = (t - timedelta(days=int(f.get('inactive_days') or 7))).isoformat()
+    # última mensagem do fã: fan_last_at (radar) ou início de uma resposta/pendência registrada (eventos)
+    last = {}
+    async for e in db.events.aggregate([{'$match': {'creator_id': cid, 'kind': {'$in': ['response', 'pending']}, 'fan_ref': {'$ne': None}}}, {'$group': {'_id': '$fan_ref', 'at': {'$max': '$started_at'}}}]):
+        if e.get('at'): last[e['_id']] = e['at']
+    out = []
+    async for r in db.fan_radar.find({'creator_id': cid, 'platform': 'privacy'}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1, 'spent_cents': 1, 'last_from': 1, 'last_at': 1, 'fan_last_at': 1}):
+        ref = r['fan_ref']
+        fla = max([x for x in [r.get('fan_last_at'), last.get(ref), r.get('last_at') if r.get('last_from') == 'fan' else None] if x] or [None])
+        if not fla or fla > cutoff: continue
+        if ref in recent or ref in noted and f.get('skip_with_notes', True): continue
+        if f.get('skip_dismissed', True) and (cid, ref) in dismissed: continue
+        ghosted = r.get('last_from') == 'us'
+        if not f.get('ghosted', True) and ghosted: continue
+        spent = int(r.get('spent_cents') or 0)
+        if f.get('never_spent'):
+            if spent > 0: continue
+        elif f.get('min_spent_cents') is not None and spent < f['min_spent_cents']: continue
+        try: days = max(0, (t - datetime.fromisoformat(fla)).days)
+        except ValueError: continue
+        out.append({'fan_ref': ref, 'name': r.get('fan_name'), 'rid': r.get('cid'), 'days': days, 'spent_cents': spent, 'ghosted': ghosted, 'score': (1000 if ghosted else 0) + min(spent, 100000) / 100})
+    out.sort(key=lambda x: -x['score'])
+    return [x for x in out if x.get('name')][:limit]
+
 @router.get('/extension/plantao')
 async def app_configs(user=Depends(app_user)):
     """Configurações das criadoras ligadas + fãs já abordados recentemente (para o app respeitar o intervalo por fã)."""
     configs = [c for c in (await all_configs()).values() if c.get('enabled')]
     td = today_br()
+    since30 = (now() - timedelta(days=30)).isoformat()
+    dismissed = await db.opportunities.find({'status': 'dismissed', 'dismissed_at': {'$gt': since30}}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1}).to_list(20000)
+    dset = {(d['creator_id'], d['fan_ref']) for d in dismissed}
     out = []
     for c in configs:
         if c.get('paused_day') == td: continue
         since = (now() - timedelta(days=c.get('cooldown_days', 7))).isoformat()
         recent = await db.plantao_log.find({'creator_id': c['creator_id'], 'sent_at': {'$gt': since}}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
         noted = await db.fan_notes.find({'creator_id': c['creator_id']}, {'_id': 0, 'fan_ref': 1}).to_list(5000)
-        out.append({**c, 'recent_fans': sorted({r['fan_ref'] for r in recent}), 'noted_fans': sorted({n['fan_ref'] for n in noted})})
-    since = (now() - timedelta(days=30)).isoformat()
-    dismissed = await db.opportunities.find({'status': 'dismissed', 'dismissed_at': {'$gt': since}}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1}).to_list(20000)
+        rset, nset = {r['fan_ref'] for r in recent}, {n['fan_ref'] for n in noted}
+        out.append({**c, 'recent_fans': sorted(rset), 'noted_fans': sorted(nset), 'candidates': await candidates(c, rset, nset, dset)})
     return {'configs': out, 'dismissed': [[d['creator_id'], d['fan_ref']] for d in dismissed], 'server_time': iso()}
 
 @router.post('/extension/plantao/sent')

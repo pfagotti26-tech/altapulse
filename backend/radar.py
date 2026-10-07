@@ -59,6 +59,8 @@ async def save_radar(body: RadarIn, user):
         patch = {'platform': body.platform, 'seen_at': stamp, 'unread': r.unread, 'workspace_id': WORKSPACE, 'expires_at': t + timedelta(days=120)}
         if r.last_from: patch['last_from'] = r.last_from
         if last_at: patch['last_at'] = last_at
+        # última vez que o FÃ escreveu (os disparos em massa deixam todo mundo com 'última mensagem hoje'; o plantão precisa desta)
+        if r.last_from == 'fan' and last_at and last_at > (old.get('fan_last_at') or ''): patch['fan_last_at'] = last_at
         if r.spent_cents is not None: patch['spent_cents'] = r.spent_cents
         if r.cid: patch['cid'] = r.cid
         if names and r.fan_name: patch['fan_name'] = r.fan_name

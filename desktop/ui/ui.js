@@ -720,7 +720,7 @@ async function plantaoDialog() {
   const q = await plLoad(true); if (!q) return toast('Não consegui carregar o plantão.');
   const money = (c) => c ? fmtBRL(c) : 'nunca gastou';
   const groups = q.creators.map((c) => {
-    const st = !c.open ? 'abra a Privacy desta criadora no app para montar a fila' : c.in_shift && c.only_without_shift ? 'chatter em turno · fila pausada' : c.in_window ? 'dentro da janela' : `fora da janela (${c.window})`;
+    const st = !c.open ? 'sem histórico ainda: abra a Privacy desta criadora no app' : c.in_shift && c.only_without_shift ? 'chatter em turno · fila pausada' : c.in_window ? 'dentro da janela' : `fora da janela (${c.window})`;
     const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${esc(it.name)}</b><small>${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : '<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora</small>';
     return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}</span></div>${items}`;
   }).join('');
