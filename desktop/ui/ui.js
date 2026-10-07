@@ -117,6 +117,7 @@ function showWelcome() {
 function apply(state) {
   S = state;
   const logged = !!(S && S.user);
+  if ($('menu-urlbar')) $('menu-urlbar').textContent = `${S && S.urlbar ? '✓ ' : ''}Barra de endereço`;
   $('login').classList.toggle('hidden', logged);
   $('main').classList.toggle('hidden', !logged);
   $('origin').value = S.origin || '';
@@ -802,6 +803,7 @@ $('app-menu').addEventListener('click', async (e) => {
   if (act === 'panel') window.pulse.openExternal(`${S.origin}/criadoras`);
   if (act === 'tags') tagsDialog();
   if (act === 'hide') run(() => window.pulse.hideAll());
+  if (act === 'urlbar') window.pulse.urlbarShow(!S.urlbar).then((on) => toast(on ? 'Barra de endereço visível (Copiar ou colar um link e Enter).' : 'Barra de endereço escondida. Volta pelo menu ⋮.', 2500));
   if (act === 'panel-cfg') panelDialog();
   if (act === 'focus') toggleFocus();
   if (act === 'turn-start') turnAction('start');

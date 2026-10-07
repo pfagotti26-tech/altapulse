@@ -273,6 +273,7 @@ function publicState() {
   return {
     ...state,
     origin: config.origin,
+    urlbar: !!urlbarPref.show,
     local,
     open: [...tabs.keys()].filter((id) => tabs.get(id).size),
     active: activeId,
@@ -548,14 +549,48 @@ async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
 }
 
+// ---------- barra de endereço (como no Lauth): link da página aberta, Copiar e colar um link para abrir ----------
+const URLBAR_H = 32;
+let urlbarPref = readJson('barra-endereco.json', { show: true });
+let urlView = null;
+const activeView = () => { const t = activeId && tabs.get(activeId); const p = activeId && activeTab.get(activeId); return t && p ? t.get(p) || null : null; };
+const urlbarOn = () => !!(urlbarPref.show && urlView && activeView());
+function pushUrl() {
+  if (!urlView || urlView.webContents.isDestroyed()) return;
+  const v = activeView(); let url = '';
+  try { url = v && !v.webContents.isDestroyed() ? v.webContents.getURL() : ''; } catch {}
+  const p = activeId && activeTab.get(activeId); const c = (state.creators || []).find((x) => x.id === activeId);
+  urlView.webContents.send('url', { url, label: [c && c.name, p && PLATFORMS[p] ? PLATFORMS[p].label : p].filter(Boolean).join(' · ') });
+}
+ipcMain.handle('url:copy', () => { const v = activeView(); const url = v && !v.webContents.isDestroyed() ? v.webContents.getURL() : ''; if (!/^https:\/\//i.test(url)) return false; clipboard.writeText(url); return true; });
+// colar um link e Enter: abre no perfil da criadora que está na tela (a conversa é da conta dela).
+// Link de outra plataforma abre na aba daquela plataforma da mesma criadora; link do app (altapulse://) usa a criadora do link.
+ipcMain.handle('url:go', async (_e, text) => {
+  let s = String(text || '').trim().slice(0, 2000);
+  if (/^altapulse:\/\//i.test(s)) { await handleDeepLink(s); return { ok: true }; }
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  let u; try { u = new URL(s); } catch { return { ok: false, reason: 'Endereço inválido.' }; }
+  if (u.protocol !== 'https:' || !allowedUrl(u.href)) return { ok: false, reason: 'Só abre links das plataformas do app (Privacy, OnlyFans, FatalFans…).' };
+  if (!activeId) return { ok: false, reason: 'Abra primeiro a criadora dona da conversa.' };
+  const platform = platformOf(u.href) || activeTab.get(activeId) || 'privacy';
+  if (!tabsOf(activeId).has(platform)) openProfile(activeId, platform);
+  else { activeTab.set(activeId, platform); layout(); pushState(); }
+  const v = tabsOf(activeId).get(platform); if (!v || v.webContents.isDestroyed()) return { ok: false, reason: 'A aba não abriu.' };
+  await v.webContents.loadURL(u.href).catch(() => {}); pushUrl();
+  return { ok: true };
+});
+ipcMain.handle('urlbar:show', (_e, show) => { urlbarPref = { show: !!show }; writeJson('barra-endereco.json', urlbarPref); layout(); pushState(); return urlbarPref.show; });
+
 function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
   const pw = fanPanelWidth();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
+  const bar = urlbarOn() ? URLBAR_H : 0; const vwAll = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
+  if (urlView) { urlView.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vwAll, height: URLBAR_H }); urlView.setVisible(bar > 0); if (bar) pushUrl(); }
   for (const [id, t] of tabs) for (const [platform, v] of t) {
-    const vw = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
-    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vw, height: h });
+    const vw = vwAll;
+    v.setBounds({ x: SIDEBAR_WIDTH, y: bar, width: vw, height: h - bar });
     v.setVisible(id === activeId && platform === activeTab.get(id));
     applyZoom(v, vw, platform);
   }
@@ -603,7 +638,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-  view.webContents.on('did-navigate', () => pushState());
+  view.webContents.on('did-navigate', () => { pushState(); if (view === activeView()) pushUrl(); });
   view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
@@ -611,7 +646,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   zoomKeys(view, platform);
   // o Chromium guarda zoom por site; aqui quem manda é a escolha por plataforma
   view.webContents.on('did-finish-load', () => { const z = zoomFor(platform, view.getBounds().width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); });
-  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); if (view === activeView()) pushUrl(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
@@ -1808,6 +1843,11 @@ app.whenReady().then(async () => {
   win.contentView.addChildView(fanView);
   fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
   fanView.webContents.on('did-finish-load', pushFan);
+  urlView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  win.contentView.addChildView(urlView);
+  urlView.webContents.loadFile(path.join(__dirname, 'ui', 'urlbar.html'));
+  urlView.webContents.on('did-finish-load', pushUrl);
+  urlView.setVisible(false);
   // Ctrl +/−/0 com o foco na lateral ou no cartão do fã: ajusta a página aberta (a lateral não muda de tamanho)
   for (const ui of [sidebar, fanView]) ui.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;

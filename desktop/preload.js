@@ -68,4 +68,9 @@ contextBridge.exposeInMainWorld('pulse', {
   portableUpdate: () => ipcRenderer.invoke('portable:update'),
   onMenusHide: (fn) => ipcRenderer.on('menus:hide', () => fn()),
   onFocusMode: (fn) => ipcRenderer.on('focus-mode', () => fn()),
+  // barra de endereço da plataforma aberta
+  onUrl: (fn) => ipcRenderer.on('url', (_e, d) => fn(d)),
+  urlCopy: () => ipcRenderer.invoke('url:copy'),
+  urlGo: (text) => ipcRenderer.invoke('url:go', text),
+  urlbarShow: (show) => ipcRenderer.invoke('urlbar:show', show),
 });
