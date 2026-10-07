@@ -10,7 +10,7 @@ from typing import Optional, Any
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from core import db, now, iso, uid, manager, creator_access
+from core import db, now, iso, uid, staff, creator_access
 from schemas import Strict
 
 router = APIRouter()
@@ -48,7 +48,7 @@ async def save_snapshot(body: SnapshotIn, user):
     return {'ok': True, 'day': day}
 
 @router.get('/performance')
-async def performance(days: int = 30, user=Depends(manager)):
+async def performance(days: int = 30, user=Depends(staff)):
     days = max(7, min(days, 90))
     today = datetime.now(BR).date()
     start = today - timedelta(days=days - 1)
@@ -91,6 +91,6 @@ async def performance(days: int = 30, user=Depends(manager)):
     return {'days': day_list, 'creators': rows, 'totals': {'today_cents': sum(r['today_cents'] for r in rows), 'last7_cents': sum(r['last7_cents'] for r in rows), 'total_cents': sum(r['total_cents'] for r in rows), 'active_subscribers': sum((r['snapshot'] or {}).get('subscribers_active') or 0 for r in rows)}}
 
 @router.get('/performance/{creator_id}/snapshots')
-async def snapshots(creator_id: str, user=Depends(manager)):
+async def snapshots(creator_id: str, user=Depends(staff)):
     await creator_access(creator_id, user)
     return await db.creator_snapshots.find({'creator_id': creator_id}, {'_id': 0, 'expires_at': 0}).sort('day', -1).to_list(400)

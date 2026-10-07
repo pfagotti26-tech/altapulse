@@ -8,7 +8,7 @@ import re
 from typing import Optional, Literal
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException
-from core import db, now, iso, uid, manager, settings, clean_time, audit
+from core import db, now, iso, uid, staff, is_staff, settings, clean_time, audit
 from schemas import Strict
 
 router = APIRouter()
@@ -37,7 +37,7 @@ async def save_subscribers(body: SubscribersIn, user):
     config = await settings()
     if not config.get('storage_allowed'): raise HTTPException(409, 'Armazenamento de métricas desabilitado.')
     if not await db.creators.find_one({'id': body.creator_id}): raise HTTPException(404, 'Criadora não cadastrada.')
-    if user['role'] != 'manager' and body.creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and body.creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
     seen = clean_time(body.taken_at); names = bool(config.get('fan_names_allowed'))
     for r in body.rows:
         await db.subscribers.update_one({'creator_id': body.creator_id, 'fan_ref': r.fan_ref},
@@ -48,7 +48,7 @@ async def save_subscribers(body: SubscribersIn, user):
     return {'ok': True, 'saved': len(body.rows)}
 
 @router.get('/fans')
-async def fans(creator_id: str = None, days: int = 90, user=Depends(manager)):
+async def fans(creator_id: str = None, days: int = 90, user=Depends(staff)):
     days = max(7, min(days, 365))
     config = await settings()
     since = (now() - timedelta(days=days)).isoformat()
@@ -205,7 +205,7 @@ class TasksIn(Strict):
     reason: str = Field(default='', max_length=80)
 
 async def can_see(user, creator_id):
-    if user['role'] != 'manager' and creator_id not in user.get('creator_ids', []): raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and creator_id not in user.get('creator_ids', []): raise HTTPException(403, 'Criadora não autorizada.')
 
 async def add_note(body: NoteIn, user):
     await can_see(user, body.creator_id)
@@ -215,7 +215,7 @@ async def add_note(body: NoteIn, user):
 async def delete_note(note_id, user):
     note = await db.fan_notes.find_one({'id': note_id}, {'_id': 0})
     if not note: raise HTTPException(404, 'Anotação não encontrada.')
-    if user['role'] != 'manager' and note['author_id'] != user['id']: raise HTTPException(403, 'Só quem escreveu (ou um gestor) pode apagar.')
+    if not is_staff(user) and note['author_id'] != user['id']: raise HTTPException(403, 'Só quem escreveu (ou um gestor) pode apagar.')
     await db.fan_notes.delete_one({'id': note_id}); return {'ok': True}
 
 async def tasks_with_result(query):
@@ -230,17 +230,17 @@ async def tasks_with_result(query):
     return rows
 
 @router.get('/fans/card')
-async def panel_fan_card(creator_id: str, fan_ref: str, user=Depends(manager)): return await fan_card(creator_id, fan_ref)
+async def panel_fan_card(creator_id: str, fan_ref: str, user=Depends(staff)): return await fan_card(creator_id, fan_ref)
 @router.post('/fans/notes')
-async def panel_add_note(body: NoteIn, user=Depends(manager)): return await add_note(body, user)
+async def panel_add_note(body: NoteIn, user=Depends(staff)): return await add_note(body, user)
 @router.delete('/fans/notes/{note_id}')
-async def panel_delete_note(note_id: str, user=Depends(manager)): return await delete_note(note_id, user)
+async def panel_delete_note(note_id: str, user=Depends(staff)): return await delete_note(note_id, user)
 
 @router.post('/fan-tasks')
-async def create_tasks(body: TasksIn, user=Depends(manager)):
+async def create_tasks(body: TasksIn, user=Depends(staff)):
     target = await db.users.find_one({'id': body.assigned_to, 'active': True}, {'_id': 0, 'id': 1, 'name': 1, 'role': 1, 'creator_ids': 1})
     if not target: raise HTTPException(404, 'Chatter não encontrado.')
-    if target['role'] != 'manager' and body.creator_id not in target.get('creator_ids', []): raise HTTPException(409, f"{target['name']} não tem acesso a esta criadora. Libere em Equipe e turnos.")
+    if not is_staff(target) and body.creator_id not in target.get('creator_ids', []): raise HTTPException(409, f"{target['name']} não tem acesso a esta criadora. Libere em Equipe e turnos.")
     creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1})
     names = {}
     async for s in db.events.find({'creator_id': body.creator_id, 'fan_ref': {'$in': body.fan_refs}, 'fan_name': {'$ne': None}}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1}): names[s['fan_ref']] = s['fan_name']
@@ -256,9 +256,9 @@ async def create_tasks(body: TasksIn, user=Depends(manager)):
     return {'ok': True, 'created': created}
 
 @router.get('/fan-tasks')
-async def list_tasks(days: int = 14, user=Depends(manager)):
+async def list_tasks(days: int = 14, user=Depends(staff)):
     return await tasks_with_result({'created_at': {'$gte': (now() - timedelta(days=max(1, min(days, 90)))).isoformat()}})
 
 @router.delete('/fan-tasks/{task_id}')
-async def delete_task(task_id: str, user=Depends(manager)):
+async def delete_task(task_id: str, user=Depends(staff)):
     await db.fan_tasks.delete_one({'id': task_id}); return {'ok': True}

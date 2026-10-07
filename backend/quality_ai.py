@@ -11,7 +11,7 @@ from urllib.parse import unquote
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
-from core import db, now, iso, uid, digest, manager, settings, audit, assign_shift, clean_time
+from core import db, now, iso, uid, digest, manager, staff, is_staff, STAFF, settings, audit, assign_shift, clean_time
 from schemas import Strict
 
 router = APIRouter()
@@ -79,7 +79,7 @@ async def save_sample(body: SampleIn, user):
     await ai_allowed()
     creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'id': 1, 'name': 1})
     if not creator: raise HTTPException(404, 'Criadora não cadastrada.')
-    if user['role'] != 'manager' and body.creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and body.creator_id not in user['creator_ids']: raise HTTPException(403, 'Criadora não autorizada.')
     captured = clean_time(body.captured_at)
     shift = await assign_shift(body.creator_id, captured)
     messages = [{'ours': m.ours, 'at': clean_time(m.at) if m.at else None, 'text': scrub(m.text)} for m in body.messages]
@@ -101,7 +101,7 @@ async def make_key(user=Depends(manager)):
     return {'key': key}
 
 @router.get('/quality/status')
-async def status(user=Depends(manager)):
+async def status(user=Depends(staff)):
     config = await settings()
     pending = await db.samples.count_documents({'analyzed_at': None, 'expires_at': {'$gt': now()}})
     total = await db.samples.count_documents({'expires_at': {'$gt': now()}})
@@ -161,13 +161,13 @@ def _period(start, end, field_start, field_end):
     return q
 
 @router.get('/quality/insights')
-async def list_insights(start: Optional[datetime] = None, end: Optional[datetime] = None, user=Depends(manager)):
+async def list_insights(start: Optional[datetime] = None, end: Optional[datetime] = None, user=Depends(staff)):
     """Análises cujo período de conversas cruza o período escolhido (ex.: 'Ontem' mostra a análise de ontem, feita hoje)."""
     return await db.insights.find(_period(start, end, 'period_start', 'period_end'), {'_id': 0}).sort('created_at', -1).to_list(100)
 
 BRT = timedelta(hours=-3)
 @router.get('/quality/samples/summary')
-async def samples_summary(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', user=Depends(manager)):
+async def samples_summary(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', user=Depends(staff)):
     """Quantas conversas cada chatter teve capturadas para a IA, por dia (horário de Brasília). Só contagem, sem texto."""
     q = _period(start, end, 'captured_at', 'captured_at')
     if creator_id: q['creator_id'] = creator_id
@@ -207,7 +207,7 @@ async def save_diag(body: DiagIn, user):
     return {'ok': True}
 
 @router.get('/quality/apps')
-async def apps(user=Depends(manager)):
+async def apps(user=Depends(staff)):
     """Uma linha por pessoa: versão do app, se a IA está ligada para ela, última amostra enviada e último erro."""
     return await db.app_status.find({}, {'_id': 0}).sort('last_seen', -1).to_list(200)
 
@@ -216,7 +216,7 @@ def _ver(v):
     except Exception: return (0, 0, 0)
 
 @router.get('/quality/ai-health')
-async def ai_health(user=Depends(manager)):
+async def ai_health(user=Depends(staff)):
     """Lista de verificação da análise por IA: o que está travando e o que fazer, em linguagem de gestor."""
     from datetime import timedelta
     from extension_routes import DESKTOP_VERSION
@@ -230,7 +230,7 @@ async def ai_health(user=Depends(manager)):
     roles = {u['id']: u.get('role') for u in await db.users.find({'id': {'$in': list(worked)}}, {'_id': 0, 'id': 1, 'role': 1}).to_list(500)}
     latest = _ver(DESKTOP_VERSION or '0')
     for uid_, name in sorted(worked.items(), key=lambda x: x[1]):
-        if roles.get(uid_) == 'manager': continue
+        if roles.get(uid_) in STAFF: continue
         a = status.get(uid_)
         if not a: checks.append({'level': 'red', 'text': f'{name}: o app não informa nada (versão anterior à 1.4.2)', 'fix': f'Peça para {name.split()[0]} baixar a versão nova uma vez pelo botão Baixar do app. Depois as atualizações são em um clique.'}); continue
         if _ver(a.get('version')) < latest: checks.append({'level': 'amber', 'text': f"{name}: app na versão {a.get('version')} (atual {DESKTOP_VERSION})", 'fix': 'Clique em Atualizar no topo do app.'})

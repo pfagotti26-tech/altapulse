@@ -10,7 +10,9 @@ class UserOut(Public):
     id: str
     name: str
     email: str
-    role: Literal['manager', 'chatter']
+    role: Literal['manager', 'supervisor', 'chatter']
+    owner: bool = False
+    perms: list[str] = []
     active: bool
     creator_ids: list[str]
     created_at: str

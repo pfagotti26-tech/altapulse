@@ -2,7 +2,7 @@ import csv, io
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from core import db, now, iso, uid, manager, current_user, settings, audit, creator_access, lock, expiration, clean_time
+from core import db, now, iso, uid, manager, staff, is_staff, current_user, settings, audit, creator_access, lock, expiration, clean_time
 from schemas import SettingsUpdate, ReviewStart, Review, Reason, SaleAssignment
 from metrics import report_data
 from responses import SettingsOut, AuditOut, ReviewOut, MetricsOut
@@ -56,15 +56,15 @@ async def delete_data(body: Reason, creator_id: str = '', user=Depends(manager))
     return {'ok': True}
 @router.get('/metrics', response_model=MetricsOut)
 async def metrics(creator_id: str = '', operator_id: str = '', start: datetime | None = None, end: datetime | None = None, user=Depends(current_user)):
-    if user['role'] != 'manager':
+    if not is_staff(user):
         if not creator_id or creator_id not in user['creator_ids']: raise HTTPException(403, 'Escolha uma criadora autorizada para você.')
         operator_id = user['id']
     return await report_data(creator_id, operator_id, clean_time(start) if start else None, clean_time(end) if end else None)
 @router.get('/audit', response_model=list[AuditOut])
-async def audit_log(user=Depends(manager)):
+async def audit_log(user=Depends(staff)):
     return await db.audit.find({'expires_at': {'$gt': now()}}, {'_id': 0, 'expires_at': 0}).sort('created_at', -1).to_list(1000)
 @router.post('/creators/{creator_id}/review/start')
-async def start_review(creator_id: str, body: ReviewStart, user=Depends(manager)):
+async def start_review(creator_id: str, body: ReviewStart, user=Depends(staff)):
     async with lock:
         creator = await creator_access(creator_id, user)
         if creator.get('review'): raise HTTPException(409, 'Já há uma revisão aberta para este perfil.')
@@ -80,17 +80,17 @@ async def start_review(creator_id: str, body: ReviewStart, user=Depends(manager)
         await audit(user, 'Revisão local iniciada; aviso de leitura reconhecido', creator['name'])
         return review
 @router.post('/creators/{creator_id}/review/end')
-async def end_review(creator_id: str, user=Depends(manager)):
+async def end_review(creator_id: str, user=Depends(staff)):
     creator = await creator_access(creator_id, user)
     await db.creators.update_one({'id': creator_id}, {'$set': {'review': None}})
     await audit(user, 'Revisão local finalizada', creator['name'])
     return {'ok': True}
 @router.get('/reviews', response_model=list[ReviewOut])
-async def reviews(user=Depends(manager)):
+async def reviews(user=Depends(staff)):
     if not (await settings())['storage_allowed']: return []
     return await db.reviews.find({'expires_at': {'$gt': now()}}, {'_id': 0, 'expires_at': 0}).sort('created_at', -1).to_list(1000)
 @router.post('/reviews', status_code=201, response_model=ReviewOut)
-async def save_review(body: Review, user=Depends(manager)):
+async def save_review(body: Review, user=Depends(staff)):
     if not (await settings())['storage_allowed']: raise HTTPException(409, 'O armazenamento de avaliações não está autorizado nas configurações.')
     creator = await creator_access(body.creator_id, user)
     session = creator.get('review')
@@ -106,7 +106,7 @@ def csv_safe(value):
     text = str(value) if value is not None else 'Indisponível'
     return "'" + text if text and text[0] in '=+-@\t\r' else text
 @router.get('/reports/export')
-async def export_report(kind: str = Query('summary', pattern='^(summary|sales|reviews|audit)$'), creator_id: str = '', operator_id: str = '', start: datetime | None = None, end: datetime | None = None, user=Depends(manager)):
+async def export_report(kind: str = Query('summary', pattern='^(summary|sales|reviews|audit)$'), creator_id: str = '', operator_id: str = '', start: datetime | None = None, end: datetime | None = None, user=Depends(staff)):
     data = await report_data(creator_id, operator_id, clean_time(start) if start else None, clean_time(end) if end else None)
     output = io.StringIO(); writer = csv.writer(output, delimiter=';')
     if kind == 'summary':

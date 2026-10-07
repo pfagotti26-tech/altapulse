@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from core import db, now, iso, uid, manager, settings, clean_time, WORKSPACE
+from core import db, now, iso, uid, staff, is_staff, settings, clean_time, WORKSPACE
 from schemas import Strict
 
 router = APIRouter()
@@ -49,7 +49,7 @@ class RadarIn(Strict):
 async def save_radar(body: RadarIn, user):
     config = await settings()
     if not config.get('storage_allowed'): raise HTTPException(409, 'Armazenamento de métricas desabilitado.')
-    if user['role'] != 'manager' and body.creator_id not in (user.get('creator_ids') or []): raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and body.creator_id not in (user.get('creator_ids') or []): raise HTTPException(403, 'Criadora não autorizada.')
     if not await db.creators.find_one({'id': body.creator_id, 'deleted_at': None}, {'_id': 1}): raise HTTPException(404, 'Criadora não encontrada.')
     names = bool(config.get('fan_names_allowed')); t = now(); stamp = t.isoformat()
     for r in body.rows:
@@ -222,7 +222,7 @@ async def with_result(rows):
 # ---------- app do chatter ----------
 async def my_opportunities(user):
     q = {'status': 'open', 'due_at': {'$gt': now().isoformat()}}
-    if user['role'] != 'manager': q['creator_id'] = {'$in': user.get('creator_ids') or []}
+    if not is_staff(user): q['creator_id'] = {'$in': user.get('creator_ids') or []}
     rows = await db.opportunities.find(q, {'_id': 0, 'expires_at': 0}).sort([('hot', -1), ('value_cents', -1)]).to_list(5000)
     # uma por fã: a quente primeiro, depois a mais valiosa (as outras do mesmo fã ficam guardadas)
     seen, out = set(), []
@@ -238,14 +238,14 @@ class OppAction(Strict):
 async def act(opp_id, body: OppAction, user):
     o = await db.opportunities.find_one({'id': opp_id}, {'_id': 0})
     if not o: raise HTTPException(404, 'Oportunidade não encontrada.')
-    if user['role'] != 'manager' and o['creator_id'] not in (user.get('creator_ids') or []): raise HTTPException(403, 'Criadora não autorizada.')
+    if not is_staff(user) and o['creator_id'] not in (user.get('creator_ids') or []): raise HTTPException(403, 'Criadora não autorizada.')
     await db.opportunities.update_one({'id': opp_id}, {'$set': {'status': body.action, f"{body.action}_at": iso(), 'contacted_by' if body.action == 'contacted' else 'dismissed_by': user['id'],
         'contacted_name' if body.action == 'contacted' else 'dismissed_name': user['name'], 'dismiss_reason': body.reason if body.action == 'dismissed' else None, 'contacted_how': 'manual' if body.action == 'contacted' else None}})
     return {'ok': True}
 
 # ---------- painel (gestor) ----------
 @router.get('/quality/opportunities')
-async def board(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', operator_id: str = '', user=Depends(manager)):
+async def board(start: Optional[datetime] = None, end: Optional[datetime] = None, creator_id: str = '', operator_id: str = '', user=Depends(staff)):
     await settle()
     q = {'stale': {'$ne': True}}
     if start: q.setdefault('created_at', {})['$gte'] = clean_time(start)

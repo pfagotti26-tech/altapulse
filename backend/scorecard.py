@@ -7,7 +7,7 @@ from statistics import median
 from typing import Optional
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException
-from core import db, now, manager, settings, clean_time, audit
+from core import db, now, staff, STAFF, settings, clean_time, audit
 from schemas import Strict
 from metrics import report_data
 
@@ -38,10 +38,10 @@ class GoalsIn(Strict):
     alert_minutes: int = Field(default=10, ge=1, le=240)
 
 @router.get('/quality/goals')
-async def get_goals(user=Depends(manager)): return await goals()
+async def get_goals(user=Depends(staff)): return await goals()
 
 @router.put('/quality/goals')
-async def put_goals(body: GoalsIn, user=Depends(manager)):
+async def put_goals(body: GoalsIn, user=Depends(staff)):
     await db.settings.update_one({'id': 'main'}, {'$set': body.model_dump()}, upsert=True)
     await audit(user, 'Metas da equipe atualizadas', 'Qualidade', body.model_dump())
     return await goals()
@@ -138,7 +138,7 @@ async def scores(start, end, creator_id=None, include_managers=False):
     out = []
     for oid, c in ops.items():
         u = names.get(oid) or {}
-        if not include_managers and u.get('role') == 'manager': continue
+        if not include_managers and u.get('role') in STAFF: continue
         row = finish(c, g); row.update({'operator_id': oid, 'name': u.get('name', 'Excluído'), 'avatar': u.get('avatar'), 'role': u.get('role')})
         row['creators'] = sorted([{**finish(pc, g), 'creator_id': cid, 'creator_name': creators.get(cid, 'Criadora excluída')} for (o, cid), pc in pairs.items() if o == oid],
                                  key=lambda x: -(x['sales_cents'] or 0))
@@ -177,7 +177,7 @@ def window(start, end):
     return start, end
 
 @router.get('/quality/scorecard')
-async def scorecard(start: datetime | None = None, end: datetime | None = None, creator_id: str = '', managers: bool = False, user=Depends(manager)):
+async def scorecard(start: datetime | None = None, end: datetime | None = None, creator_id: str = '', managers: bool = False, user=Depends(staff)):
     start, end = window(start, end); span = end - start
     cur = await scores(start, end, creator_id, managers)
     prev = {c['operator_id']: c for c in await scores(start - span, start, creator_id, managers)}
@@ -202,7 +202,7 @@ async def scorecard(start: datetime | None = None, end: datetime | None = None, 
     return {'start': start.isoformat(), 'end': end.isoformat(), 'sla_minutes': g['sla_minutes'], 'goals': g, 'chatters': cur, 'alerts': await alerts(creator_id)}
 
 @router.get('/quality/chatter/{operator_id}')
-async def chatter(operator_id: str, start: datetime | None = None, end: datetime | None = None, user=Depends(manager)):
+async def chatter(operator_id: str, start: datetime | None = None, end: datetime | None = None, user=Depends(staff)):
     """Painel individual: totais, por criadora, dia a dia, comparação com a mediana da equipe e o que a IA disse dele."""
     start, end = window(start, end); g = await goals()
     u = await db.users.find_one({'id': operator_id}, {'_id': 0, 'id': 1, 'name': 1, 'avatar': 1, 'role': 1})
@@ -238,7 +238,7 @@ async def ai_items(name, start, end):
     return {'items': items, 'score': avg('score'), 'engagement': avg('engagement'), 'dry_pct': avg('dry_pct')}
 
 @router.get('/quality/chatter/{operator_id}/ai')
-async def chatter_ai(operator_id: str, start: datetime | None = None, end: datetime | None = None, user=Depends(manager)):
+async def chatter_ai(operator_id: str, start: datetime | None = None, end: datetime | None = None, user=Depends(staff)):
     """Só a parte da IA do painel do chatter, com período próprio, e a média do período anterior de mesmo tamanho para a tendência."""
     start, end = window(start, end)
     u = await db.users.find_one({'id': operator_id}, {'_id': 0, 'name': 1})
@@ -249,7 +249,7 @@ async def chatter_ai(operator_id: str, start: datetime | None = None, end: datet
 
 
 @router.get('/quality/waiting')
-async def waiting(creator_id: str = '', user=Depends(manager)):
+async def waiting(creator_id: str = '', user=Depends(staff)):
     """Fãs esperando resposta há mais que o limite das metas (padrão 10 min), nas últimas 48 h, do maior tempo para o menor.
     Traz nome do fã (se a agência guarda nomes), criadora, chatter de turno agora, quanto o fã já gastou e a conversa para abrir no app."""
     t = now(); g = await goals(); limit = g.get('alert_minutes', 10) * 60

@@ -23,7 +23,7 @@ async def status(): return {'setup_required': await db.users.count_documents({})
 async def setup(body: Setup, response: Response):
     async with lock:
         if await db.users.count_documents({}): raise HTTPException(409, 'O gestor inicial já foi cadastrado.')
-        doc = {'id': uid(), 'name': body.name, 'email': str(body.email).lower(), 'role': 'manager', 'active': True,
+        doc = {'id': uid(), 'name': body.name, 'email': str(body.email).lower(), 'role': 'manager', 'owner': True, 'active': True,
             'creator_ids': [], 'password_hash': hash_password(body.password), 'created_at': iso()}
         await db.users.insert_one(doc.copy())
         await db.settings.update_one({'id': 'main'}, {'$set': {'agency_name': body.agency_name, 'sla_minutes': 5, 'retention_days': 90, 'storage_allowed': False}}, upsert=True)
