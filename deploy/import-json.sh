@@ -19,12 +19,24 @@ echo "==> Backup de segurança do que já existe aqui"
 ./backup.sh || true
 
 echo "==> Carregando"
+# coleções grandes vêm em partes: limpa a coleção base antes, para não misturar com dados antigos
+for b in $(ls "$D" | sed -nE 's/^(.+)_part[0-9]+\.json$/\1/p' | sort -u); do
+  docker compose exec -T mongo mongosh altapulse --quiet --eval "db.getCollection('$b').deleteMany({})" >/dev/null
+done
 for f in "$D"/*.json; do
   c="$(basename "$f" .json)"
   arr=""; [ "$(head -c 1 "$f" | tr -d '[:space:]')" = "[" ] && arr="--jsonArray"
   docker compose exec -T mongo mongoimport --quiet --db altapulse --collection "$c" --drop $arr --file "/backups/$(basename "$D")/$(basename "$f")" \
     || { echo "ERRO ao carregar $c"; exit 1; }
 done
+
+echo "==> Juntando coleções que vieram divididas (_part1, _part2...)"
+docker compose exec -T mongo mongosh altapulse --quiet --eval '
+for (const c of db.getCollectionNames().filter(n => /_part\d+$/.test(n)).sort()) {
+  const base = c.replace(/_part\d+$/, "");
+  db[c].aggregate([{$merge: {into: base, on: "_id", whenMatched: "keepExisting", whenNotMatched: "insert"}}]);
+  print("   ", c, "->", base); db[c].drop();
+}'
 
 echo "==> Ajustando validades (expires_at) para o formato de data"
 docker compose exec -T mongo mongosh altapulse --quiet --eval '
@@ -37,6 +49,7 @@ echo "==> Conferindo"
 docker compose exec -T mongo mongosh altapulse --quiet --eval \
  'for (const c of ["users","creators","credentials","secrets","events","subscribers","fan_radar","audit"]) print(c.padEnd(12), db[c].countDocuments())'
 rm -rf "$D"
+rm -f "$Z"
 sed -i 's/^DB_NAME=.*/DB_NAME=altapulse/' .env
 docker compose restart backend >/dev/null
-echo; echo "Dados carregados. A API foi reiniciada. Apague o .zip do servidor: rm \"$Z\""
+echo; echo "Dados carregados. A API foi reiniciada. O .zip foi apagado do servidor."
