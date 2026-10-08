@@ -39,6 +39,7 @@ async def lifespan(app):
     await db.subscribers.create_index('expires_at', expireAfterSeconds=0)
     for collection in ['fan_notes', 'fan_tasks']: await db[collection].create_index('expires_at', expireAfterSeconds=0)
     await db.fan_notes.create_index([('creator_id', 1), ('fan_ref', 1)])
+    await db.fan_segments.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.fan_tasks.create_index([('assigned_to', 1), ('status', 1)])
     await db.subscribers.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.samples.create_index([('creator_id', 1), ('fan_ref', 1), ('day', 1)], unique=True)

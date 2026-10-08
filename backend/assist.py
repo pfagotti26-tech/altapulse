@@ -32,7 +32,8 @@ LEVEL_TEXT = {
     'picante': 'PICANTE: sensual e provocante, com duplo sentido e desejo claro, sem descrever atos sexuais em detalhe.',
     'explicito': 'EXPLÍCITO: linguagem sexual direta e sem rodeios, como numa conversa de sexting entre adultos que consentem.',
 }
-DEFAULT = {'id': 'main', 'enabled': False, 'daily_limit': 80, 'model': 'grok-4.7'}
+# suggest_model: modelo rápido (sem raciocínio) só para o Sugerir resposta, que precisa sair em poucos segundos
+DEFAULT = {'id': 'main', 'enabled': False, 'daily_limit': 80, 'model': 'grok-4.7', 'suggest_model': 'grok-4.20-0309-non-reasoning'}
 
 def today(): return datetime.now(BR).strftime('%Y-%m-%d')
 async def config():
@@ -47,6 +48,7 @@ class ConfigIn(Strict):
     enabled: bool
     daily_limit: int = Field(ge=1, le=2000)
     model: str = Field(min_length=2, max_length=80, pattern=r'^[\w.\-:]+$')
+    suggest_model: Optional[str] = Field(default=None, min_length=2, max_length=80, pattern=r'^[\w.\-:]+$')
 class KeyIn(Strict):
     key: str = Field(min_length=20, max_length=300)
 
@@ -62,12 +64,14 @@ async def get_config(user=Depends(manager)):
         cell['week'] += u['n']
         if u['_id']['day'] == today(): cell['today'] += u['n']
     alerts = await db.assist_alerts.find({}, {'_id': 0}).sort('created_at', -1).to_list(30)
+    recent = await db.assist_usage.find({'mode': 'suggest', 'ms': {'$exists': True}}, {'_id': 0, 'ms': 1}).sort('at', -1).to_list(50)
+    c['suggest_seconds'] = round(sum(x['ms'] for x in recent) / len(recent) / 1000, 1) if recent else None
     return {**c, 'key_set': bool(key), 'key_hint': ('…' + key[-4:]) if key else None,
             'usage': sorted(per.values(), key=lambda x: -x['week']), 'alerts': alerts}
 
 @router.put('/assist/config')
 async def put_config(body: ConfigIn, user=Depends(manager)):
-    await db.assist_config.update_one({'id': 'main'}, {'$set': body.model_dump()}, upsert=True)
+    await db.assist_config.update_one({'id': 'main'}, {'$set': body.model_dump(exclude_none=True)}, upsert=True)
     await audit(user, 'Alta Ajuda configurada', 'assist', body.model_dump(), None)
     return await get_config(user)
 
@@ -117,6 +121,11 @@ class PriceItem(Strict):
     item: str = Field(min_length=1, max_length=80)
     cents: int = Field(ge=0, le=10000000)
     obs: str = Field(default='', max_length=300)
+class Segment(Strict):  # perfil de fã da criadora (ex.: Servo, Cuck, Baunilha): o chatter classifica, a IA segue o tom
+    key: str = Field(pattern=r'^[a-z0-9_-]{1,24}$')
+    label: str = Field(min_length=1, max_length=30)
+    tone: str = Field(default='', max_length=1200)
+    default: bool = False
 class ProfileIn(Strict):
     style: str = Field(default='', max_length=2000)
     limits: str = Field(default='', max_length=3000)
@@ -124,6 +133,7 @@ class ProfileIn(Strict):
     prices: list[PriceItem] = Field(default_factory=list, max_length=40)
     persona: dict[str, str] = Field(default_factory=dict)
     suggest_auto: bool = False  # "Sugerir resposta": ligado por criadora, desligado por padrão
+    fan_segments: list[Segment] = Field(default_factory=list, max_length=6)
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
@@ -136,6 +146,9 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
     if not await db.creators.find_one({'id': creator_id}, {'_id': 1}): raise HTTPException(404, 'Criadora não encontrada.')
     if body.suggest_auto and (not body.prices or not body.limits.strip()):
         raise HTTPException(422, 'Para ligar o Sugerir resposta, preencha a tabela de preços e os limites da criadora.')
+    keys = [x.key for x in body.fan_segments]
+    if len(set(keys)) != len(keys): raise HTTPException(422, 'Dois perfis de fã com o mesmo nome.')
+    if sum(1 for x in body.fan_segments if x.default) > 1: raise HTTPException(422, 'Marque só um perfil de fã como padrão.')
     row = {'creator_id': creator_id, **body.model_dump(), 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
     await db.assist_profiles.update_one({'creator_id': creator_id}, {'$set': row}, upsert=True)
     return row
@@ -197,7 +210,32 @@ async def status(creator_id: str, user=Depends(extension_user)):
     prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
     return {'enabled': bool(c['enabled'] and key), 'max_level': prof.get('max_level', 'picante'),
             'suggest': bool(c['enabled'] and key and prof.get('suggest_auto') and prof.get('prices') and prof.get('limits')),
-            'has_profile': bool(prof), 'has_prices': bool(prof.get('prices')), 'remaining': max(0, c['daily_limit'] - await used_today(user['id']))}
+            'has_profile': bool(prof), 'has_prices': bool(prof.get('prices')), 'remaining': max(0, c['daily_limit'] - await used_today(user['id'])),
+            'segments': [{'key': x['key'], 'label': x['label'], 'default': bool(x.get('default'))} for x in prof.get('fan_segments') or []]}
+
+# ---------- perfil do fã (classificado pelo chatter; vale para a equipe toda) ----------
+class FanSegIn(Strict):
+    creator_id: str
+    fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    segment: str = Field(default='', max_length=24)  # vazio = tirar a classificação
+
+@router.get('/extension/fan/segment')
+async def get_fan_segment(creator_id: str, fan_ref: str, user=Depends(extension_user)):
+    await can_see(user, creator_id)
+    row = await db.fan_segments.find_one({'creator_id': creator_id, 'fan_ref': fan_ref}, {'_id': 0}) or {}
+    return {'segment': row.get('segment') or '', 'by': row.get('by_name'), 'at': row.get('at')}
+
+@router.put('/extension/fan/segment')
+async def set_fan_segment(body: FanSegIn, user=Depends(extension_user)):
+    await can_see(user, body.creator_id)
+    q = {'creator_id': body.creator_id, 'fan_ref': body.fan_ref}
+    if not body.segment:
+        await db.fan_segments.delete_one(q); return {'segment': '', 'by': None, 'at': None}
+    prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0, 'fan_segments': 1}) or {}
+    if body.segment not in {x['key'] for x in prof.get('fan_segments') or []}: raise HTTPException(422, 'Perfil de fã não existe na ficha desta criadora.')
+    row = {**q, 'segment': body.segment, 'by_id': user['id'], 'by_name': user['name'], 'at': iso()}
+    await db.fan_segments.update_one(q, {'$set': row}, upsert=True)
+    return {'segment': body.segment, 'by': user['name'], 'at': row['at']}
 
 class AssistIn(Strict):
     creator_id: str
@@ -346,6 +384,16 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     if not isinstance(creator, dict) or 'name' not in creator: creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {'name': 'a criadora'}
     card = await fan_card(body.creator_id, body.fan_ref, user['id']) if body.fan_ref else None
     level = prof.get('max_level', 'picante')
+    segs = prof.get('fan_segments') or []
+    seg_row = await db.fan_segments.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 0}) if body.fan_ref and segs else None
+    seg = next((x for x in segs if seg_row and x['key'] == seg_row.get('segment')), None)
+    if segs:
+        catalog = '\n'.join(f"- {x['key']} ({x['label']}){' [padrão]' if x.get('default') else ''}: {x.get('tone') or ''}" for x in segs)
+        if seg: seg_text = f"PERFIL DESTE FÃ (classificado pela equipe): {seg['label']}. Use SÓ o jeito de falar deste perfil, mesmo que contrarie o padrão da ficha:\n{seg.get('tone') or ''}"
+        else:
+            dflt = next((x for x in segs if x.get('default')), segs[0])
+            seg_text = f"PERFIL DESTE FÃ: ainda não classificado. Use o perfil padrão ({dflt['label']}). Se a conversa mostrar com clareza que ele é de outro perfil, coloque a chave em \"perfil_sugerido\" (senão deixe vazio).\nPERFIS DA CRIADORA:\n{catalog}"
+    else: seg_text = ''
     convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + scrub(m.text) for m in msgs[-14:])
     system = f"""Você é a Alta Ajuda, copiloto de um chatter que responde, em nome da criadora {creator['name']}, a assinantes adultos (18+) de uma plataforma brasileira de conteúdo adulto por assinatura. Você lê o fim da conversa e sugere UMA próxima mensagem. Quem revisa e envia é o chatter.
 
@@ -364,16 +412,23 @@ INTENSIDADE MÁXIMA: {LEVEL_TEXT[level]}
 
 O QUE SE SABE DO FÃ: {fan_block(card)}
 
+{seg_text}
+
 Responda SOMENTE com JSON válido, sem texto fora dele."""
     extra = ' Puxe para a venda: se a conversa já esquentou, faça a oferta de um item da tabela ligado ao que ele disse.' if body.style == 'vendedora' else ''
     task = f"""FIM DA CONVERSA (a última é do fã):
 {convo}
 
-Escreva a próxima mensagem da criadora.{extra} Formato: {{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "texto": "..."}}"""
+Escreva a próxima mensagem da criadora.{extra} Formato: {{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "texto": "..."}}"""
+    t0 = datetime.now()
+    async def call(model):
+        async with httpx.AsyncClient(timeout=30) as client:
+            return await client.post(f'{XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
+                json={'model': model, 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': task}], 'temperature': 0.8, 'max_tokens': 400})
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            r = await client.post(f'{XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
-                json={'model': c['model'], 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': task}], 'temperature': 0.8})
+        model = c.get('suggest_model') or c['model']
+        r = await call(model)
+        if r.status_code in (400, 404) and model != c['model']: r = await call(c['model'])  # modelo rápido indisponível: usa o principal
     except httpx.HTTPError as error: raise HTTPException(502, f'A Grok não respondeu a tempo ({error.__class__.__name__}). Tente de novo.')
     if r.status_code in (401, 403): raise HTTPException(502, 'A xAI recusou a chave. Avise o gestor.')
     if r.status_code == 429: raise HTTPException(502, 'A xAI está limitando os pedidos ou a conta ficou sem crédito. Avise o gestor.')
@@ -381,7 +436,8 @@ Escreva a próxima mensagem da criadora.{extra} Formato: {{"alerta": false, "pas
     data = r.json(); out = parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
     usage = data.get('usage') or {}
     await db.assist_usage.insert_one({'id': uid(), 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
-        'level': level, 'day': today(), 'at': iso(), 'tokens': usage.get('total_tokens'), 'expires_at': now() + timedelta(days=120)})
+        'level': level, 'day': today(), 'at': iso(), 'tokens': usage.get('total_tokens'), 'ms': int((datetime.now() - t0).total_seconds() * 1000),
+        'expires_at': now() + timedelta(days=120)})
     remaining = max(0, c['daily_limit'] - await used_today(user['id']))
     if out and out.get('alerta'):
         alert = {'id': uid(), 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
@@ -393,4 +449,6 @@ Escreva a próxima mensagem da criadora.{extra} Formato: {{"alerta": false, "pas
     if card and (card.get('subscription') or {}).get('price_cents'): allowed.add(card['subscription']['price_cents'])
     text, fixed = guard_prices(str(out['texto']).strip()[:800], allowed)
     return {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
-            'warning': str(out.get('aviso') or '')[:160], 'price_fixed': fixed, 'remaining': remaining}
+            'warning': str(out.get('aviso') or '')[:160], 'price_fixed': fixed, 'remaining': remaining,
+            'segment': seg['key'] if seg else '',
+            'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}

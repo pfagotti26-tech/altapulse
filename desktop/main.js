@@ -1405,6 +1405,17 @@ ipcMain.handle('assist:suggest', async (_e, { style } = {}) => {
   const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
   return { ...out, fanRef: fanAt };
 });
+// perfil do fã (Servo, Cuck, Baunilha…): o chatter classifica; vale para a equipe toda e orienta o Sugerir resposta
+ipcMain.handle('fanseg:get', async () => {
+  if (!fan.creatorId || !fan.fanRef) return { segment: '', fanRef: null };
+  const r = await api('GET', `/extension/fan/segment?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${encodeURIComponent(fan.fanRef)}`).catch(() => ({ segment: '' }));
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanseg:set', async (_e, segment) => {
+  if (!fan.creatorId || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const r = await api('PUT', '/extension/fan/segment', { creator_id: fan.creatorId, fan_ref: fan.fanRef, segment: String(segment || '') });
+  return { ...r, fanRef: fan.fanRef };
+});
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
 ipcMain.handle('plantao:queue', async () => { if (Date.now() - (plantao.fetchedAt || 0) > 120000) await plantao.fetchConfigs(); return plantao.queue(); });

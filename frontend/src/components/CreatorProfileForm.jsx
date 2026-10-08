@@ -24,7 +24,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       // os 10 itens da tabela mínima sempre aparecem (vazios para preencher); itens extras vêm depois
       const fixed = meta.price_items.map(item => { const s = saved.find(x => x.item.toLowerCase() === item.toLowerCase()); return { item, value: s ? reais(s.cents) : '', obs: s?.obs || '', fixed: true }; });
       const extra = saved.filter(x => !meta.price_items.some(i => i.toLowerCase() === x.item.toLowerCase())).map(x => ({ item: x.item, value: reais(x.cents), obs: x.obs || '' }));
-      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', suggest_auto: !!p.suggest_auto, prices: [...fixed, ...extra] });
+      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', suggest_auto: !!p.suggest_auto, fan_segments: (p.fan_segments || []).map(x => ({ ...x })), prices: [...fixed, ...extra] });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
   if (!form || !meta) return <p className="body-muted">Carregando…</p>;
@@ -34,10 +34,13 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     setBusy(true);
     try {
       const prices = form.prices.filter(p => p.item.trim() && String(p.value).trim() && toCents(p.value) != null).map(p => ({ item: p.item.trim(), cents: toCents(p.value), obs: (p.obs || '').trim() }));
-      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona })).data;
+      const slug = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'perfil';
+      const segs = form.fan_segments.filter(x => x.label.trim()).map(x => ({ key: x.key || slug(x.label), label: x.label.trim(), tone: (x.tone || '').trim(), default: !!x.default }));
+      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, fan_segments: segs, prices, persona: form.persona })).data;
       toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
   };
+  const setSeg = (i, patch) => setForm({ ...form, fan_segments: form.fan_segments.map((x, j) => j === i ? { ...x, ...patch } : (patch.default ? { ...x, default: false } : x)) });
   const area = (k, label, rows = 3) => <Field key={k} id={`pf-${k}`} label={label}>{SHORT.has(k) ? <Input id={`pf-${k}`} value={form.persona[k] || ''} onChange={e => setP(k, e.target.value)} placeholder="Em aberto"/> : <textarea className="assist-textarea" rows={rows} value={form.persona[k] || ''} onChange={e => setP(k, e.target.value)} placeholder="Em aberto"/>}</Field>;
   return <div className="form-stack profile-form" data-testid="creator-profile-form">
     {info && <p className="body-muted" style={{ fontSize: 12 }}>{info.imported_at ? `Importada de ${info.imported_from} em ${dateTime(info.imported_at)}. ` : ''}{info.updated_at ? `Última edição: ${dateTime(info.updated_at)}${info.updated_by ? ` por ${info.updated_by}` : ''}.` : ''}</p>}
@@ -54,6 +57,15 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         </section>
       </>}
     </section>)}
+    <section className="profile-sec"><h3>👥 Perfis de fã</h3>
+      <p className="body-muted" style={{ fontSize: 13 }}>O chatter classifica cada fã com um destes perfis no app, e o Sugerir resposta passa a falar do jeito descrito aqui. Fã sem classificação recebe o perfil padrão.</p>
+      {form.fan_segments.map((x, i) => <div key={i} className="profile-grid" style={{ alignItems: 'start', marginBottom: 8 }}>
+        <Field id={`pf-seg-${i}`} label="Nome do perfil"><Input id={`pf-seg-${i}`} maxLength={30} value={x.label} onChange={e => setSeg(i, { label: e.target.value })} placeholder="Ex.: Baunilha"/></Field>
+        <Field id={`pf-segt-${i}`} label="Como falar com este fã"><textarea className="assist-textarea" rows={3} maxLength={1200} value={x.tone || ''} onChange={e => setSeg(i, { tone: e.target.value })} placeholder="Tom, vocabulário, o que dizer sobre ela"/></Field>
+        <div className="row-actions"><label className="checkbox-label small"><input type="radio" name="seg-default" checked={!!x.default} onChange={() => setSeg(i, { default: true })}/><span>padrão</span></label><Button variant="ghost" onClick={() => setForm({ ...form, fan_segments: form.fan_segments.filter((_, j) => j !== i) })}><Trash2 size={14}/></Button></div>
+      </div>)}
+      {form.fan_segments.length < 6 && <div><Button variant="outline" onClick={() => setForm({ ...form, fan_segments: [...form.fan_segments, { key: '', label: '', tone: '', default: !form.fan_segments.length }] })}><Plus size={14}/>Adicionar perfil de fã</Button></div>}
+    </section>
     <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-style" label="Observações para a IA (tom, cuidados)"><textarea className="assist-textarea" rows={3} maxLength={2000} value={form.style} onChange={e => setForm({ ...form, style: e.target.value })} placeholder="Ex.: frases curtas; provoca antes de oferecer."/></Field>
       <label className="checkbox-label" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="pf-suggest" checked={!!form.suggest_auto} onChange={e => setForm({ ...form, suggest_auto: e.target.checked })}/><span><b>Sugerir resposta ao abrir a conversa</b> (só esta criadora). Quando o fã falou por último, o app lê as últimas mensagens e mostra um rascunho na voz dela; o chatter coloca na caixa, edita e envia. Nada é enviado sozinho. Precisa de tabela de preços e limites preenchidos. As mensagens vão mascaradas (sem telefone, e-mail ou links) para a xAI.</span></label>

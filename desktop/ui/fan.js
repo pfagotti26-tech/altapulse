@@ -22,18 +22,43 @@ let AS = null, asFor = null, aj = { fan: null, busy: false, res: null, err: null
 async function loadAssist(force) {
   const key = F && F.creatorId; if (!key) return;
   if (!force && asFor === key && AS) return;
-  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); maybeSuggest();
+  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); loadSeg(); maybeSuggest();
 }
 // Sugerir resposta: só nas criadoras com a chave ligada na ficha e quando o fã falou por último
 const STEP = { abertura: 'Abertura', aquecimento: 'Aquecimento', oferta: 'Oferta', fechamento: 'Fechamento', 'pos-venda': 'Pós-venda', reativacao: 'Reativação' };
 let SG = { key: null }, sgTimer = null;
-const sgKey = () => (AS && AS.suggest && F && F.active && F.fanRef && F.waitSince && !F.collapsed) ? `${F.creatorId}|${F.fanRef}|${F.waitSince}` : null;
+// perfil do fã (classificação da equipe)
+let SEG = { for: null, value: '', by: null, busy: false };
+const segList = () => (AS && AS.segments) || [];
+const fanKey = () => (F && F.creatorId && F.fanRef) ? `${F.creatorId}|${F.fanRef}` : null;
+async function loadSeg() {
+  const k = fanKey(); if (!k || !segList().length || SEG.for === k || SEG.loading === k) return;
+  SEG = { for: null, value: '', by: null, loading: k };
+  const r = await window.pulse.fanSegGet().catch(() => ({ segment: '' }));
+  if (fanKey() !== k) return;
+  SEG = { for: k, value: r.segment || '', by: r.by || null }; render(); maybeSuggest();
+}
+async function setSeg(value) {
+  const k = fanKey(); if (!k) return;
+  const prev = SEG.value; SEG = { ...SEG, value, busy: true }; render();
+  try { const r = await window.pulse.fanSegSet(value); if (fanKey() === k) SEG = { for: k, value: r.segment || '', by: r.by || null }; }
+  catch (err) { SEG = { ...SEG, value: prev }; alertLine(err.message); }
+  SEG.busy = false; render(); maybeSuggest();
+}
+function segHtml() {
+  const list = segList(); if (!list.length || !F || !F.fanRef) return '';
+  const ready = SEG.for === fanKey();
+  const dflt = list.find((x) => x.default) || list[0];
+  const tip = SEG.value ? `Classificado${SEG.by ? ` por ${SEG.by}` : ''}. Clique de novo para tirar.` : `Sem classificação: a sugestão usa ${dflt.label}.`;
+  return `<div class="seg" title="${esc(tip)}"><span>Perfil do fã</span>${list.map((x) => `<button class="seg-b${ready && SEG.value === x.key ? ' on' : ''}" data-seg="${esc(x.key)}" ${!ready || SEG.busy ? 'disabled' : ''}>${esc(x.label)}</button>`).join('')}</div>`;
+}
+const sgKey = () => (AS && AS.suggest && F && F.active && F.fanRef && F.waitSince && !F.collapsed && (!segList().length || SEG.for === fanKey())) ? `${F.creatorId}|${F.fanRef}|${F.waitSince}|${SEG.value}` : null;
 function maybeSuggest() {
   const k = sgKey();
   if (!k) { if (SG.key) { SG = { key: null }; renderSug(); } return; }
   if (SG.key === k) return;
   SG = { key: k, busy: true }; renderSug();
-  clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k), 1500); // espera a conversa carregar
+  clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k), 600); // espera a conversa carregar
 }
 async function runSuggest(k, style) {
   if (SG.key !== k) return;
@@ -58,6 +83,8 @@ function renderSug() {
     if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`; else h += '<div style="height:6px"></div>';
     h += `<div class="sg-t">${esc(r.text)}</div>`;
     if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
+    const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
+    if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
     if (r.price_fixed) h += '<div class="muted aj-note" style="margin-bottom:8px">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
     h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again" title="Gera outra sugestão">Outra</button><button class="btn ghost" id="sg-sell" title="Outra sugestão puxando para a venda">Mais vendedora</button></div>';
   }
@@ -66,6 +93,7 @@ function renderSug() {
   const x = $('sg-x'); if (x) x.addEventListener('click', () => { SG = { key: k, closed: true }; renderSug(); });
   const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(k));
   const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(k, 'vendedora'));
+  const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
   const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
     const r = await window.pulse.assistUse(SG.res.text).catch(() => ({ filled: false }));
     use.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
@@ -118,6 +146,7 @@ function renderBody() {
     parts.push(`equipe: <b>${dur(r.avg_seconds)}</b>`);
     if (r.last_seconds != null) parts.push(`última: ${dur(r.last_seconds)}`);
     h += `<div class="resp">Resposta a este fã (30 dias) · ${parts.join(' · ')}</div>`; }
+  h += segHtml();
   const subLine = c.subscription && (c.subscription.status || c.subscription.price_cents != null) ? `Assinatura${c.subscription.status ? `: <b>${esc(c.subscription.status)}</b>` : ''}${c.subscription.price_cents != null ? ` · ${money(c.subscription.price_cents)}` : ''}${c.subscription.duration ? ` · ${esc(c.subscription.duration)}` : ''}<br>` : '';
   if (!c.purchases) h += `<div class="sub">${subLine}Primeira compra ainda não registrada.</div>`;
   else h += `<div class="nums"><div><span>Gasto total</span><b>${moneyShort(c.total_cents)}</b></div><div><span>Ticket médio</span><b>${moneyShort(c.ticket_cents)}</b></div><div><span>Última compra</span><b>${c.days_since_last === 0 ? 'hoje' : `há ${c.days_since_last} d`}</b></div></div>`;
@@ -154,6 +183,7 @@ function renderBody() {
     ta.disabled = true;
     try { await window.pulse.fanNoteAdd(text); draft = ''; noteOpen = false; } catch (err) { alertLine(err.message); } finally { ta.disabled = false; }
   });
+  b.querySelectorAll('[data-seg]').forEach((x) => x.addEventListener('click', () => setSeg(SEG.value === x.dataset.seg ? '' : x.dataset.seg)));
   b.querySelectorAll('[data-del]').forEach((x) => x.addEventListener('click', () => window.pulse.fanNoteDel(x.dataset.del).catch((err) => alertLine(err.message))));
   const ct = $('contacted'); if (ct) ct.addEventListener('click', () => window.pulse.fanContacted(c.task.id).catch((err) => alertLine(err.message)));
 }
@@ -232,7 +262,7 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist(); maybeSuggest();
+  F = f; render(); loadAssist(); loadSeg(); maybeSuggest();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação
