@@ -1393,7 +1393,12 @@ const READ_MSGS_SCRIPT = String.raw`(() => {
   }
   return { name, msgs: msgs.slice(-14) };
 })()`;
-ipcMain.handle('assist:suggest', async (_e, { style, level, mode } = {}) => {
+ipcMain.handle('assist:prices', async () => {
+  if (!fan.creatorId) return { prices: [] };
+  return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));
+});
+ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
+ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
   const view = views.get(id); if (!view || view.webContents.isDestroyed()) throw new Error('Abra a conversa na Privacy.');
   const fanAt = fan.fanRef;
@@ -1404,6 +1409,7 @@ ipcMain.handle('assist:suggest', async (_e, { style, level, mode } = {}) => {
   if (m === 'reply' && read.msgs[read.msgs.length - 1].ours) return { skip: true };
   const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m };
   if (['leve', 'picante', 'explicito'].includes(level)) body.level = level;
+  if (product) body.product = String(product).slice(0, 80);
   const out = await api('POST', '/extension/assist/suggest', body);
   const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
   return { ...out, fanRef: fanAt };

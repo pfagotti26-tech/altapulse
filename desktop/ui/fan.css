@@ -105,3 +105,12 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 #assist .btn.ghost { background: transparent; border: 1px solid #3a2a4a; color: #d8cfe6; }
 #assist .sg-act .btn:first-child { background: var(--red); }
 #assist .seg { margin: 0; }
+.pr-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px; }
+.pr-row { display: flex; justify-content: space-between; gap: 8px; background: transparent; border: 0; border-radius: 6px; padding: 4px 6px; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.pr-row:hover { background: #2a2430; }
+.pr-row b { white-space: nowrap; color: #f1ece8; }
+.pr-row.fit { background: #1f2b22; }
+.pr-row.fit b { color: #7ee2a0; }
+.sg-prod { font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sg-prod select { background: #120f18; color: #d8cfe6; border: 1px solid #3a2a4a; border-radius: 6px; font-size: 11px; padding: 2px 4px; max-width: 150px; }
+#assist .btn.sell { background: #1f9d55; }

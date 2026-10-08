@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('pulse', {
   assistProfile: () => ipcRenderer.invoke('assist:profile'),
   fanSegGet: () => ipcRenderer.invoke('fanseg:get'),
   fanSegSet: (segment) => ipcRenderer.invoke('fanseg:set', segment),
+  assistPrices: () => ipcRenderer.invoke('assist:prices'),
+  assistUsed: (id) => ipcRenderer.invoke('assist:used', id),
   assistSuggest: (opts) => ipcRenderer.invoke('assist:suggest', opts || {}),
   fanRefresh: () => ipcRenderer.invoke('fan:refresh'),
   fanNoteAdd: (text) => ipcRenderer.invoke('fan:note:add', text),

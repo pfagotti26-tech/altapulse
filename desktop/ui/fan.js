@@ -19,13 +19,37 @@ let noteOpen = false;
 // Automática quando a ficha liga "sugestão automática" e o fã falou por último; nas outras, o chatter clica em Sugerir.
 // O chatter edita aqui ou na caixa da Privacy e envia. Nada é enviado pelo sistema.
 const LV = [['leve', 'Leve'], ['picante', 'Picante'], ['explicito', 'Explícito']];
-const AJ_HELP = 'Como usar: quando o fã fala por último, a Alta Ajuda lê o fim da conversa e sugere a resposta na voz da criadora, no tom do perfil do fã. Edite o texto aqui se quiser, clique em Colocar na caixa e envie pela Privacy. Leve/Picante/Explícito refaz a sugestão nesse nível; Outra gera outra versão; Mais vendedora puxa para a oferta. Classifique o fã (Servo, Cuck, Baunilha…) para acertar o tom: vale para a equipe toda.';
+const AJ_HELP = 'Como usar: quando o fã fala por último, a Alta Ajuda lê o fim da conversa e sugere a resposta na voz da criadora, no tom do perfil do fã. Edite o texto aqui se quiser, clique em Colocar na caixa e envie pela Privacy. Leve/Picante/Explícito refaz a sugestão nesse nível; Outra gera outra versão; 💰 Vender escreve uma oferta de um item da tabela escolhido pelo contexto (dá para trocar o item, ou clicar num item da Tabela de preços acima). Classifique o fã (Servo, Cuck, Baunilha…) para acertar o tom: vale para a equipe toda.';
 const STEP = { abertura: 'Abertura', aquecimento: 'Aquecimento', oferta: 'Oferta', fechamento: 'Fechamento', 'pos-venda': 'Pós-venda', reativacao: 'Reativação' };
 let AS = null, asFor = null, aj = { help: false, sheet: false, sheetData: null, sheetFor: null };
 async function loadAssist(force) {
   const key = F && F.creatorId; if (!key) return;
   if (!force && asFor === key && AS) return;
   asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); loadSeg(); maybeSuggest();
+}
+// tabela de preços da criadora (no cartão do fã); clicar num item gera uma mensagem vendendo aquele item
+let PR = { for: null, list: [] };
+async function loadPrices() {
+  const k = F && F.creatorId; if (!k || PR.for === k || PR.loading === k) return;
+  PR = { for: null, list: [], loading: k };
+  const r = await window.pulse.assistPrices().catch(() => ({ prices: [] }));
+  if (!F || F.creatorId !== k) return;
+  PR = { for: k, list: r.prices || [] }; render();
+}
+const brlS = (c) => 'R$ ' + (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
+function pricesHtml(c) {
+  if (!PR.list.length || !F || !F.fanRef) return '';
+  const o = isOpen('prices', true);
+  const t = c && c.ticket_cents;
+  let h = `<button class="sec-t" data-tg="prices">${o ? '▾' : '▸'} 💰 Tabela de preços <span>${PR.list.length}</span></button>`;
+  if (!o) return h;
+  h += '<div class="pr-list">';
+  PR.list.forEach((p, i) => {
+    const fit = t && p.cents <= t * 2.2 && p.cents >= t * 0.4;
+    h += `<button class="pr-row${fit ? ' fit' : ''}" data-sell="${i}" title="${esc((p.obs ? p.obs + ' · ' : '') + 'Clique para gerar uma mensagem vendendo este item')}"><span>${esc(p.item)}</span><b>${brlS(p.cents)}</b></button>`;
+  });
+  if (t) h += '<div class="muted" style="font-size:10.5px;margin-top:3px">Em destaque: na faixa do que este fã costuma gastar.</div>';
+  return h + '</div>';
 }
 // perfil do fã (classificação da equipe)
 let SEG = { for: null, value: '', by: null, busy: false };
@@ -64,12 +88,13 @@ function maybeSuggest() {
   if (AS.suggest && F.waitSince) { SG.busy = true; clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k, {}), 600); }
   renderAssist();
 }
-async function runSuggest(k, { style, level } = {}) {
-  if (SG.key !== k) return;
+async function runSuggest(k, { style, level, product } = {}) {
+  if (!k) return;
+  if (SG.key !== k) SG = { key: k };
   const mode = F && F.waitSince ? 'reply' : 'followup';
   SG = { key: k, busy: true, level: level || SG.level }; renderAssist();
   try {
-    const res = await window.pulse.assistSuggest({ style, level, mode });
+    const res = await window.pulse.assistSuggest({ style, level, mode, product });
     if (SG.key !== k) return;
     if (res && res.skip) { SG = { key: k }; renderAssist(); return; }
     SG = { key: k, res, text: res.text || '', level: res.level }; if (res && res.remaining != null && AS) AS.remaining = res.remaining;
@@ -145,9 +170,11 @@ function renderBody() {
     if (!notes.length && !noteOpen) h += '<div class="muted">Nenhuma anotação ainda.</div>';
   }
   if (noteOpen || draft) h += `<textarea id="note" maxlength="300" placeholder="Escrever anotação (Enter salva, Esc cancela)">${esc(draft)}</textarea><div class="muted" style="font-size:10px">Nada de telefone, endereço ou dado de saúde.</div>`;
+  h += pricesHtml(c);
   if (F.loading) h += '<div class="loading">atualizando…</div>';
   b.innerHTML = h;
-  b.querySelectorAll('[data-tg]').forEach((x) => x.addEventListener('click', () => toggle(x.dataset.tg, x.dataset.tg === 'buys' ? true : notes.length > 0)));
+  b.querySelectorAll('[data-sell]').forEach((x) => x.addEventListener('click', () => { const p = PR.list[+x.dataset.sell]; if (p) runSuggest(SG.key || baseKey(), { style: 'vendedora', product: p.item, level: SG.level }); }));
+  b.querySelectorAll('[data-tg]').forEach((x) => x.addEventListener('click', () => toggle(x.dataset.tg, x.dataset.tg === 'notes' ? notes.length > 0 : true)));
   $('add-note').addEventListener('click', () => { noteOpen = true; open.notes = true; render(); const t = $('note'); if (t) t.focus(); });
   const ta = $('note');
   if (ta) ta.addEventListener('input', () => { draft = ta.value; });
@@ -181,16 +208,17 @@ function renderAssist() {
     const meta = [STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
     if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`;
     h += `<textarea id="aj-text" rows="3" maxlength="1500" title="Edite à vontade antes de colocar na caixa">${esc(SG.text)}</textarea>`;
+    if (r.product) h += `<div class="sg-prod">Vendendo: <b>${esc(r.product.item)} · ${brlS(r.product.cents)}</b>${PR.list.length > 1 ? ` <select id="sg-swap" title="Trocar o produto (refaz a mensagem)"><option value="">trocar…</option>${PR.list.map((p) => `<option value="${esc(p.item)}">${esc(p.item)} · ${brlS(p.cents)}</option>`).join('')}</select>` : ''}</div>`;
     if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
     const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
     if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
     if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
   } else {
-    h += `<button class="btn aj-go" id="sg-start" style="width:100%">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button>`;
+    h += `<div class="sg-act"><button class="btn aj-go" id="sg-start" style="flex:1">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button><button class="btn sell" id="sg-sell" title="Mensagem com objetivo de vender um item da tabela, escolhido pelo contexto">💰 Vender</button></div>`;
   }
   if (r && !r.alert && !SG.busy) {
     h += `<div class="aj-levels" title="Refaz a sugestão nesse nível. O máximo é o da ficha.">${LV.slice(0, lvMax + 1).map(([v, l]) => `<button class="aj-lv ${v === SG.level ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
-    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn ghost" id="sg-sell" title="Outra versão puxando para a venda">Mais vendedora</button></div>';
+    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn sell" id="sg-sell" title="Mensagem com objetivo de vender um item da tabela, escolhido pelo contexto">💰 Vender</button></div>';
   } else if (SG.err) h += '<div class="sg-act"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>';
   box.innerHTML = h;
   const ta = $('aj-text');
@@ -223,11 +251,13 @@ function bindAssist() {
   const start = $('sg-start'); if (start) start.addEventListener('click', () => { if (!SG.key) SG = { key: k }; runSuggest(SG.key, {}); });
   document.querySelectorAll('[data-lv]').forEach((b) => b.addEventListener('click', () => runSuggest(SG.key, { level: b.dataset.lv })));
   const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(SG.key, { level: SG.level }));
-  const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key, { style: 'vendedora', level: SG.level }));
+  const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', level: SG.level }));
+  const swap = $('sg-swap'); if (swap) swap.addEventListener('change', () => { if (swap.value) runSuggest(SG.key, { style: 'vendedora', product: swap.value, level: SG.level }); });
   const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
   const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
     const text = ($('aj-text') ? $('aj-text').value : SG.text) || ''; if (!text.trim()) return;
     const r = await window.pulse.assistUse(text).catch(() => ({ filled: false }));
+    if (SG.res && SG.res.usage_id && !SG.res.marked) { SG.res.marked = true; window.pulse.assistUsed(SG.res.usage_id); }
     use.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
   });
 }
@@ -240,7 +270,7 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist(); loadSeg(); maybeSuggest();
+  F = f; render(); loadAssist(); loadSeg(); loadPrices(); maybeSuggest();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação
