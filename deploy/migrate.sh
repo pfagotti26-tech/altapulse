@@ -4,8 +4,15 @@
 # Pode repetir: cada vez substitui os dados daqui pela cópia mais recente.
 set -euo pipefail
 cd "$(dirname "$0")"
-read -rsp "Cole a 'URL do Mongo' do Emergent (Banco de dados > Detalhes) e Enter: " SRC; echo
-[ -n "$SRC" ] || { echo "Nada colado."; exit 1; }
+SRC=""
+while [ -z "$SRC" ]; do
+  read -rsp "Cole a 'URL do Mongo' do Emergent (Banco de dados > Detalhes) e Enter: " RAW; echo
+  # pega só a primeira URL colada e sem as opções depois do "?" (evita colagem dupla e opções repetidas)
+  SRC="$(printf '%s' "$RAW" | grep -oE 'mongodb(\+srv)?://[^?[:space:]]+' | head -1 || true)"
+  unset RAW
+  [ -n "$SRC" ] || echo "Não reconheci uma URL do Mongo. Tente de novo (botão direito uma vez, depois Enter)."
+done
+echo "    URL recebida: servidor $(printf '%s' "$SRC" | sed -E 's#^.*@([^/]+).*#\1#')"
 
 echo "==> Procurando o banco do app na origem"
 SRCDB="$(docker compose exec -T mongo mongosh "$SRC" --quiet --eval \
