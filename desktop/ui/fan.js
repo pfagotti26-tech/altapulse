@@ -308,7 +308,7 @@ function renderAssist() {
     if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
     if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
   } else {
-    h += `<div class="sg-act"><button class="btn aj-go" id="sg-start" style="flex:1">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button>${AS.sell === false ? '' : '<button class="btn sell ico" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button>'}</div>`;
+    h += `<div class="sg-act"><button class="btn aj-go" id="sg-start" style="flex:1">${F.waitSince ? 'Sugerir resposta' : 'Puxar conversa'}</button>${AS.sell === false ? '' : '<button class="btn sell ico" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button>'}</div>`;
   }
   if (r && !r.alert && !SG.busy) {
     h += `<div class="aj-levels" title="Refaz a sugestão nesse nível. O máximo é o da ficha.">${LV.slice(0, lvMax + 1).map(([v, l]) => `<button class="aj-lv ${v === SG.level ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
