@@ -5,8 +5,7 @@ cd "$(dirname "$0")"
 IP="$(curl -4fsS https://api.ipify.org)"
 got="$(getent ahostsv4 altapulse.com.br | awk 'NR==1{print $1}')"
 [ "$got" = "$IP" ] || { echo "altapulse.com.br ainda aponta para '$got' (esperado $IP). Espere o DNS propagar e rode de novo."; exit 1; }
-HOSTS="altapulse.com.br"
-[ "$(getent ahostsv4 www.altapulse.com.br | awk 'NR==1{print $1}')" = "$IP" ] && HOSTS="$HOSTS, www.altapulse.com.br"
+HOSTS="altapulse.com.br"  # o www tem bloco próprio no Caddyfile (redireciona para cá)
 TEST_HOST="$(grep '^SITE_HOSTS=' .env | cut -d= -f2 | tr ',' '\n' | grep sslip | head -1 | tr -d ' ')"
 sed -i "s|^SITE_HOSTS=.*|SITE_HOSTS=${HOSTS}${TEST_HOST:+, $TEST_HOST}|" .env
 docker compose up -d

@@ -28,3 +28,8 @@
 		-Server
 	}
 }
+
+# www sempre vai para o endereço oficial (o painel só aceita login vindo de altapulse.com.br)
+www.altapulse.com.br {
+	redir https://altapulse.com.br{uri} permanent
+}
