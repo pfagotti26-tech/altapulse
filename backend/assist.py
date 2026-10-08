@@ -149,6 +149,7 @@ class ProfileIn(Strict):
     persona: dict[str, str] = Field(default_factory=dict)
     suggest_auto: bool = False  # "Sugerir resposta": ligado por criadora, desligado por padrão
     fan_segments: list[Segment] = Field(default_factory=list, max_length=6)
+    hot_terms: str = Field(default='', max_length=1000)  # termômetro: palavras desta criadora que esquentam a conversa (uma por linha)
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
@@ -233,6 +234,7 @@ async def status(creator_id: str, user=Depends(extension_user)):
             'suggest': bool(c['enabled'] and key and prof.get('suggest_auto') and prof.get('prices') and prof.get('limits')),
             'has_profile': bool(prof), 'has_prices': bool(prof.get('prices')), 'remaining': await remaining_for(c, user),
             'manual': bool(c['enabled'] and key and (prof.get('persona') or prof.get('prices'))),
+            'hot_terms': [t.strip() for t in (prof.get('hot_terms') or '').splitlines() if t.strip()][:60],
             'segments': [{'key': x['key'], 'label': x['label'], 'default': bool(x.get('default')), 'level': x.get('level')} for x in prof.get('fan_segments') or []]}
 
 # ---------- perfil do fã (classificado pelo chatter; vale para a equipe toda) ----------
@@ -372,6 +374,7 @@ class SuggestIn(Strict):
     messages: list[ChatMsg] = Field(default_factory=list, max_length=16)
     style: Literal['normal', 'vendedora'] = 'normal'
     product: str = Field(default='', max_length=80)  # item da tabela escolhido no botão Vender (vazio = a IA escolhe)
+    temp: Optional[int] = Field(default=None, ge=0, le=100)  # nota do termômetro no app quando o chatter pediu
     mode: Literal['reply', 'followup'] = 'reply'  # followup: a última é nossa (puxar conversa, reativar)
     level: Optional[Literal['leve', 'picante', 'explicito']] = None
 
@@ -441,7 +444,8 @@ PERFIS DE FÃ DA CRIADORA (o perfil deste fã vem no pedido):
 {catalog or 'nenhum cadastrado: use o tom padrão da ficha.'}
 
 Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
-{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "texto": "..."}}"""
+{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "temperatura": 0, "motivo_temperatura": "", "texto": "..."}}
+"temperatura" (0 a 100) diz o quanto o fã está pronto para comprar AGORA: 0-19 frio, 20-44 morno, 45-64 quente, 65+ hora de vender (pediu para ver, perguntou preço, ofereceu mostrar o dele, pediu algo sob medida). Objeção ou despedida baixa a temperatura. "motivo_temperatura": até 8 palavras."""
     if segs and seg: seg_text = f"PERFIL DESTE FÃ (classificado pela equipe): {seg['label']}. Use SÓ o jeito de falar deste perfil, mesmo que contrarie o padrão da ficha."
     elif segs:
         dflt = next((x for x in segs if x.get('default')), segs[0])
@@ -482,7 +486,7 @@ FIM DA CONVERSA:
     usage_id = uid()
     await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
         'style': body.style, 'level': level, 'day': today(), 'at': iso(), 'tokens': usage.get('total_tokens'), 'prompt_tokens': pt, 'cached_tokens': ct,
-        'completion_tokens': ot, 'cost_usd': cost, 'model': model, 'ms': int((datetime.now() - t0).total_seconds() * 1000), 'expires_at': now() + timedelta(days=120)})
+        'completion_tokens': ot, 'cost_usd': cost, 'model': model, 'temp': body.temp, 'ms': int((datetime.now() - t0).total_seconds() * 1000), 'expires_at': now() + timedelta(days=120)})
     remaining = await remaining_for(c, user)
     if out and out.get('alerta'):
         alert = {'id': uid(), 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
@@ -500,6 +504,8 @@ FIM DA CONVERSA:
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora antes de o fã pagar.'
     return {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
             'warning': warning, 'price_fixed': fixed, 'remaining': remaining, 'usage_id': usage_id,
+            'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
+            'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
             'product': {'item': prod['item'], 'cents': prod['cents']} if prod else None,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}

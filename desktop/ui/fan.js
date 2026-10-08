@@ -25,7 +25,7 @@ let AS = null, asFor = null, aj = { help: false, sheet: false, sheetData: null, 
 async function loadAssist(force) {
   const key = F && F.creatorId; if (!key) return;
   if (!force && asFor === key && AS) return;
-  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); loadSeg(); maybeSuggest();
+  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); loadSeg(); maybeSuggest(); refreshThermo(true);
 }
 // tabela de preços da criadora (no cartão do fã); clicar num item gera uma mensagem vendendo aquele item
 let PR = { for: null, list: [] };
@@ -49,6 +49,65 @@ function pricesHtml(c) {
     h += `<button class="pr-row${fit ? ' fit' : ''}" data-sell="${i}" title="${esc((p.obs ? p.obs + ' · ' : '') + 'Clique para gerar uma mensagem vendendo este item')}"><span>${esc(p.item)}</span><b>${brlS(p.cents)}</b></button>`;
   });
   if (t) h += '<div class="muted" style="font-size:10.5px;margin-top:3px">Em destaque: na faixa do que este fã costuma gastar.</div>';
+  return h + '</div>';
+}
+// termômetro de venda: nota local (palavras do fã, ritmo, histórico do cartão) e, quando há sugestão, a nota da IA
+let TH = { key: null, at: 0, local: null };
+const CAT_RX = { foto: /foto/i, video: /v[ií]deo/i, avaliacao: /avalia/i, personalizado: /personaliz/i, chamada: /chamada/i };
+const CAT_NAME = { foto: 'Fotos', video: 'Vídeo', avaliacao: 'Avaliação', personalizado: 'Personalizado', chamada: 'Videochamada' };
+function pickProduct(cat, card) {
+  const list = PR.list || []; if (!list.length) return null;
+  let pool = cat ? list.filter((p) => CAT_RX[cat].test(p.item) && (cat === 'video' ? !/chamada|personaliz/i.test(p.item) : true)) : [];
+  if (cat && !pool.length) return { missing: CAT_NAME[cat] };
+  if (!pool.length) return null;
+  const lvl = (SG.level || (AS && AS.max_level)) === 'explicito';
+  if (lvl && pool.some((p) => /expl/i.test(p.item))) pool = pool.filter((p) => /expl/i.test(p.item));
+  const t = card && card.ticket_cents;
+  return t ? pool.reduce((a, b) => (Math.abs(b.cents - t) < Math.abs(a.cents - t) ? b : a)) : pool.reduce((a, b) => (b.cents < a.cents ? b : a));
+}
+async function refreshThermo(force) {
+  if (!AS || !AS.manual || !F || !F.fanRef || F.collapsed) return;
+  const key = `${fanKey()}|${F.waitSince || 'nossa'}`;
+  if (!force && TH.key === key && Date.now() - TH.at < 8000) return;
+  if (TH.busy) return; TH.busy = true;
+  const r = await window.pulse.thermoRead({ extra: AS.hot_terms || [] }).catch(() => null);
+  TH.busy = false;
+  if (!r || r.fanRef !== F.fanRef) return;
+  TH = { key, at: Date.now(), local: r }; renderAssist();
+}
+function thermoNow() {
+  const L = TH.local; if (!L || TH.key == null || !TH.key.startsWith(fanKey() || '-')) return null;
+  const card = F && F.card;
+  let score = L.score; const why = [...L.why];
+  if (card) {
+    if (card.purchases) { score += 10; why.push(`já comprou ${card.purchases}x${card.ticket_cents ? ` (ticket ${brlS(card.ticket_cents)})` : ''}`); }
+    if (card.tier === 'baleia') score += 10;
+    if ((card.pending_offers || []).length) { score += 10; why.push('tem oferta enviada sem pagar'); }
+    if ((card.tags || []).includes('assinatura_inativa')) score -= 10;
+  }
+  let ai = null;
+  const r = SG.res; if (r && r.temperature != null && SG.key && SG.key.startsWith(fanKey() || '-')) ai = r;
+  if (ai) { score = Math.round((score + ai.temperature) / 2); if (ai.temp_reason) why.unshift(ai.temp_reason); }
+  if (L.cold) score = Math.min(score, 40) - 15;
+  score = Math.max(0, Math.min(100, score));
+  const band = L.cold ? 'cool' : score >= 65 ? 'fire' : score >= 45 ? 'hot' : score >= 20 ? 'warm' : 'cold';
+  return { score, band, why: [...new Set(why)].slice(0, 4), cat: L.cat, cold: L.cold, ai: !!ai };
+}
+const BAND = { cold: ['🌡', 'Frio', 'Só aquecendo. Ainda não é hora de vender.'], warm: ['🌡', 'Morno', 'Continue esquentando.'], hot: ['🌡', 'Quente', 'Prepare a oferta.'], fire: ['🔥', 'Hora de vender', ''], cool: ['❄', 'Esfriando', ''] };
+function thermoHtml() {
+  const t = thermoNow(); if (!t) return '';
+  const [ico, label, hint] = BAND[t.band];
+  let h = `<div class="th ${t.band}" title="Nota ${t.score}/100${t.ai ? ' (palavras do fã + leitura da IA)' : ' (palavras do fã e histórico)'}"><div class="th-top"><span class="th-ico">${ico}</span><div class="th-bar"><i style="width:${Math.max(6, t.score)}%"></i></div><span class="th-lbl">${label}</span></div>`;
+  if (t.band === 'cool') h += `<div class="th-cool">Objeção: <b>${esc(t.cold)}</b>. Use o prazo; não baixe o preço do mesmo item.</div>`;
+  const why = t.why.length ? esc(t.why.join(' · ')) : esc(hint);
+  if (why) h += `<div class="th-why">${why}</div>`;
+  if (t.band === 'fire' || t.band === 'hot' || t.band === 'cool') {
+    const card = F && F.card;
+    const p = t.band === 'cool' ? (PR.list.length ? PR.list.reduce((a, b) => (b.cents < a.cents ? b : a)) : null) : pickProduct(t.cat, card);
+    if (p && p.missing) h += `<div class="th-sell"><span>${esc(p.missing)} <i>sem preço na tabela</i></span><button class="btn sell" id="th-sell">💰 Vender</button></div>`;
+    else if (p) h += `<div class="th-sell"><span>${t.band === 'cool' ? 'Alternativa menor' : 'Sugerido'}: <b>${esc(p.item)} · ${brlS(p.cents)}</b></span><button class="btn sell" id="th-sell" data-item="${esc(p.item)}">${t.band === 'cool' ? '💰 Oferecer' : '💰 Vender agora'}</button></div>`;
+    else if (t.band === 'fire') h += `<div class="th-sell"><span>A IA escolhe o item pela conversa</span><button class="btn sell" id="th-sell">💰 Vender agora</button></div>`;
+  }
   return h + '</div>';
 }
 // perfil do fã (classificação da equipe)
@@ -94,7 +153,7 @@ async function runSuggest(k, { style, level, product } = {}) {
   const mode = F && F.waitSince ? 'reply' : 'followup';
   SG = { key: k, busy: true, level: level || SG.level }; renderAssist();
   try {
-    const res = await window.pulse.assistSuggest({ style, level, mode, product });
+    const res = await window.pulse.assistSuggest({ style, level, mode, product, temp: (thermoNow() || {}).score });
     if (SG.key !== k) return;
     if (res && res.skip) { SG = { key: k }; renderAssist(); return; }
     SG = { key: k, res, text: res.text || '', level: res.level }; if (res && res.remaining != null && AS) AS.remaining = res.remaining;
@@ -198,6 +257,7 @@ function renderAssist() {
   if (aj.help) h += `<div class="aj-help">${esc(AJ_HELP)}</div>`;
   if (aj.sheet) h += sheetHtml();
   h += segHtml();
+  h += thermoHtml();
   if (!AS.manual) { box.innerHTML = h + '<div class="muted aj-note">A ficha desta criadora ainda não foi preenchida no painel.</div>'; bindAssist(); return; }
   const r = SG.res;
   const lvMax = Math.max(0, LV.findIndex(([v]) => v === ((r && r.max_level) || AS.max_level)));
@@ -218,7 +278,7 @@ function renderAssist() {
   }
   if (r && !r.alert && !SG.busy) {
     h += `<div class="aj-levels" title="Refaz a sugestão nesse nível. O máximo é o da ficha.">${LV.slice(0, lvMax + 1).map(([v, l]) => `<button class="aj-lv ${v === SG.level ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
-    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn sell" id="sg-sell" title="Mensagem com objetivo de vender um item da tabela, escolhido pelo contexto">💰 Vender</button></div>';
+    h += `<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn sell${(thermoNow() || {}).band === 'fire' ? ' glow' : ''}" id="sg-sell" title="Mensagem com objetivo de vender um item da tabela, escolhido pelo contexto">💰 Vender</button></div>`;
   } else if (SG.err) h += '<div class="sg-act"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>';
   box.innerHTML = h;
   const ta = $('aj-text');
@@ -253,6 +313,7 @@ function bindAssist() {
   const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(SG.key, { level: SG.level }));
   const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', level: SG.level }));
   const swap = $('sg-swap'); if (swap) swap.addEventListener('change', () => { if (swap.value) runSuggest(SG.key, { style: 'vendedora', product: swap.value, level: SG.level }); });
+  const ths = $('th-sell'); if (ths) ths.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', product: ths.dataset.item || '', level: SG.level }));
   const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
   const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
     const text = ($('aj-text') ? $('aj-text').value : SG.text) || ''; if (!text.trim()) return;
@@ -270,8 +331,10 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist(); loadSeg(); loadPrices(); maybeSuggest();
+  F = f; render(); loadAssist(); loadSeg(); loadPrices(); maybeSuggest(); refreshThermo();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação
 setInterval(() => { if (F && F.waitSince && !(document.activeElement && document.activeElement.id === 'note')) render(); }, 30000);
+// termômetro: confere a conversa aberta a cada 10 s (só lê; nada é enviado)
+setInterval(() => refreshThermo(), 10000);

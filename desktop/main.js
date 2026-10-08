@@ -1393,12 +1393,54 @@ const READ_MSGS_SCRIPT = String.raw`(() => {
   }
   return { name, msgs: msgs.slice(-14) };
 })()`;
+// ---------- Termômetro de venda: lê as últimas mensagens da conversa aberta e dá uma nota (0–100) ----------
+// Roda só no computador do chatter: o texto é avaliado aqui e descartado; nada é gravado nem enviado.
+// faixas (no cartão): < 20 frio · < 45 morno · < 65 quente · 65+ hora de vender. Um pedido claro do fã já põe em "hora de vender".
+const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const HEAT = [
+  { k: 'preco', w: 70, why: 'perguntou preço', cat: null, rx: /\b(quanto|valor|preco|pix|custa|como (compro|faco pra (ver|comprar|ter))|ta quanto|qto)\b/ },
+  { k: 'nude', w: 65, why: 'pediu pra ver ela pelada', cat: 'foto', rx: /(pelad|\bnua\b|nuazinha|nudes?\b|peitos?\b|seios|bunda|buceta|xota|xereca|tira (a|essa) roupa|sem roupa|mostra (tudo|mais|ai|os|a)|quero (te )?ver (vc|voce|tu|mais|tudo))/ },
+  { k: 'acao', w: 65, why: 'quer ver ela em ação', cat: 'video', rx: /(gozando|gozar|se tocando|te tocando|masturb|siririca|squirt|\bvideos?\b|grava(r|ndo|ou)?\b|filma)/ },
+  { k: 'dele', w: 65, why: 'quer mostrar o dele', cat: 'avaliacao', rx: /(meu (pau|pinto|cacete|caralho|pirocao|pau duro)|minha (rola|pica|piroca)|ver o meu|avalia(r|cao)?)/ },
+  { k: 'custom', w: 65, why: 'pediu algo sob medida', cat: 'personalizado', rx: /(personaliz|com meu nome|fala meu nome|so pra mim|exclusiv|sob medida|do jeito que eu (quero|pedir))/ },
+  { k: 'chamada', w: 50, why: 'falou em chamada', cat: 'chamada', rx: /(chamada|ao vivo|\bcam\b|\bcall\b|facetime|video ?chamada)/ },
+  { k: 'tesao', w: 20, why: 'está excitado', cat: null, rx: /(\bduro\b|tesao|gostosa|safada|delicia|molhad|excitad|punheta|batendo uma|me deixa (louco|doido))/ },
+  { k: 'obedece', w: 15, why: 'se ofereceu pra obedecer', cat: null, rx: /(obedec|faco (o que|tudo que) (vc|voce|tu) (mandar|quiser)|sou (seu|teu)\b|minha (deusa|dona|rainha|mestra)|sim senhora)/ },
+];
+const COLD = [
+  { why: 'achou caro', rx: /(\bcaro\b|muito caro|salgado|nao (tenho|to com) (grana|dinheiro)|sem (grana|dinheiro)|ta puxado)/ },
+  { why: 'deixou pra depois', rx: /(\bdepois\b|outro dia|amanha eu|mais tarde|vou ver|vou pensar)/ },
+  { why: 'está saindo', rx: /(\btchau\b|vou dormir|boa noite|preciso ir|to indo|falou)/ },
+];
+function thermoScore(msgs, extra) {
+  const extraRx = (extra || []).map((t) => fold(t).trim()).filter((t) => t.length > 1);
+  let i = msgs.length - 1; let streak = 0; while (i >= 0 && !msgs[i].ours) { streak += 1; i -= 1; }
+  const fanMsgs = msgs.map((m, idx) => ({ ...m, idx })).filter((m) => !m.ours).slice(-8);
+  const lastIdx = msgs.length - 1;
+  let score = 0; const why = []; const hits = {}; let cat = null; let cold = null;
+  for (const m of fanMsgs) {
+    const t = fold(m.text); const recent = lastIdx - m.idx <= 3 ? 1 : 0.5;
+    for (const h of HEAT) if (h.rx.test(t) && !hits[h.k]) { hits[h.k] = 1; score += h.w * recent; if (!why.includes(h.why)) why.push(h.why); if (h.cat && (!cat || recent === 1)) cat = h.cat; }
+    if (extraRx.some((x) => t.includes(x)) && !hits.extra) { hits.extra = 1; score += 20 * recent; why.push('usou um termo da ficha'); }
+    if (lastIdx - m.idx <= 2) for (const c of COLD) if (c.rx.test(t) && cold !== 'achou caro') cold = c.why;
+  }
+  if (streak >= 2) { score += Math.min(15, (streak - 1) * 5); why.push(`${streak} mensagens seguidas`); }
+  return { score: Math.round(score), why, cat, cold, hits: Object.keys(hits) };
+}
+ipcMain.handle('thermo:read', async (_e, { extra } = {}) => {
+  const id = fan.creatorId; if (!id || !fan.fanRef) return null;
+  const view = views.get(id); if (!view || view.webContents.isDestroyed()) return null;
+  const fanAt = fan.fanRef;
+  const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+  if (!read || !read.msgs || fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) return null;
+  return { ...thermoScore(read.msgs, extra), fanRef: fanAt, n: read.msgs.length, lastOurs: !!(read.msgs.length && read.msgs[read.msgs.length - 1].ours) };
+});
 ipcMain.handle('assist:prices', async () => {
   if (!fan.creatorId) return { prices: [] };
   return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));
 });
 ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
-ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product } = {}) => {
+ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
   const view = views.get(id); if (!view || view.webContents.isDestroyed()) throw new Error('Abra a conversa na Privacy.');
   const fanAt = fan.fanRef;
@@ -1410,6 +1452,7 @@ ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product } = {}
   const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m };
   if (['leve', 'picante', 'explicito'].includes(level)) body.level = level;
   if (product) body.product = String(product).slice(0, 80);
+  if (Number.isFinite(temp)) body.temp = Math.max(0, Math.min(100, Math.round(temp)));
   const out = await api('POST', '/extension/assist/suggest', body);
   const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
   return { ...out, fanRef: fanAt };

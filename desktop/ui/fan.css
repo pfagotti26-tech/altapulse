@@ -114,3 +114,23 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .sg-prod { font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sg-prod select { background: #120f18; color: #d8cfe6; border: 1px solid #3a2a4a; border-radius: 6px; font-size: 11px; padding: 2px 4px; max-width: 150px; }
 #assist .btn.sell { background: #1f9d55; }
+/* termômetro de venda */
+.th { border-radius: 10px; padding: 8px 10px; background: #211b27; border: 1px solid #2f2738; }
+.th-top { display: flex; align-items: center; gap: 8px; }
+.th-ico { font-size: 14px; }
+.th-bar { flex: 1; height: 8px; border-radius: 6px; background: #2d2633; overflow: hidden; }
+.th-bar i { display: block; height: 100%; border-radius: 6px; transition: width .5s ease; }
+.th-lbl { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.th-why { margin-top: 5px; color: #d6ccd9; font-size: 11px; line-height: 1.4; }
+.th-cool { margin-top: 5px; color: #9fd0ff; font-size: 11px; }
+.th-sell { margin-top: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #162a1e; border: 1px solid #23573a; border-radius: 8px; padding: 5px 7px; font-size: 11px; }
+.th-sell i { color: #f0cf7a; font-style: normal; }
+#assist .th-sell .btn { padding: 5px 8px; font-size: 11px; white-space: nowrap; }
+.th.cold .th-bar i { background: #7d7684; } .th.cold .th-lbl { color: #a49caa; }
+.th.warm .th-bar i { background: linear-gradient(90deg, #7d7684, #e0b13a); } .th.warm .th-lbl { color: #e0b13a; }
+.th.hot .th-bar i { background: linear-gradient(90deg, #e0b13a, #f07a2a); } .th.hot .th-lbl { color: #f07a2a; }
+.th.fire .th-bar i { background: linear-gradient(90deg, #f07a2a, #ff3355); } .th.fire .th-lbl { color: #ff5370; }
+.th.cool .th-bar i { background: linear-gradient(90deg, #5b7fa6, #9fd0ff); } .th.cool .th-lbl { color: #9fd0ff; }
+.th.fire { border-color: #7a2233; animation: thpulse 1.8s infinite; }
+#assist .btn.sell.glow { animation: thpulse 1.8s infinite; }
+@keyframes thpulse { 0% { box-shadow: 0 0 0 0 rgba(255,51,85,.45); } 70% { box-shadow: 0 0 0 7px rgba(255,51,85,0); } 100% { box-shadow: 0 0 0 0 rgba(255,51,85,0); } }
