@@ -22,13 +22,61 @@ let AS = null, asFor = null, aj = { fan: null, busy: false, res: null, err: null
 async function loadAssist(force) {
   const key = F && F.creatorId; if (!key) return;
   if (!force && asFor === key && AS) return;
-  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render();
+  asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); maybeSuggest();
+}
+// Sugerir resposta: só nas criadoras com a chave ligada na ficha e quando o fã falou por último
+const STEP = { abertura: 'Abertura', aquecimento: 'Aquecimento', oferta: 'Oferta', fechamento: 'Fechamento', 'pos-venda': 'Pós-venda', reativacao: 'Reativação' };
+let SG = { key: null }, sgTimer = null;
+const sgKey = () => (AS && AS.suggest && F && F.active && F.fanRef && F.waitSince && !F.collapsed) ? `${F.creatorId}|${F.fanRef}|${F.waitSince}` : null;
+function maybeSuggest() {
+  const k = sgKey();
+  if (!k) { if (SG.key) { SG = { key: null }; renderSug(); } return; }
+  if (SG.key === k) return;
+  SG = { key: k, busy: true }; renderSug();
+  clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k), 1500); // espera a conversa carregar
+}
+async function runSuggest(k, style) {
+  if (SG.key !== k) return;
+  SG = { key: k, busy: true }; renderSug();
+  try {
+    const res = await window.pulse.assistSuggest({ style });
+    if (SG.key !== k) return;
+    if (res && res.skip) { SG = { key: k, closed: true }; renderSug(); return; }
+    SG = { key: k, res }; if (res && res.remaining != null && AS) AS.remaining = res.remaining;
+  } catch (err) { if (SG.key !== k) return; SG = { key: k, err: String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }; }
+  renderSug(); renderAssist();
+}
+function renderSug() {
+  const el = $('sug'); if (!el) return;
+  if (!SG.key || SG.closed || (F && F.collapsed)) { el.innerHTML = ''; return; }
+  let h = '<div class="sg"><div class="sg-h"><span>Sugestão para a última mensagem</span><button class="icon" id="sg-x" title="Fechar esta sugestão">×</button></div>';
+  if (SG.busy) h += '<div class="sg-meta">Lendo a conversa e escrevendo na voz da criadora…</div>';
+  else if (SG.err) h += `<div class="pend" style="margin-top:6px">${esc(SG.err)}</div><div class="sg-act" style="margin-top:8px"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>`;
+  else if (SG.res && SG.res.alert) h += `<div class="tip" style="margin-top:6px"><b>Atenção:</b> possível menor de idade (${esc(SG.res.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
+  else if (SG.res) {
+    const r = SG.res; const meta = [STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
+    if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`; else h += '<div style="height:6px"></div>';
+    h += `<div class="sg-t">${esc(r.text)}</div>`;
+    if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
+    if (r.price_fixed) h += '<div class="muted aj-note" style="margin-bottom:8px">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
+    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again" title="Gera outra sugestão">Outra</button><button class="btn ghost" id="sg-sell" title="Outra sugestão puxando para a venda">Mais vendedora</button></div>';
+  }
+  el.innerHTML = h + '</div>';
+  const k = SG.key;
+  const x = $('sg-x'); if (x) x.addEventListener('click', () => { SG = { key: k, closed: true }; renderSug(); });
+  const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(k));
+  const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(k, 'vendedora'));
+  const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
+    const r = await window.pulse.assistUse(SG.res.text).catch(() => ({ filled: false }));
+    use.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
+  });
 }
 
 function render() {
   const typing = document.activeElement && document.activeElement.id;
   if (typing !== 'note') renderBody();
   if (typing !== 'aj-draft') renderAssist();
+  renderSug();
 }
 function renderBody() {
   const collapsed = !!(F && F.collapsed);
@@ -184,7 +232,7 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist();
+  F = f; render(); loadAssist(); maybeSuggest();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação

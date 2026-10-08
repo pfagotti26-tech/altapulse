@@ -24,7 +24,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       // os 10 itens da tabela mínima sempre aparecem (vazios para preencher); itens extras vêm depois
       const fixed = meta.price_items.map(item => { const s = saved.find(x => x.item.toLowerCase() === item.toLowerCase()); return { item, value: s ? reais(s.cents) : '', obs: s?.obs || '', fixed: true }; });
       const extra = saved.filter(x => !meta.price_items.some(i => i.toLowerCase() === x.item.toLowerCase())).map(x => ({ item: x.item, value: reais(x.cents), obs: x.obs || '' }));
-      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', prices: [...fixed, ...extra] });
+      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', suggest_auto: !!p.suggest_auto, prices: [...fixed, ...extra] });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
   if (!form || !meta) return <p className="body-muted">Carregando…</p>;
@@ -34,7 +34,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     setBusy(true);
     try {
       const prices = form.prices.filter(p => p.item.trim() && String(p.value).trim() && toCents(p.value) != null).map(p => ({ item: p.item.trim(), cents: toCents(p.value), obs: (p.obs || '').trim() }));
-      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, prices, persona: form.persona })).data;
+      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona })).data;
       toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
   };
@@ -56,6 +56,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     </section>)}
     <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-style" label="Observações para a IA (tom, cuidados)"><textarea className="assist-textarea" rows={3} maxLength={2000} value={form.style} onChange={e => setForm({ ...form, style: e.target.value })} placeholder="Ex.: frases curtas; provoca antes de oferecer."/></Field>
+      <label className="checkbox-label" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="pf-suggest" checked={!!form.suggest_auto} onChange={e => setForm({ ...form, suggest_auto: e.target.checked })}/><span><b>Sugerir resposta ao abrir a conversa</b> (só esta criadora). Quando o fã falou por último, o app lê as últimas mensagens e mostra um rascunho na voz dela; o chatter coloca na caixa, edita e envia. Nada é enviado sozinho. Precisa de tabela de preços e limites preenchidos. As mensagens vão mascaradas (sem telefone, e-mail ou links) para a xAI.</span></label>
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => setForm({ ...form, max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
     </div></section>
     <div className="form-actions"><Button data-testid="profile-save" disabled={busy} onClick={save}>Salvar ficha</Button></div>

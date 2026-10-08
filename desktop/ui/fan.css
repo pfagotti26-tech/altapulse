@@ -85,3 +85,12 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .aj-st:first-child { margin-top: 0; }
 .aj-prices { width: 100%; border-collapse: collapse; white-space: normal; }
 .aj-prices td { padding: 2px 0; } .aj-prices td:last-child { text-align: right; color: #9fdcb2; font-weight: 600; white-space: nowrap; }
+
+/* Sugerir resposta */
+.sg { margin: 10px 0 4px; border: 1px solid var(--rose, #E8667C); border-radius: 10px; background: #221b22; padding: 10px 11px; }
+.sg-h { display: flex; justify-content: space-between; align-items: center; color: #E8667C; font-weight: 700; font-size: 12px; }
+.sg-meta { color: #9C93A0; font-size: 10.5px; margin: 3px 0 7px; }
+.sg-t { line-height: 1.45; word-wrap: break-word; margin-bottom: 8px; }
+.sg-warn { background: #3a1620; border-left: 3px solid var(--red); border-radius: 6px; padding: 6px 8px; font-size: 11.5px; margin-bottom: 8px; }
+.sg-act { display: flex; gap: 6px; flex-wrap: wrap; }
+.sg-act .btn { padding: 6px 9px; font-size: 12px; }

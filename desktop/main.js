@@ -1372,6 +1372,39 @@ ipcMain.handle('assist:use', async (_e, text) => {
   if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
   return { filled };
 });
+// ---------- Sugerir resposta (só nas criadoras com a chave ligada na ficha) ----------
+// Lê o texto das últimas mensagens da conversa ABERTA, só quando o chatter está nela e o fã falou por último.
+// O painel mascara de novo e chama a xAI; a sugestão volta para o cartão do fã. O envio é sempre do chatter.
+const READ_MSGS_SCRIPT = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+  const qs = (sel) => { for (const r of roots) { const e = r.querySelector(sel); if (e) return e; } return null; };
+  const name = txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name'));
+  const cont = qs('.vac-messages-container'); if (!cont) return { name, msgs: [] };
+  const msgs = [];
+  for (const el of cont.querySelectorAll('.vac-message-wrapper-msg')) {
+    const parts = [...el.querySelectorAll('.vac-format-message-wrapper')].filter((x) => !x.closest('.vac-reply-message'));
+    let t = parts.map(txt).join(' ').trim();
+    const np = el.querySelector('.vac-text-not-paid');
+    if (np) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(np) + ']';
+    else if (!t && el.querySelector('.vac-message-files-container, .vac-message-image, video, img')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours: el.classList.contains('vac-offset-current'), text: t.slice(0, 1200) });
+  }
+  return { name, msgs: msgs.slice(-14) };
+})()`;
+ipcMain.handle('assist:suggest', async (_e, { style } = {}) => {
+  const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const view = views.get(id); if (!view || view.webContents.isDestroyed()) throw new Error('Abra a conversa na Privacy.');
+  const fanAt = fan.fanRef;
+  const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+  if (!read || !read.msgs || !read.msgs.length) throw new Error('Não consegui ler a conversa. Tente Outra em alguns segundos.');
+  if (fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) throw new Error('A conversa mudou.');
+  if (read.msgs[read.msgs.length - 1].ours) return { skip: true };
+  const out = await api('POST', '/extension/assist/suggest', { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal' });
+  const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
+  return { ...out, fanRef: fanAt };
+});
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
 ipcMain.handle('plantao:queue', async () => { if (Date.now() - (plantao.fetchedAt || 0) > 120000) await plantao.fetchConfigs(); return plantao.queue(); });
