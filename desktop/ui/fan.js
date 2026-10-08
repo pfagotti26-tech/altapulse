@@ -36,6 +36,9 @@ async function loadPrices() {
   if (!F || F.creatorId !== k) return;
   PR = { for: k, list: r.prices || [] }; render();
 }
+// padrão de compra do fã: ticket médio + 20% (arredondado p/ R$ x9,90). A tabela é o piso: nunca sugerir abaixo dela.
+const fanAnchor = (card) => (card && card.ticket_cents) ? Math.max(0, Math.ceil(card.ticket_cents * 1.2 / 100) * 100 - 10) : null;
+const fanPrice = (cents, card) => { const a = fanAnchor(card); return a ? Math.max(cents, a) : cents; };
 const brlS = (c) => 'R$ ' + (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
 function pricesHtml(c) {
   if (!PR.list.length || !F || !F.fanRef) return '';
@@ -45,10 +48,10 @@ function pricesHtml(c) {
   if (!o) return h;
   h += '<div class="pr-list">';
   PR.list.forEach((p, i) => {
-    const fit = t && p.cents <= t * 2.2 && p.cents >= t * 0.4;
-    h += `<button class="pr-row${fit ? ' fit' : ''}" data-sell="${i}" title="${esc((p.obs ? p.obs + ' · ' : '') + 'Clique para gerar uma mensagem vendendo este item')}"><span>${esc(p.item)}</span><b>${brlS(p.cents)}</b></button>`;
+    const fp = fanPrice(p.cents, c); const up = fp > p.cents;
+    h += `<button class="pr-row${up ? ' fit' : ''}" data-sell="${i}" title="${esc((p.obs ? p.obs + ' · ' : '') + (up ? `Tabela ${brlS(p.cents)}; este fã paga mais (ticket médio + 20%). ` : '') + 'Clique para gerar uma mensagem vendendo este item')}"><span>${esc(p.item)}</span><b>${up ? `<s>${brlS(p.cents)}</s> ${brlS(fp)}` : brlS(p.cents)}</b></button>`;
   });
-  if (t) h += '<div class="muted" style="font-size:10.5px;margin-top:3px">Em destaque: na faixa do que este fã costuma gastar.</div>';
+  if (t && fanAnchor(c)) h += `<div class="muted" style="font-size:10.5px;margin-top:3px">Este fã paga em média ${brlS(t)}: para ele, nada abaixo de ${brlS(fanAnchor(c))} (ticket + 20%).</div>`;
   return h + '</div>';
 }
 // termômetro de venda: nota local (palavras do fã, ritmo, histórico do cartão) e, quando há sugestão, a nota da IA
@@ -62,8 +65,11 @@ function pickProduct(cat, card) {
   if (!pool.length) return null;
   const lvl = (SG.level || (AS && AS.max_level)) === 'explicito';
   if (lvl && pool.some((p) => /expl/i.test(p.item))) pool = pool.filter((p) => /expl/i.test(p.item));
-  const t = card && card.ticket_cents;
-  return t ? pool.reduce((a, b) => (Math.abs(b.cents - t) < Math.abs(a.cents - t) ? b : a)) : pool.reduce((a, b) => (b.cents < a.cents ? b : a));
+  const a = fanAnchor(card);
+  // com histórico: o item de tabela mais alto que cabe no padrão dele (ou o primeiro acima); sem histórico: o mais barato
+  let p = pool.reduce((x, y) => (y.cents < x.cents ? y : x));
+  if (a) { const under = pool.filter((x) => x.cents <= a); p = under.length ? under.reduce((x, y) => (y.cents > x.cents ? y : x)) : p; }
+  return { ...p, cents: fanPrice(p.cents, card), table: p.cents };
 }
 async function refreshThermo(force) {
   if (!AS || !AS.manual || !F || !F.fanRef || F.collapsed) return;
@@ -81,6 +87,7 @@ function thermoNow() {
   let score = L.score; const why = [...L.why];
   if (card) {
     if (card.purchases) { score += 10; why.push(`já comprou ${card.purchases}x${card.ticket_cents ? ` (ticket ${brlS(card.ticket_cents)})` : ''}`); }
+    if (fanAnchor(card) && (PR.list || []).some((p) => p.cents < fanAnchor(card))) why.push(`paga acima da tabela: oferecer a partir de ${brlS(fanAnchor(card))}`);
     if (card.tier === 'baleia') score += 10;
     if ((card.pending_offers || []).length) { score += 10; why.push('tem oferta enviada sem pagar'); }
     if ((card.tags || []).includes('assinatura_inativa')) score -= 10;
@@ -103,7 +110,8 @@ function thermoHtml() {
   if (why) h += `<div class="th-why">${why}</div>`;
   if (t.band === 'fire' || t.band === 'hot' || t.band === 'cool') {
     const card = F && F.card;
-    const p = t.band === 'cool' ? (PR.list.length ? PR.list.reduce((a, b) => (b.cents < a.cents ? b : a)) : null) : pickProduct(t.cat, card);
+    const cheap = PR.list.length ? PR.list.reduce((a, b) => (b.cents < a.cents ? b : a)) : null;
+    const p = t.band === 'cool' ? (cheap ? { ...cheap, cents: fanPrice(cheap.cents, card) } : null) : pickProduct(t.cat, card);
     if (p && p.missing) h += `<div class="th-sell"><span>${esc(p.missing)} <i>sem preço na tabela</i></span><button class="btn sell" id="th-sell">💰 Vender</button></div>`;
     else if (p) h += `<div class="th-sell"><span>${t.band === 'cool' ? 'Alternativa menor' : 'Sugerido'}: <b>${esc(p.item)} · ${brlS(p.cents)}</b></span><button class="btn sell" id="th-sell" data-item="${esc(p.item)}">${t.band === 'cool' ? '💰 Oferecer' : '💰 Vender agora'}</button></div>`;
     else if (t.band === 'fire') h += `<div class="th-sell"><span>A IA escolhe o item pela conversa</span><button class="btn sell" id="th-sell">💰 Vender agora</button></div>`;
@@ -269,7 +277,7 @@ function renderAssist() {
     const meta = [SIT[r.situation] ? `Começo de conversa: ${SIT[r.situation]}` : '', STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
     if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`;
     h += `<textarea id="aj-text" rows="3" maxlength="1500" title="Edite à vontade antes de colocar na caixa">${esc(SG.text)}</textarea>`;
-    if (r.product) h += `<div class="sg-prod">Vendendo: <b>${esc(r.product.item)} · ${brlS(r.product.cents)}</b>${PR.list.length > 1 ? ` <select id="sg-swap" title="Trocar o produto (refaz a mensagem)"><option value="">trocar…</option>${PR.list.map((p) => `<option value="${esc(p.item)}">${esc(p.item)} · ${brlS(p.cents)}</option>`).join('')}</select>` : ''}</div>`;
+    if (r.product) h += `<div class="sg-prod">Vendendo: <b>${esc(r.product.item)} · ${brlS(r.product.cents)}</b>${r.product.table_cents && r.product.table_cents < r.product.cents ? ` <span class="muted" title="Este fã paga acima da tabela (ticket médio + 20%)">tabela ${brlS(r.product.table_cents)}</span>` : ''}${PR.list.length > 1 ? ` <select id="sg-swap" title="Trocar o produto (refaz a mensagem)"><option value="">trocar…</option>${PR.list.map((p) => `<option value="${esc(p.item)}">${esc(p.item)} · ${brlS(p.cents)}</option>`).join('')}</select>` : ''}</div>`;
     if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
     const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
     if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
