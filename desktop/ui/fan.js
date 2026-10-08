@@ -104,10 +104,14 @@ const BAND = { cold: ['🌡', 'Frio', 'Só aquecendo. Ainda não é hora de vend
 function thermoHtml() {
   const t = thermoNow(); if (!t) return '';
   const [ico, label, hint] = BAND[t.band];
-  let h = `<div class="th ${t.band}" title="Nota ${t.score}/100${t.ai ? ' (palavras do fã + leitura da IA)' : ' (palavras do fã e histórico)'}"><div class="th-top"><span class="th-ico">${ico}</span><div class="th-bar"><i style="width:${Math.max(6, t.score)}%"></i></div><span class="th-lbl">${label}</span></div>`;
-  if (t.band === 'cool') h += `<div class="th-cool">Objeção: <b>${esc(t.cold)}</b>. Use o prazo; não baixe o preço do mesmo item.</div>`;
+  // só a barra fica à vista; os motivos abrem na seta (a escolha fica guardada). A caixa de venda continua visível.
   const why = t.why.length ? esc(t.why.join(' · ')) : esc(hint);
-  if (why) h += `<div class="th-why">${why}</div>`;
+  const openWhy = isOpen('thermo', false);
+  let h = `<div class="th ${t.band}" title="Nota ${t.score}/100${t.ai ? ' (palavras do fã + leitura da IA)' : ' (palavras do fã e histórico)'}"><div class="th-top" id="th-toggle" style="cursor:pointer"><span class="th-ico">${ico}</span><div class="th-bar"><i style="width:${Math.max(6, t.score)}%"></i></div><span class="th-lbl">${label}</span><span class="th-arrow">${openWhy ? '▾' : '▸'}</span></div>`;
+  if (openWhy) {
+    if (t.band === 'cool') h += `<div class="th-cool">Objeção: <b>${esc(t.cold)}</b>. Use o prazo; não baixe o preço do mesmo item.</div>`;
+    if (why) h += `<div class="th-why">${why}</div>`;
+  }
   if (t.band === 'fire' || t.band === 'hot' || t.band === 'cool') {
     const card = F && F.card;
     const cheap = PR.list.length ? PR.list.reduce((a, b) => (b.cents < a.cents ? b : a)) : null;
@@ -322,6 +326,7 @@ function bindAssist() {
   const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(SG.key, { level: SG.level }));
   const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', level: SG.level }));
   const swap = $('sg-swap'); if (swap) swap.addEventListener('change', () => { if (swap.value) runSuggest(SG.key, { style: 'vendedora', product: swap.value, level: SG.level }); });
+  const tg = $('th-toggle'); if (tg) tg.addEventListener('click', () => { open.thermo = !isOpen('thermo', false); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} renderAssist(); });
   const ths = $('th-sell'); if (ths) ths.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', product: ths.dataset.item || '', level: SG.level }));
   const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
   const use = $('sg-use'); if (use) use.addEventListener('click', async () => {

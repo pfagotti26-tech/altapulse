@@ -135,3 +135,4 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 #assist .btn.sell.glow { animation: thpulse 1.8s infinite; }
 @keyframes thpulse { 0% { box-shadow: 0 0 0 0 rgba(255,51,85,.45); } 70% { box-shadow: 0 0 0 7px rgba(255,51,85,0); } 100% { box-shadow: 0 0 0 0 rgba(255,51,85,0); } }
 .pr-row s { color: #8b8290; font-weight: 400; margin-right: 4px; }
+.th-arrow { color: #9c93a0; font-size: 11px; margin-left: 2px; }
