@@ -1825,34 +1825,32 @@ app.on('web-contents-created', (_e, wc) => { wc.on('before-mouse-event', (_ev, m
 // Versão sem instalador (.zip): não tem como se atualizar sozinha; avisa na lateral quando sair versão nova.
 const isPortable = () => app.isPackaged && !fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Alta Pulse.exe'));
 const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-function setupPortableNotice() {
-  const check = async () => {
-    try {
-      const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-      // atualização rápida: mesma versão do Electron → só troca o app.asar (2-3 MB) e reinicia
-      const quick = !!(d && d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
-      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick });
-    } catch {}
-  };
-  setTimeout(check, 15000); setInterval(check, 3 * 60 * 60 * 1000);
-}
 
-// troca o app.asar da versão sem instalador e reinicia (o original-fs não trata .asar como pasta)
+// atualização rápida (sem instalador): baixa só o app.asar novo do painel para um arquivo NOVO e aponta o carregador
+// para ele. Não roda nenhum .exe novo, então o Windows/antivírus não bloqueia e ninguém precisa reinstalar.
+let quickBusy = null;
+async function downloadQuick() {
+  if (quickBusy) return quickBusy;
+  quickBusy = (async () => {
+    const ofs = require('original-fs'); const crypto = require('crypto');
+    const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+    if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
+    const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
+    try { const cur = JSON.parse(ofs.readFileSync(path.join(process.resourcesPath, 'alta-atual.json'), 'utf8')); if (cur.file === name && ofs.existsSync(path.join(process.resourcesPath, name))) return { version: d.asar.version, ready: true }; } catch {}
+    const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
+    ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
+    try { ofs.unlinkSync(path.join(process.resourcesPath, name)); } catch {}
+    ofs.renameSync(path.join(process.resourcesPath, name + '.tmp'), path.join(process.resourcesPath, name));
+    ofs.writeFileSync(path.join(process.resourcesPath, 'alta-atual.json'), JSON.stringify({ file: name, at: new Date().toISOString() }));
+    try { fs.appendFileSync(path.join(dataDir(), 'atualizacao.log'), `${new Date().toISOString()} baixada ${d.asar.version} em ${name}\n`); } catch {}
+    return { version: d.asar.version, ready: true };
+  })().finally(() => { quickBusy = null; });
+  return quickBusy;
+}
 ipcMain.handle('portable:update', async () => {
-  const ofs = require('original-fs'); const crypto = require('crypto');
-  const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-  if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
-  const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
-  const log = (m) => { try { fs.appendFileSync(path.join(dataDir(), 'atualizacao.log'), `${new Date().toISOString()} ${m}\n`); } catch {} };
-  // grava a versão nova num arquivo novo (nada em uso é tocado) e aponta o carregador para ela
-  const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
-  ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
-  try { ofs.unlinkSync(path.join(process.resourcesPath, name)); } catch {}
-  ofs.renameSync(path.join(process.resourcesPath, name + '.tmp'), path.join(process.resourcesPath, name));
-  ofs.writeFileSync(path.join(process.resourcesPath, 'alta-atual.json'), JSON.stringify({ file: name, at: new Date().toISOString() }));
-  log(`baixada ${d.asar.version} em ${name}; reiniciando`);
+  await downloadQuick();
   setTimeout(() => { app.relaunch(); app.exit(0); }, 500);
   return true;
 });
@@ -1875,12 +1873,30 @@ function cleanOldUpdates() {
 
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
-  if (isPortable()) { setTimeout(cleanOldUpdates, 30000); setupPortableNotice(); return; }
-  let autoUpdater;
-  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
-  autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
-  autoUpdater.on('error', () => {});
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 20000); setInterval(check, 6 * 60 * 60 * 1000);
+  setTimeout(cleanOldUpdates, 30000);
+  // 1º caminho (todos, com ou sem instalador): atualização rápida em segundo plano, sem .exe novo.
+  // Fica pronta e vale na próxima vez que abrir; a lateral oferece "Reiniciar agora".
+  let electronUpdater = null;
+  const check = async () => {
+    try {
+      const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+      if (!d || !d.version || !newer(d.version, app.getVersion())) return;
+      const quick = !!(d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
+      if (quick) {
+        const q = await downloadQuick().catch(() => null);
+        if (q && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick: true, ready: true });
+        return;
+      }
+      // mudou a versão do Electron (raro): precisa do pacote completo
+      if (isPortable()) { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick: false }); return; }
+      if (!electronUpdater) {
+        try { ({ autoUpdater: electronUpdater } = require('electron-updater')); } catch { return; }
+        electronUpdater.autoDownload = true; electronUpdater.autoInstallOnAppQuit = true;
+        electronUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
+        electronUpdater.on('error', () => {});
+      }
+      electronUpdater.checkForUpdates().catch(() => {});
+    } catch {}
+  };
+  setTimeout(check, 15000); setInterval(check, 60 * 60 * 1000);
 }

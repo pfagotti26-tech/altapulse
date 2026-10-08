@@ -812,10 +812,10 @@ $('app-menu').addEventListener('click', async (e) => {
 
 window.pulse.onState(apply);
 window.pulse.onToast(toast);
-if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url, quick }) => {
+if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url, quick, ready }) => {
   let bar = document.getElementById('portable-update');
   if (!bar) { bar = document.createElement('div'); bar.id = 'portable-update'; bar.className = 'portable-update'; document.body.prepend(bar); }
-  bar.innerHTML = `<span>Nova versão ${esc(version)} disponível</span><button>${quick ? 'Atualizar' : 'Baixar'}</button>`;
+  bar.innerHTML = ready ? `<span>Versão ${esc(version)} já baixada: vale quando reabrir o Alta Pulse</span><button>Reiniciar agora</button>` : `<span>Nova versão ${esc(version)} disponível</span><button>${quick ? 'Atualizar' : 'Baixar'}</button>`;
   const btn = bar.querySelector('button');
   btn.onclick = async () => {
     if (!quick || !window.pulse.portableUpdate) return window.pulse.openExternal(url);
