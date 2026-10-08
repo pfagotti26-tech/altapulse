@@ -26,6 +26,10 @@ DAYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom']
 DISCOUNT = {'nunca': 'Nunca dar desconto.', 'uma_vez': 'Desconto só uma vez por fã e com prazo curto; nunca baixar o preço do mesmo item, prefira oferecer um item menor.', 'livre': 'Pode negociar desconto quando ajudar a fechar.'}
 PREVIEW = {'nao': 'Não manda prévia.', 'parcial': 'Prévia só parcial: um pedaço curto ou uma foto borrada; o resto é pago.', 'borrada': 'Prévia só borrada.', 'livre': 'Pode mandar prévia.'}
 
+class Features(Strict):  # chaves do admin por criadora (todas ligadas por padrão)
+    assist: bool = True   # Alta Ajuda inteira nesta criadora
+    thermo: bool = True   # termômetro de venda
+    sell: bool = True     # botão 💰 Vender e tabela de preços no cartão do fã
 class Voice(Strict):
     tone: str = Field(default='', max_length=20)
     tone_notes: str = Field(default='', max_length=600)
@@ -81,6 +85,7 @@ def normalize(prof):
     p['modules'] = {k: bool(mods.get(k)) for k in MODULES}
     for k, d in (('voice', {}), ('sales', {}), ('call', {}), ('preview', {}), ('languages', {'langs': ['pt']})):
         p[k] = {**d, **(p.get(k) or {})}
+    p['features'] = {'assist': True, 'thermo': True, 'sell': True, **(p.get('features') or {})}
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 

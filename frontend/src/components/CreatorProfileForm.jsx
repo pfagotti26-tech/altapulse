@@ -12,7 +12,7 @@ const DAYS = [['seg', 'Seg'], ['ter', 'Ter'], ['qua', 'Qua'], ['qui', 'Qui'], ['
 const reais = (c) => (c / 100).toFixed(2).replace('.', ',').replace(',00', '');
 const toCents = (s) => { const n = parseFloat(String(s).replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : null; };
 const slug = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'perfil';
-const TABS = [['nucleo', 'Núcleo'], ['precos', 'Preços'], ['modulos', 'Módulos'], ['ia', 'Alta Ajuda']];
+const TABS = [['nucleo', 'Núcleo'], ['precos', 'Preços'], ['modulos', 'Módulos'], ['ia', 'Liga / desliga']];
 
 export function CreatorProfileForm({ creatorId, onSaved }) {
   const [meta, setMeta] = useState(null), [form, setForm] = useState(null), [busy, setBusy] = useState(false), [info, setInfo] = useState(null), [tab, setTab] = useState('nucleo'), [comp, setComp] = useState(null);
@@ -32,6 +32,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
+        features: { assist: true, thermo: true, sell: true, ...(p.features || {}) },
       });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
@@ -50,7 +51,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales: form.sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -145,6 +146,12 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         <Button variant="outline" onClick={() => up({ promos: [...form.promos, { title: '', text: '', starts: '', ends: '' }] })}><Plus size={14}/>Adicionar promoção</Button></section>}
     </>}
 
+    {tab === 'ia' && <section className="profile-sec"><h3>🔌 O que fica ligado para esta criadora</h3><p className="body-muted" style={{ fontSize: 12 }}>Só o admin muda. Desligado some do app dos chatters nesta criadora.</p>
+      <div className="pf-switches">
+        {chk(form.features.assist, v => sub('features', { assist: v }), 'Alta Ajuda (sugestões de mensagem)')}
+        {chk(form.features.thermo, v => sub('features', { thermo: v }), 'Termômetro de venda')}
+        {chk(form.features.sell, v => sub('features', { sell: v }), 'Venda: botão 💰 e tabela de preços no cartão do fã')}
+      </div></section>}
     {tab === 'ia' && <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => up({ max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
       <div>{chk(form.suggest_auto, v => up({ suggest_auto: v }), 'Sugestão automática ao abrir a conversa (fã falou por último). Desligado: o chatter clica em Sugerir resposta. Precisa de preços e limites.')}</div>

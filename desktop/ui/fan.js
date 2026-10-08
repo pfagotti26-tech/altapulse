@@ -41,7 +41,7 @@ const fanAnchor = (card) => (card && card.ticket_cents) ? Math.max(0, Math.ceil(
 const fanPrice = (cents, card) => { const a = fanAnchor(card); return a ? Math.max(cents, a) : cents; };
 const brlS = (c) => 'R$ ' + (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
 function pricesHtml(c) {
-  if (!PR.list.length || !F || !F.fanRef) return '';
+  if ((AS && AS.sell === false) || !PR.list.length || !F || !F.fanRef) return '';
   const o = isOpen('prices', true);
   const t = c && c.ticket_cents;
   let h = `<button class="sec-t" data-tg="prices">${o ? '▾' : '▸'} 💰 Tabela de preços <span>${PR.list.length}</span></button>`;
@@ -72,7 +72,7 @@ function pickProduct(cat, card) {
   return { ...p, cents: fanPrice(p.cents, card), table: p.cents };
 }
 async function refreshThermo(force) {
-  if (!AS || !AS.manual || !F || !F.fanRef || F.collapsed) return;
+  if (!AS || AS.thermo === false || !AS.manual || !F || !F.fanRef || F.collapsed) return;
   const key = `${fanKey()}|${F.waitSince || 'nossa'}`;
   if (!force && TH.key === key && Date.now() - TH.at < 8000) return;
   if (TH.busy) return; TH.busy = true;
@@ -82,6 +82,7 @@ async function refreshThermo(force) {
   TH = { key, at: Date.now(), local: r }; renderAssist();
 }
 function thermoNow() {
+  if (AS && AS.thermo === false) return null;
   const L = TH.local; if (!L || TH.key == null || !TH.key.startsWith(fanKey() || '-')) return null;
   const card = F && F.card;
   let score = L.score; const why = [...L.why];
@@ -112,7 +113,7 @@ function thermoHtml() {
     if (t.band === 'cool') h += `<div class="th-cool">Objeção: <b>${esc(t.cold)}</b>. Use o prazo; não baixe o preço do mesmo item.</div>`;
     if (why) h += `<div class="th-why">${why}</div>`;
   }
-  if (t.band === 'fire' || t.band === 'hot' || t.band === 'cool') {
+  if ((t.band === 'fire' || t.band === 'hot' || t.band === 'cool') && !(AS && AS.sell === false)) {
     const card = F && F.card;
     const cheap = PR.list.length ? PR.list.reduce((a, b) => (b.cents < a.cents ? b : a)) : null;
     const p = t.band === 'cool' ? (cheap ? { ...cheap, cents: fanPrice(cheap.cents, card) } : null) : pickProduct(t.cat, card);
@@ -287,11 +288,11 @@ function renderAssist() {
     if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
     if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
   } else {
-    h += `<div class="sg-act"><button class="btn aj-go" id="sg-start" style="flex:1">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button><button class="btn sell ico" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button></div>`;
+    h += `<div class="sg-act"><button class="btn aj-go" id="sg-start" style="flex:1">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button>${AS.sell === false ? '' : '<button class="btn sell ico" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button>'}</div>`;
   }
   if (r && !r.alert && !SG.busy) {
     h += `<div class="aj-levels" title="Refaz a sugestão nesse nível. O máximo é o da ficha.">${LV.slice(0, lvMax + 1).map(([v, l]) => `<button class="aj-lv ${v === SG.level ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
-    h += `<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn sell ico${(thermoNow() || {}).band === 'fire' ? ' glow' : ''}" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button></div>`;
+    h += `<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button>${AS.sell === false ? '' : `<button class="btn sell ico${(thermoNow() || {}).band === 'fire' ? ' glow' : ''}" id="sg-sell" title="Vender: refaz a mensagem para vender um item da tabela, escolhido pela conversa">💰</button>`}</div>`;
   } else if (SG.err) h += '<div class="sg-act"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>';
   box.innerHTML = h;
   const ta = $('aj-text');

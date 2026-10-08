@@ -489,3 +489,4 @@ table.ai-days td.has{font-weight:700;color:#3f8158;text-align:center}table.ai-da
 .pf-add{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .ficha-badge{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:12px;margin-left:6px}
 .ficha-badge.ok{background:#e6f5ec;color:#1f7a45}.ficha-badge.mid{background:#fdf3dd;color:#94690f}.ficha-badge.low{background:#fdecef;color:#b0233c}
+.pf-switches{display:flex;flex-direction:column;gap:8px}

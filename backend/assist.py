@@ -165,6 +165,7 @@ class ProfileIn(Strict):
     promos: list[PM.Promo] = Field(default_factory=list, max_length=10)
     objections: list[PM.Objection] = Field(default_factory=list, max_length=15)
     custom_delivery: str = Field(default='', max_length=300)
+    features: PM.Features = Field(default_factory=PM.Features)
 OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
@@ -265,7 +266,8 @@ async def status(creator_id: str, user=Depends(extension_user)):
     await can_see(user, creator_id)
     c = await config(); key = await xai_key()
     prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
-    return {'enabled': bool(c['enabled'] and key), 'max_level': prof.get('max_level', 'picante'),
+    feat = PM.normalize(prof)['features']
+    return {'enabled': bool(c['enabled'] and key and feat['assist']), 'thermo': feat['thermo'], 'sell': feat['sell'], 'max_level': prof.get('max_level', 'picante'),
             'suggest': bool(c['enabled'] and key and prof.get('suggest_auto') and prof.get('prices') and prof.get('limits')),
             'has_profile': bool(prof), 'has_prices': bool(prof.get('prices')), 'remaining': await remaining_for(c, user),
             'manual': bool(c['enabled'] and key and (prof.get('persona') or prof.get('prices'))),
@@ -442,6 +444,7 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
     if not prof.get('persona') and not prof.get('prices'): raise HTTPException(409, 'A ficha desta criadora ainda não foi preenchida no painel.')
+    if not PM.normalize(prof)['features']['assist']: raise HTTPException(409, 'A Alta Ajuda está desligada para esta criadora.')
     await check_quota(c, user)
     mods = PM.normalize(prof)['modules']
     if not mods['segments']: prof = {**prof, 'fan_segments': []}
@@ -590,7 +593,8 @@ async def mark_used(usage_id: str, user=Depends(extension_user)):
 async def app_prices(creator_id: str, user=Depends(extension_user)):
     """Tabela de preços da criadora para o cartão do fã (sem a persona)."""
     await can_see(user, creator_id)
-    prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'prices': 1}) or {}
+    prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'prices': 1, 'features': 1}) or {}
+    if not PM.normalize(prof)['features']['sell']: return {'prices': []}
     return {'prices': prof.get('prices') or []}
 
 
