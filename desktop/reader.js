@@ -48,6 +48,7 @@ class CreatorReader {
   constructor(creatorId, secret, store, options = {}) {
     this.creatorId = creatorId; this.secret = secret; this.options = options; // { fanNames: bool }
     this.s = store || { rooms: {}, sent: {}, lastObservedAt: null };
+    if (!this.s.creators) this.s.creators = {}; // conversas com outras criadoras (não contam como fã esperando)
   }
   ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, ...parts].join('|')).digest('hex'); }
   roomKey(name) { return this.ref('room', name); }
@@ -63,9 +64,11 @@ class CreatorReader {
 
     // ---- fila (só local) + vendas por total gasto na lista ----
     let waiting = 0, oldest = null, recent = 0; const waitList = [];
+    if (data.open && data.open.otherCreator && data.open.name) this.s.creators[this.roomKey(data.open.name)] = 1;
     for (const r of data.rooms || []) {
       const key = this.roomKey(r.name);
-      if (!r.ours) {
+      if (r.verified) this.s.creators[key] = 1;
+      if (!r.ours && !this.s.creators[key]) {
         waiting += 1;
         const t = listAt(r.when, now);
         if (t && (!oldest || t < oldest)) oldest = t;
@@ -89,7 +92,7 @@ class CreatorReader {
 
     // ---- conversa aberta: esperas e respostas ----
     const open = data.open;
-    if (open && !open.skeleton && open.msgs.length) {
+    if (open && !open.skeleton && open.msgs.length && !open.otherCreator) {
       let start = null;
       for (const m of open.msgs) {
         const t = at(m.date, m.time, now); if (!t) continue;

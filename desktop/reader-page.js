@@ -39,6 +39,7 @@ module.exports = String.raw`(() => {
   const REACTION = /\breagiu com\b|\bcurtiu\b|\breacted\b|\bliked\b/i;
   const lastText = (r) => txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last'));
   const isOurs = (r) => !!r.querySelector('.message-last .vac-icon-check') || REACTION.test(lastText(r));
+  const VERIFIED = '[class*="verified" i], [class*="verificad" i], svg[data-icon*="badge-check"], svg[data-icon="circle-check"]:not(.vac-icon-check), img[alt*="verific" i]';
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
     online: online(r),
@@ -50,6 +51,8 @@ module.exports = String.raw`(() => {
     // A frase é avaliada aqui e descartada: só o sim/não sai da página.
     rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
     intent: !isOurs(r) && INTENT.test(lastText(r).toLowerCase()),
+    // selo de conta verificada ao lado do nome = outra criadora (divulgação, venda de mídia): não é fã esperando
+    verified: !!r.querySelector(VERIFIED),
   })).filter((r) => r.name);
   // conversa aberta: o id vem do endereço (?cid= ou /chat/<id>); no layout estreito da Privacy ele pode
   // não aparecer, então cai no nome do cabeçalho (estável para a mesma conversa)
@@ -88,7 +91,10 @@ module.exports = String.raw`(() => {
       const day = /^\d{1,2}:\d{2}$/.test(w) ? 'Hoje' : w;
       if (day) for (const m of undated) msgs.push({ ...m, date: day });
     }
-    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub };
+    // do outro lado é uma criadora se ela tem selo de verificada no cabeçalho ou se ELA mandou mídia paga para nós
+    const headerVerified = !!(qs('.vac-room-header') && qs('.vac-room-header').querySelector(VERIFIED));
+    const otherCreator = headerVerified || [...msgs, ...undated].some((m) => !m.ours && m.offer);
+    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub, otherCreator };
   }
   return { page: location.pathname.startsWith('/chat') ? 'chat' : 'other', rooms, open, loading: !!qs('.skeleton-messages'), roots: roots.length };
 })()`;

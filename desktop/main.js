@@ -386,7 +386,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
   const subAtiva = platform !== 'privacy' || open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
   // esperando resposta: da primeira mensagem do fã depois da nossa última até agora
   let waitSince = null;
-  { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
+  if (!open.otherCreator) { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
     const first = ms[i + 1]; if (first && !first.ours && first.date) { const t = msgAt(first.date, first.time, new Date()); if (t) waitSince = t.toISOString(); } }
   if (fan.creatorId !== id || fan.fanRef !== ref) { fan = { creatorId: id, fanRef: ref, name: open.name, cid: open.cid, chatting, subAtiva, waitSince, card: null, loading: false, error: null, fetchedAt: 0 }; loadFanCard(true); }
   else {
