@@ -25,6 +25,11 @@ Ao final aparece o endereço de teste `https://204-168-180-221.sslip.io`.
 
 ## Copiar os dados do Emergent
 
+Se o Emergent entregar um arquivo de dump (archive.gz): envie para o servidor
+(`scp ARQUIVO root@204.168.180.221:/root/`) e rode `bash /opt/altapulse/deploy/restore.sh /root/ARQUIVO`.
+
+Ou, com acesso direto ao banco:
+
     bash /opt/altapulse/deploy/migrate.sh
 
 Pede a "URL do Mongo" (Emergent → Gerenciar implantações → Banco de dados). Ela não fica salva.
