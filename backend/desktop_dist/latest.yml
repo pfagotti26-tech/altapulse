@@ -1,8 +1,8 @@
-version: 1.4.21
+version: 1.4.22
 files:
-  - url: AltaPulse-Setup-1.4.21.exe
-    sha512: 9MurlQ6DjWspUoZnpCfxp9PpHF6u2Q8g8qo5pU7fdDJ0CPlUn2t2AwzVkrqegAoWnejeuyZ4c0VhifdhTplaMA==
-    size: 114715550
-path: AltaPulse-Setup-1.4.21.exe
-sha512: 9MurlQ6DjWspUoZnpCfxp9PpHF6u2Q8g8qo5pU7fdDJ0CPlUn2t2AwzVkrqegAoWnejeuyZ4c0VhifdhTplaMA==
-releaseDate: '2026-10-07T23:23:47.233Z'
+  - url: AltaPulse-Setup-1.4.22.exe
+    sha512: f16tnReoUQiM36D8o+bwtCiyhkmXwoOgkA3ktxaZQMW+3X3IAjNhpdk16ugNNEiCDrbdR9OCTHkHDaajUo2/jQ==
+    size: 114713007
+path: AltaPulse-Setup-1.4.22.exe
+sha512: f16tnReoUQiM36D8o+bwtCiyhkmXwoOgkA3ktxaZQMW+3X3IAjNhpdk16ugNNEiCDrbdR9OCTHkHDaajUo2/jQ==
+releaseDate: '2026-10-08T11:17:32.333Z'
