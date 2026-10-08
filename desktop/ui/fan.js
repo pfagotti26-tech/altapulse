@@ -15,18 +15,18 @@ const open = (() => { try { return JSON.parse(localStorage.getItem('fan-open') |
 const isOpen = (k, def) => (k in open ? open[k] : def);
 const toggle = (k, def) => { open[k] = !isOpen(k, def); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} render(); };
 let noteOpen = false;
-// Alta Ajuda: o chatter escreve o que quer dizer e recebe versões prontas (nada da conversa é enviado)
+// Alta Ajuda (um bloco só): sugestão de mensagem na voz da criadora, a partir do fim da conversa.
+// Automática quando a ficha liga "sugestão automática" e o fã falou por último; nas outras, o chatter clica em Sugerir.
+// O chatter edita aqui ou na caixa da Privacy e envia. Nada é enviado pelo sistema.
 const LV = [['leve', 'Leve'], ['picante', 'Picante'], ['explicito', 'Explícito']];
-const AJ_HELP = 'Como usar: escreva com suas palavras o que quer dizer ao fã (ex.: "ele perguntou o preço do vídeo, quero provocar antes de falar que é 79,90"). Escolha o nível e clique em Criar mensagem. Você recebe 3 versões no estilo da criadora; clique em Usar para colocar na caixa da Privacy, revise e envie. A conversa com o fã não é lida nem enviada: só o que você escreve aqui.';
-let AS = null, asFor = null, aj = { fan: null, busy: false, res: null, err: null, level: null, draft: '', help: false };
+const AJ_HELP = 'Como usar: quando o fã fala por último, a Alta Ajuda lê o fim da conversa e sugere a resposta na voz da criadora, no tom do perfil do fã. Edite o texto aqui se quiser, clique em Colocar na caixa e envie pela Privacy. Leve/Picante/Explícito refaz a sugestão nesse nível; Outra gera outra versão; Mais vendedora puxa para a oferta. Classifique o fã (Servo, Cuck, Baunilha…) para acertar o tom: vale para a equipe toda.';
+const STEP = { abertura: 'Abertura', aquecimento: 'Aquecimento', oferta: 'Oferta', fechamento: 'Fechamento', 'pos-venda': 'Pós-venda', reativacao: 'Reativação' };
+let AS = null, asFor = null, aj = { help: false, sheet: false, sheetData: null, sheetFor: null };
 async function loadAssist(force) {
   const key = F && F.creatorId; if (!key) return;
   if (!force && asFor === key && AS) return;
   asFor = key; AS = await window.pulse.assistStatus(force).catch(() => null); render(); loadSeg(); maybeSuggest();
 }
-// Sugerir resposta: só nas criadoras com a chave ligada na ficha e quando o fã falou por último
-const STEP = { abertura: 'Abertura', aquecimento: 'Aquecimento', oferta: 'Oferta', fechamento: 'Fechamento', 'pos-venda': 'Pós-venda', reativacao: 'Reativação' };
-let SG = { key: null }, sgTimer = null;
 // perfil do fã (classificação da equipe)
 let SEG = { for: null, value: '', by: null, busy: false };
 const segList = () => (AS && AS.segments) || [];
@@ -36,75 +36,51 @@ async function loadSeg() {
   SEG = { for: null, value: '', by: null, loading: k };
   const r = await window.pulse.fanSegGet().catch(() => ({ segment: '' }));
   if (fanKey() !== k) return;
-  SEG = { for: k, value: r.segment || '', by: r.by || null }; render(); maybeSuggest();
+  SEG = { for: k, value: r.segment || '', by: r.by || null }; renderAssist(); maybeSuggest();
 }
 async function setSeg(value) {
   const k = fanKey(); if (!k) return;
-  const prev = SEG.value; SEG = { ...SEG, value, busy: true }; render();
+  const prev = SEG.value; SEG = { ...SEG, value, busy: true }; renderAssist();
   try { const r = await window.pulse.fanSegSet(value); if (fanKey() === k) SEG = { for: k, value: r.segment || '', by: r.by || null }; }
   catch (err) { SEG = { ...SEG, value: prev }; alertLine(err.message); }
-  SEG.busy = false; render(); maybeSuggest();
+  SEG.busy = false; renderAssist();
+  if (SG.key && SG.key.startsWith(k)) runSuggest(SG.key, {}); // refaz no tom do novo perfil
 }
 function segHtml() {
-  const list = segList(); if (!list.length || !F || !F.fanRef) return '';
+  const list = segList(); if (!list.length) return '';
   const ready = SEG.for === fanKey();
   const dflt = list.find((x) => x.default) || list[0];
   const tip = SEG.value ? `Classificado${SEG.by ? ` por ${SEG.by}` : ''}. Clique de novo para tirar.` : `Sem classificação: a sugestão usa ${dflt.label}.`;
   return `<div class="seg" title="${esc(tip)}"><span>Perfil do fã</span>${list.map((x) => `<button class="seg-b${ready && SEG.value === x.key ? ' on' : ''}" data-seg="${esc(x.key)}" ${!ready || SEG.busy ? 'disabled' : ''}>${esc(x.label)}</button>`).join('')}</div>`;
 }
-const sgKey = () => (AS && AS.suggest && F && F.active && F.fanRef && F.waitSince && !F.collapsed && (!segList().length || SEG.for === fanKey())) ? `${F.creatorId}|${F.fanRef}|${F.waitSince}|${SEG.value}` : null;
+// sugestão: uma por fã e momento da conversa
+let SG = { key: null }, sgTimer = null;
+const baseKey = () => (AS && AS.manual && F && F.active && F.fanRef && !F.collapsed && (!segList().length || SEG.for === fanKey())) ? `${F.creatorId}|${F.fanRef}|${F.waitSince || 'nossa'}` : null;
 function maybeSuggest() {
-  const k = sgKey();
-  if (!k) { if (SG.key) { SG = { key: null }; renderSug(); } return; }
+  const k = baseKey();
+  if (!k) { if (SG.key) { SG = { key: null }; renderAssist(); } return; }
   if (SG.key === k) return;
-  SG = { key: k, busy: true }; renderSug();
-  clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k), 600); // espera a conversa carregar
+  SG = { key: k }; // conversa nova ou o fã falou de novo: limpa a sugestão anterior
+  if (AS.suggest && F.waitSince) { SG.busy = true; clearTimeout(sgTimer); sgTimer = setTimeout(() => runSuggest(k, {}), 600); }
+  renderAssist();
 }
-async function runSuggest(k, style) {
+async function runSuggest(k, { style, level } = {}) {
   if (SG.key !== k) return;
-  SG = { key: k, busy: true }; renderSug();
+  const mode = F && F.waitSince ? 'reply' : 'followup';
+  SG = { key: k, busy: true, level: level || SG.level }; renderAssist();
   try {
-    const res = await window.pulse.assistSuggest({ style });
+    const res = await window.pulse.assistSuggest({ style, level, mode });
     if (SG.key !== k) return;
-    if (res && res.skip) { SG = { key: k, closed: true }; renderSug(); return; }
-    SG = { key: k, res }; if (res && res.remaining != null && AS) AS.remaining = res.remaining;
+    if (res && res.skip) { SG = { key: k }; renderAssist(); return; }
+    SG = { key: k, res, text: res.text || '', level: res.level }; if (res && res.remaining != null && AS) AS.remaining = res.remaining;
   } catch (err) { if (SG.key !== k) return; SG = { key: k, err: String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }; }
-  renderSug(); renderAssist();
-}
-function renderSug() {
-  const el = $('sug'); if (!el) return;
-  if (!SG.key || SG.closed || (F && F.collapsed)) { el.innerHTML = ''; return; }
-  let h = '<div class="sg"><div class="sg-h"><span>Sugestão para a última mensagem</span><button class="icon" id="sg-x" title="Fechar esta sugestão">×</button></div>';
-  if (SG.busy) h += '<div class="sg-meta">Lendo a conversa e escrevendo na voz da criadora…</div>';
-  else if (SG.err) h += `<div class="pend" style="margin-top:6px">${esc(SG.err)}</div><div class="sg-act" style="margin-top:8px"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>`;
-  else if (SG.res && SG.res.alert) h += `<div class="tip" style="margin-top:6px"><b>Atenção:</b> possível menor de idade (${esc(SG.res.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
-  else if (SG.res) {
-    const r = SG.res; const meta = [STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
-    if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`; else h += '<div style="height:6px"></div>';
-    h += `<div class="sg-t">${esc(r.text)}</div>`;
-    if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
-    const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
-    if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
-    if (r.price_fixed) h += '<div class="muted aj-note" style="margin-bottom:8px">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
-    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again" title="Gera outra sugestão">Outra</button><button class="btn ghost" id="sg-sell" title="Outra sugestão puxando para a venda">Mais vendedora</button></div>';
-  }
-  el.innerHTML = h + '</div>';
-  const k = SG.key;
-  const x = $('sg-x'); if (x) x.addEventListener('click', () => { SG = { key: k, closed: true }; renderSug(); });
-  const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(k));
-  const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(k, 'vendedora'));
-  const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
-  const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
-    const r = await window.pulse.assistUse(SG.res.text).catch(() => ({ filled: false }));
-    use.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
-  });
+  renderAssist();
 }
 
 function render() {
   const typing = document.activeElement && document.activeElement.id;
   if (typing !== 'note') renderBody();
-  if (typing !== 'aj-draft') renderAssist();
-  renderSug();
+  if (typing !== 'aj-text') renderAssist();
 }
 function renderBody() {
   const collapsed = !!(F && F.collapsed);
@@ -146,7 +122,6 @@ function renderBody() {
     parts.push(`equipe: <b>${dur(r.avg_seconds)}</b>`);
     if (r.last_seconds != null) parts.push(`última: ${dur(r.last_seconds)}`);
     h += `<div class="resp">Resposta a este fã (30 dias) · ${parts.join(' · ')}</div>`; }
-  h += segHtml();
   const subLine = c.subscription && (c.subscription.status || c.subscription.price_cents != null) ? `Assinatura${c.subscription.status ? `: <b>${esc(c.subscription.status)}</b>` : ''}${c.subscription.price_cents != null ? ` · ${money(c.subscription.price_cents)}` : ''}${c.subscription.duration ? ` · ${esc(c.subscription.duration)}` : ''}<br>` : '';
   if (!c.purchases) h += `<div class="sub">${subLine}Primeira compra ainda não registrada.</div>`;
   else h += `<div class="nums"><div><span>Gasto total</span><b>${moneyShort(c.total_cents)}</b></div><div><span>Ticket médio</span><b>${moneyShort(c.ticket_cents)}</b></div><div><span>Última compra</span><b>${c.days_since_last === 0 ? 'hoje' : `há ${c.days_since_last} d`}</b></div></div>`;
@@ -183,7 +158,6 @@ function renderBody() {
     ta.disabled = true;
     try { await window.pulse.fanNoteAdd(text); draft = ''; noteOpen = false; } catch (err) { alertLine(err.message); } finally { ta.disabled = false; }
   });
-  b.querySelectorAll('[data-seg]').forEach((x) => x.addEventListener('click', () => setSeg(SEG.value === x.dataset.seg ? '' : x.dataset.seg)));
   b.querySelectorAll('[data-del]').forEach((x) => x.addEventListener('click', () => window.pulse.fanNoteDel(x.dataset.del).catch((err) => alertLine(err.message))));
   const ct = $('contacted'); if (ct) ct.addEventListener('click', () => window.pulse.fanContacted(c.task.id).catch((err) => alertLine(err.message)));
 }
@@ -192,29 +166,38 @@ function renderAssist() {
   const show = !!(AS && AS.enabled && F && F.active && F.fanRef && !F.collapsed);
   box.classList.toggle('hidden', !show);
   if (!show) { box.innerHTML = ''; return; }
-  if (aj.fan !== F.fanRef) aj = { fan: F.fanRef, busy: false, res: null, err: null, level: aj.level, draft: '', help: aj.help, sheet: aj.sheet && aj.sheetFor === F.creatorId, sheetData: aj.sheetFor === F.creatorId ? aj.sheetData : null, sheetFor: F.creatorId };
-  const max = Math.max(0, LV.findIndex(([v]) => v === AS.max_level));
-  const lv = aj.level && LV.findIndex(([v]) => v === aj.level) <= max ? aj.level : LV[max][0];
-  let h = `<div class="aj-head"><b>Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores que não estão no seu texto aparecem como [preço]. O gestor preenche na ficha da criadora (painel → Criadoras).">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-sheet${aj.sheet ? ' on' : ''}" id="aj-sheet" title="Ficha da criadora: persona, limites e tabela de preços">▦</button><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
+  if (aj.sheetFor !== F.creatorId) aj = { ...aj, sheet: false, sheetData: null, sheetFor: F.creatorId };
+  let h = `<div class="aj-head"><b>Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores aparecem como [preço]. O gestor preenche na ficha (painel → Criadoras).">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-sheet${aj.sheet ? ' on' : ''}" id="aj-sheet" title="Ficha da criadora: persona, limites e tabela de preços">▦</button><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
   if (aj.help) h += `<div class="aj-help">${esc(AJ_HELP)}</div>`;
   if (aj.sheet) h += sheetHtml();
-  const r = aj.res;
-  let out = '';
-  if (r && r.alert) out += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
+  h += segHtml();
+  if (!AS.manual) { box.innerHTML = h + '<div class="muted aj-note">A ficha desta criadora ainda não foi preenchida no painel.</div>'; bindAssist(); return; }
+  const r = SG.res;
+  const lvMax = Math.max(0, LV.findIndex(([v]) => v === ((r && r.max_level) || AS.max_level)));
+  if (SG.busy) h += '<div class="sg-meta">Lendo a conversa e escrevendo na voz da criadora…</div>';
+  else if (SG.err) h += `<div class="pend">${esc(SG.err)}</div>`;
+  else if (r && r.alert) h += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
   else if (r) {
-    (r.suggestions || []).forEach((s, i) => { out += `<div class="aj-sug"><span class="aj-tone">${esc(s.tone)}</span><div>${esc(s.text)}</div><div class="aj-act"><button class="btn" data-use="${i}" title="Coloca na caixa de mensagem da Privacy. Revise antes de enviar.">Usar</button></div></div>`; });
-    if (r.price_fixed) out += '<div class="muted aj-note">Um valor fora da tabela foi trocado por [preço]. Complete antes de enviar.</div>';
+    const meta = [STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
+    if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`;
+    h += `<textarea id="aj-text" rows="3" maxlength="1500" title="Edite à vontade antes de colocar na caixa">${esc(SG.text)}</textarea>`;
+    if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
+    const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
+    if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
+    if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
+  } else {
+    h += `<button class="btn aj-go" id="sg-start" style="width:100%">${F.waitSince ? 'Sugerir resposta' : 'Sugerir mensagem para puxar conversa'}</button>`;
   }
-  if (aj.err) out += `<div class="pend">${esc(aj.err)}</div>`;
-  if (out) h += `<div class="aj-out" id="aj-out">${out}</div>`;
-  h += `<textarea id="aj-draft" rows="4" maxlength="1000" placeholder="O que você quer dizer ao fã?&#10;Ex.: ele perguntou o preço do vídeo, quero provocar antes de falar o valor" title="Escreva a ideia com suas palavras. A Alta Ajuda transforma em mensagem pronta.">${esc(aj.draft)}</textarea>`;
-  h += `<div class="aj-bar"><div class="aj-levels" title="Quão quente a mensagem pode ser. O máximo é definido pelo gestor no perfil da criadora.">${LV.slice(0, max + 1).map(([v, l]) => `<button class="aj-lv ${v === lv ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div><button class="btn aj-go" id="aj-go" ${aj.busy ? 'disabled' : ''} title="Gera 3 versões: provocante, carinhosa e vendedora (Ctrl+Enter)">${aj.busy ? 'Criando…' : 'Criar mensagem'}</button></div>`;
+  if (r && !r.alert && !SG.busy) {
+    h += `<div class="aj-levels" title="Refaz a sugestão nesse nível. O máximo é o da ficha.">${LV.slice(0, lvMax + 1).map(([v, l]) => `<button class="aj-lv ${v === SG.level ? 'on' : ''}" data-lv="${v}">${l}</button>`).join('')}</div>`;
+    h += '<div class="sg-act"><button class="btn" id="sg-use" title="Coloca na caixa de mensagem da Privacy. Revise e envie.">Colocar na caixa</button><button class="btn ghost" id="sg-again">Outra</button><button class="btn ghost" id="sg-sell" title="Outra versão puxando para a venda">Mais vendedora</button></div>';
+  } else if (SG.err) h += '<div class="sg-act"><button class="btn ghost" id="sg-again">Tentar de novo</button></div>';
   box.innerHTML = h;
-  const ta = $('aj-draft');
-  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; };
-  grow();
+  const ta = $('aj-text');
+  if (ta) { const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'; }; grow(); ta.addEventListener('input', () => { SG.text = ta.value; grow(); }); }
   bindAssist();
 }
+
 // ficha da criadora (preenchida pelo gestor no painel): preços primeiro, depois limites e persona
 const brl = (c) => 'R$ ' + (c / 100).toFixed(2).replace('.', ',').replace(',00', '');
 function sheetHtml() {
@@ -235,25 +218,20 @@ function bindAssist() {
     renderAssist();
   });
   const help = $('aj-help'); if (help) help.addEventListener('click', () => { aj.help = !aj.help; renderAssist(); });
-  document.querySelectorAll('[data-lv]').forEach((b) => b.addEventListener('click', () => { aj.level = b.dataset.lv; renderAssist(); }));
-  const ta = $('aj-draft');
-  if (ta) { ta.addEventListener('input', () => { aj.draft = ta.value; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; });
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('aj-go').click(); } }); }
-  const go = $('aj-go'); if (go) go.addEventListener('click', async () => {
-    if ((aj.draft || '').trim().length < 3) { aj.err = 'Escreva primeiro o que você quer dizer ao fã.'; renderAssist(); return; }
-    const max = Math.max(0, LV.findIndex(([v]) => v === AS.max_level));
-    const level = aj.level && LV.findIndex(([v]) => v === aj.level) <= max ? aj.level : LV[max][0];
-    const fanAt = F.fanRef; aj.busy = true; aj.err = null; renderAssist();
-    try { const res = await window.pulse.assistRun({ level, draft: aj.draft }); if (F.fanRef === fanAt) { aj.res = res; if (res.remaining != null) AS.remaining = res.remaining; } }
-    catch (err) { if (F.fanRef === fanAt) aj.err = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
-    finally { aj.busy = false; renderAssist(); const o = $('aj-out'); if (o) o.scrollTop = 0; }
+  document.querySelectorAll('#assist [data-seg]').forEach((x) => x.addEventListener('click', () => setSeg(SEG.value === x.dataset.seg ? '' : x.dataset.seg)));
+  const k = SG.key || baseKey();
+  const start = $('sg-start'); if (start) start.addEventListener('click', () => { if (!SG.key) SG = { key: k }; runSuggest(SG.key, {}); });
+  document.querySelectorAll('[data-lv]').forEach((b) => b.addEventListener('click', () => runSuggest(SG.key, { level: b.dataset.lv })));
+  const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(SG.key, { level: SG.level }));
+  const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key, { style: 'vendedora', level: SG.level }));
+  const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
+  const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
+    const text = ($('aj-text') ? $('aj-text').value : SG.text) || ''; if (!text.trim()) return;
+    const r = await window.pulse.assistUse(text).catch(() => ({ filled: false }));
+    use.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
   });
-  document.querySelectorAll('[data-use]').forEach((b) => b.addEventListener('click', async () => {
-    const s = aj.res && aj.res.suggestions[+b.dataset.use]; if (!s) return;
-    const r = await window.pulse.assistUse(s.text).catch(() => ({ filled: false }));
-    b.textContent = r.filled ? 'Na caixa da Privacy' : 'Copiado (Ctrl+V)';
-  }));
 }
+
 function alertLine(msg) { const d = document.createElement('div'); d.className = 'pend'; d.textContent = String(msg).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); $('body').prepend(d); setTimeout(() => d.remove(), 5000); }
 
 $('collapse').addEventListener('click', () => window.pulse.fanCollapse(true));

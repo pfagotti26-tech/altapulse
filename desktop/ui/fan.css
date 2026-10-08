@@ -101,3 +101,7 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .seg-b:disabled { opacity: .55; cursor: default; }
 .sg-seg { font-size: 12px; margin-bottom: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sg-seg .btn { padding: 4px 8px; font-size: 11.5px; }
+#assist { overflow-y: auto; }
+#assist .btn.ghost { background: transparent; border: 1px solid #3a2a4a; color: #d8cfe6; }
+#assist .sg-act .btn:first-child { background: var(--red); }
+#assist .seg { margin: 0; }

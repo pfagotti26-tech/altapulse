@@ -35,7 +35,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     try {
       const prices = form.prices.filter(p => p.item.trim() && String(p.value).trim() && toCents(p.value) != null).map(p => ({ item: p.item.trim(), cents: toCents(p.value), obs: (p.obs || '').trim() }));
       const slug = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'perfil';
-      const segs = form.fan_segments.filter(x => x.label.trim()).map(x => ({ key: x.key || slug(x.label), label: x.label.trim(), tone: (x.tone || '').trim(), default: !!x.default }));
+      const segs = form.fan_segments.filter(x => x.label.trim()).map(x => ({ key: x.key || slug(x.label), label: x.label.trim(), tone: (x.tone || '').trim(), default: !!x.default, level: x.level || null }));
       const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, fan_segments: segs, prices, persona: form.persona })).data;
       toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -62,13 +62,14 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       {form.fan_segments.map((x, i) => <div key={i} className="profile-grid" style={{ alignItems: 'start', marginBottom: 8 }}>
         <Field id={`pf-seg-${i}`} label="Nome do perfil"><Input id={`pf-seg-${i}`} maxLength={30} value={x.label} onChange={e => setSeg(i, { label: e.target.value })} placeholder="Ex.: Baunilha"/></Field>
         <Field id={`pf-segt-${i}`} label="Como falar com este fã"><textarea className="assist-textarea" rows={3} maxLength={1200} value={x.tone || ''} onChange={e => setSeg(i, { tone: e.target.value })} placeholder="Tom, vocabulário, o que dizer sobre ela"/></Field>
+        <Field id={`pf-segl-${i}`} label="Intensidade da sugestão"><Select id={`pf-segl-${i}`} value={x.level || ''} onChange={e => setSeg(i, { level: e.target.value })}><option value="">Igual à máxima da ficha</option>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l.split(' — ')[0]}</option>)}</Select></Field>
         <div className="row-actions"><label className="checkbox-label small"><input type="radio" name="seg-default" checked={!!x.default} onChange={() => setSeg(i, { default: true })}/><span>padrão</span></label><Button variant="ghost" onClick={() => setForm({ ...form, fan_segments: form.fan_segments.filter((_, j) => j !== i) })}><Trash2 size={14}/></Button></div>
       </div>)}
       {form.fan_segments.length < 6 && <div><Button variant="outline" onClick={() => setForm({ ...form, fan_segments: [...form.fan_segments, { key: '', label: '', tone: '', default: !form.fan_segments.length }] })}><Plus size={14}/>Adicionar perfil de fã</Button></div>}
     </section>
     <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-style" label="Observações para a IA (tom, cuidados)"><textarea className="assist-textarea" rows={3} maxLength={2000} value={form.style} onChange={e => setForm({ ...form, style: e.target.value })} placeholder="Ex.: frases curtas; provoca antes de oferecer."/></Field>
-      <label className="checkbox-label" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="pf-suggest" checked={!!form.suggest_auto} onChange={e => setForm({ ...form, suggest_auto: e.target.checked })}/><span><b>Sugerir resposta ao abrir a conversa</b> (só esta criadora). Quando o fã falou por último, o app lê as últimas mensagens e mostra um rascunho na voz dela; o chatter coloca na caixa, edita e envia. Nada é enviado sozinho. Precisa de tabela de preços e limites preenchidos. As mensagens vão mascaradas (sem telefone, e-mail ou links) para a xAI.</span></label>
+      <label className="checkbox-label" style={{ gridColumn: '1 / -1' }}><input type="checkbox" data-testid="pf-suggest" checked={!!form.suggest_auto} onChange={e => setForm({ ...form, suggest_auto: e.target.checked })}/><span><b>Sugestão automática ao abrir a conversa</b>. Ligado: quando o fã falou por último, a sugestão já aparece sozinha. Desligado: o chatter clica em Sugerir resposta quando quiser. Nada é enviado sozinho; o chatter edita e envia. Precisa de tabela de preços e limites preenchidos. As mensagens vão mascaradas (sem telefone, e-mail ou links) para a xAI.</span></label>
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => setForm({ ...form, max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
     </div></section>
     <div className="form-actions"><Button data-testid="profile-save" disabled={busy} onClick={save}>Salvar ficha</Button></div>

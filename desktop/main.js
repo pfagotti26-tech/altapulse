@@ -1393,15 +1393,18 @@ const READ_MSGS_SCRIPT = String.raw`(() => {
   }
   return { name, msgs: msgs.slice(-14) };
 })()`;
-ipcMain.handle('assist:suggest', async (_e, { style } = {}) => {
+ipcMain.handle('assist:suggest', async (_e, { style, level, mode } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
   const view = views.get(id); if (!view || view.webContents.isDestroyed()) throw new Error('Abra a conversa na Privacy.');
   const fanAt = fan.fanRef;
   const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
-  if (!read || !read.msgs || !read.msgs.length) throw new Error('Não consegui ler a conversa. Tente Outra em alguns segundos.');
+  const m = mode === 'followup' ? 'followup' : 'reply';
+  if (!read || !read.msgs || (m === 'reply' && !read.msgs.length)) throw new Error('Não consegui ler a conversa. Tente de novo em alguns segundos.');
   if (fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) throw new Error('A conversa mudou.');
-  if (read.msgs[read.msgs.length - 1].ours) return { skip: true };
-  const out = await api('POST', '/extension/assist/suggest', { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal' });
+  if (m === 'reply' && read.msgs[read.msgs.length - 1].ours) return { skip: true };
+  const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m };
+  if (['leve', 'picante', 'explicito'].includes(level)) body.level = level;
+  const out = await api('POST', '/extension/assist/suggest', body);
   const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
   return { ...out, fanRef: fanAt };
 });
