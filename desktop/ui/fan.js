@@ -15,6 +15,10 @@ const open = (() => { try { return JSON.parse(localStorage.getItem('fan-open') |
 const isOpen = (k, def) => (k in open ? open[k] : def);
 const toggle = (k, def) => { open[k] = !isOpen(k, def); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} render(); };
 let noteOpen = false;
+// padrão de cada quadro (aberto = true); Últimas compras e o detalhe do termômetro vêm recolhidos
+const TG_DEFAULT = (k, nNotes) => k === 'notes' ? nNotes > 0 : k === 'buys' ? false : k === 'thermo' ? false : true;
+const ALL_TG = ['wait', 'resumo', 'buys', 'notes', 'prices', 'assist', 'thermo'];
+function setAll(openAll) { for (const k of ALL_TG) open[k] = openAll; try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} render(); }
 // Alta Ajuda (um bloco só): sugestão de mensagem na voz da criadora, a partir do fim da conversa.
 // Automática quando a ficha liga "sugestão automática" e o fã falou por último; nas outras, o chatter clica em Sugerir.
 // O chatter edita aqui ou na caixa da Privacy e envia. Nada é enviado pelo sistema.
@@ -211,24 +215,31 @@ function renderBody() {
   }
   if (!c) { b.innerHTML = `<div class="empty">${F.error ? esc(F.error) : 'Carregando o cartão…'}</div>`; return; }
   let h = '';
-  // esperando resposta agora (conta ao vivo) e tempo de resposta com este fã
+  // quadros minimizáveis: cada chatter guarda o próprio jeito (localStorage). Recolhido mostra uma linha com o essencial.
+  // esperando resposta: nunca some, só encolhe; acima da meta fica vermelho mesmo encolhido
   if (F.waitSince) { const sec = (Date.now() - new Date(F.waitSince).getTime()) / 1000; const late = sec > (F.sla || 5) * 60;
-    h += `<div class="wait ${late ? 'late' : ''}">Esperando sua resposta há <b>${dur(sec)}</b>${late ? ' · acima da meta' : ''}</div>`; }
-  if (c.response) { const r = c.response; const parts = [];
-    if (r.mine_avg_seconds != null) parts.push(`seu tempo médio: <b>${dur(r.mine_avg_seconds)}</b>`);
-    parts.push(`equipe: <b>${dur(r.avg_seconds)}</b>`);
-    if (r.last_seconds != null) parts.push(`última: ${dur(r.last_seconds)}`);
-    h += `<div class="resp">Resposta a este fã (30 dias) · ${parts.join(' · ')}</div>`; }
-  const subLine = c.subscription && (c.subscription.status || c.subscription.price_cents != null) ? `Assinatura${c.subscription.status ? `: <b>${esc(c.subscription.status)}</b>` : ''}${c.subscription.price_cents != null ? ` · ${money(c.subscription.price_cents)}` : ''}${c.subscription.duration ? ` · ${esc(c.subscription.duration)}` : ''}<br>` : '';
-  if (!c.purchases) h += `<div class="sub">${subLine}Primeira compra ainda não registrada.</div>`;
-  else h += `<div class="nums"><div><span>Gasto total</span><b>${moneyShort(c.total_cents)}</b></div><div><span>Ticket médio</span><b>${moneyShort(c.ticket_cents)}</b></div><div><span>Última compra</span><b>${c.days_since_last === 0 ? 'hoje' : `há ${c.days_since_last} d`}</b></div></div>`;
-  if (c.suggestion) h += `<div class="tip"><b>Sugestão:</b> ${esc(c.suggestion)}</div>`;
+    h += isOpen('wait', true) ? `<div class="wait ${late ? 'late' : ''} tgl" data-tg="wait" title="Clique para encolher">Esperando sua resposta há <b>${dur(sec)}</b>${late ? ' · acima da meta' : ''}</div>`
+      : `<div class="wait mini ${late ? 'late' : ''} tgl" data-tg="wait" title="Esperando sua resposta (clique para abrir)">⏱ <b>${dur(sec)}</b>${late ? ' · acima da meta' : ''}</div>`; }
   const OT = { request: 'Solicitação de mídia', ppv: 'Mídia paga' }; const MT = { photo: 'foto', video: 'vídeo', mixed: 'foto e vídeo' };
-  for (const o of c.pending_offers || []) h += `<div class="pend">${OT[o.offer_type] || 'Oferta'}${MT[o.media_type] ? ` (${MT[o.media_type]})` : ''} de ${money(o.amount_cents)} ainda não paga · enviada ${day(o.offered_at)}</div>`;
+  const ro = isOpen('resumo', true);
+  const resumoMini = c.purchases ? `💳 ${moneyShort(c.total_cents)} · ticket ${moneyShort(c.ticket_cents)} · ${c.days_since_last === 0 ? 'hoje' : `há ${c.days_since_last} d`}` : '💳 sem compras';
+  h += `<button class="sec-t" data-tg="resumo">${ro ? '▾' : '▸'} Resumo do fã ${ro ? '' : `<span class="mini-line">${resumoMini}${(c.pending_offers || []).length ? ' · oferta sem pagar' : ''}</span>`}</button>`;
+  if (ro) {
+    if (c.response) { const r = c.response; const parts = [];
+      if (r.mine_avg_seconds != null) parts.push(`seu tempo médio: <b>${dur(r.mine_avg_seconds)}</b>`);
+      parts.push(`equipe: <b>${dur(r.avg_seconds)}</b>`);
+      if (r.last_seconds != null) parts.push(`última: ${dur(r.last_seconds)}`);
+      h += `<div class="resp">Resposta a este fã (30 dias) · ${parts.join(' · ')}</div>`; }
+    const subLine = c.subscription && (c.subscription.status || c.subscription.price_cents != null) ? `Assinatura${c.subscription.status ? `: <b>${esc(c.subscription.status)}</b>` : ''}${c.subscription.price_cents != null ? ` · ${money(c.subscription.price_cents)}` : ''}${c.subscription.duration ? ` · ${esc(c.subscription.duration)}` : ''}<br>` : '';
+    if (!c.purchases) h += `<div class="sub">${subLine}Primeira compra ainda não registrada.</div>`;
+    else h += `<div class="nums"><div><span>Gasto total</span><b>${moneyShort(c.total_cents)}</b></div><div><span>Ticket médio</span><b>${moneyShort(c.ticket_cents)}</b></div><div><span>Última compra</span><b>${c.days_since_last === 0 ? 'hoje' : `há ${c.days_since_last} d`}</b></div></div>`;
+    if (c.suggestion) h += `<div class="tip"><b>Sugestão:</b> ${esc(c.suggestion)}</div>`;
+    for (const o of c.pending_offers || []) h += `<div class="pend">${OT[o.offer_type] || 'Oferta'}${MT[o.media_type] ? ` (${MT[o.media_type]})` : ''} de ${money(o.amount_cents)} ainda não paga · enviada ${day(o.offered_at)}</div>`;
+  }
   if (c.task) h += `<div class="sub">Na sua lista${c.task.reason ? `: ${esc(c.task.reason)}` : ''}.<br><button class="btn" id="contacted" style="width:100%;margin-top:6px">Marcar como contatado</button></div>`;
   const recent = c.recent || [];
   if (recent.length) {
-    const o = isOpen('buys', true);
+    const o = isOpen('buys', false);
     h += `<button class="sec-t" data-tg="buys">${o ? '▾' : '▸'} Últimas compras <span>${recent.length}</span></button>`;
     if (o) for (const r of recent) h += `<div class="row"><span>${day(r.at)} · ${ORIGIN[r.origin] || 'Outro'}</span>${money(r.amount_cents)}</div>`;
   }
@@ -246,7 +257,7 @@ function renderBody() {
   if (F.loading) h += '<div class="loading">atualizando…</div>';
   b.innerHTML = h;
   b.querySelectorAll('[data-sell]').forEach((x) => x.addEventListener('click', () => { const p = PR.list[+x.dataset.sell]; if (p) runSuggest(SG.key || baseKey(), { style: 'vendedora', product: p.item, level: SG.level }); }));
-  b.querySelectorAll('[data-tg]').forEach((x) => x.addEventListener('click', () => toggle(x.dataset.tg, x.dataset.tg === 'notes' ? notes.length > 0 : true)));
+  b.querySelectorAll('[data-tg]').forEach((x) => x.addEventListener('click', () => toggle(x.dataset.tg, TG_DEFAULT(x.dataset.tg, notes.length))));
   $('add-note').addEventListener('click', () => { noteOpen = true; open.notes = true; render(); const t = $('note'); if (t) t.focus(); });
   const ta = $('note');
   if (ta) ta.addEventListener('input', () => { draft = ta.value; });
@@ -266,7 +277,16 @@ function renderAssist() {
   box.classList.toggle('hidden', !show);
   if (!show) { box.innerHTML = ''; return; }
   if (aj.sheetFor !== F.creatorId) aj = { ...aj, sheet: false, sheetData: null, sheetFor: F.creatorId };
-  let h = `<div class="aj-head"><b>Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores aparecem como [preço]. O gestor preenche na ficha (painel → Criadoras).">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-sheet${aj.sheet ? ' on' : ''}" id="aj-sheet" title="Ficha da criadora: persona, limites e tabela de preços">▦</button><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
+  const ajOpen = isOpen('assist', true);
+  let h = `<div class="aj-head"><b id="aj-tg" class="tgl" title="${ajOpen ? 'Recolher a Alta Ajuda' : 'Abrir a Alta Ajuda'}">${ajOpen ? '▾' : '▸'} Alta Ajuda</b><span class="aj-meta">${!AS.has_prices ? '<span class="aj-warn" title="Esta criadora ainda não tem tabela de preços. Valores aparecem como [preço]. O gestor preenche na ficha (painel → Criadoras).">sem tabela</span>' : ''}<span class="muted" title="Ajudas que você ainda pode pedir hoje">${AS.remaining} hoje</span><button class="icon aj-sheet${aj.sheet ? ' on' : ''}" id="aj-sheet" title="Ficha da criadora: persona, limites e tabela de preços">▦</button><button class="icon aj-q" id="aj-help" title="${esc(AJ_HELP)}">?</button></span></div>`;
+  if (!ajOpen) {
+    // recolhida: uma linha com perfil e termômetro; "Hora de vender" pisca; alerta de menor nunca some
+    const t = thermoNow(); const seg = segList().find((x) => x.key === SEG.value);
+    const BL = { cold: 'Frio', warm: 'Morno', hot: 'Quente', fire: 'Hora de vender', cool: 'Esfriando' };
+    h += `<div class="aj-mini tgl${t && t.band === 'fire' ? ' fire' : ''}" id="aj-mini" title="Abrir a Alta Ajuda">${seg ? `perfil ${esc(seg.label)}` : (segList().length ? 'perfil não classificado' : '')}${t ? `${seg || segList().length ? ' · ' : ''}🌡 ${BL[t.band]}` : ''}${SG.res && !SG.res.alert ? ' · sugestão pronta' : ''}</div>`;
+    if (SG.res && SG.res.alert) h += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(SG.res.reason)}). Não ofereça conteúdo.</div>`;
+    box.innerHTML = h; bindAssist(); return;
+  }
   if (aj.help) h += `<div class="aj-help">${esc(AJ_HELP)}</div>`;
   if (aj.sheet) h += sheetHtml();
   h += segHtml();
@@ -327,6 +347,9 @@ function bindAssist() {
   const again = $('sg-again'); if (again) again.addEventListener('click', () => runSuggest(SG.key, { level: SG.level }));
   const sell = $('sg-sell'); if (sell) sell.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', level: SG.level }));
   const swap = $('sg-swap'); if (swap) swap.addEventListener('change', () => { if (swap.value) runSuggest(SG.key, { style: 'vendedora', product: swap.value, level: SG.level }); });
+  const ajt = () => { open.assist = !isOpen('assist', true); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} renderAssist(); };
+  const ajtg = $('aj-tg'); if (ajtg) ajtg.addEventListener('click', ajt);
+  const ajm = $('aj-mini'); if (ajm) ajm.addEventListener('click', ajt);
   const tg = $('th-toggle'); if (tg) tg.addEventListener('click', () => { open.thermo = !isOpen('thermo', false); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} renderAssist(); });
   const ths = $('th-sell'); if (ths) ths.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', product: ths.dataset.item || '', level: SG.level }));
   const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
@@ -341,6 +364,8 @@ function bindAssist() {
 function alertLine(msg) { const d = document.createElement('div'); d.className = 'pend'; d.textContent = String(msg).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); $('body').prepend(d); setTimeout(() => d.remove(), 5000); }
 
 $('collapse').addEventListener('click', () => window.pulse.fanCollapse(true));
+// recolher tudo / abrir tudo: se algum quadro está aberto, recolhe todos; senão abre todos
+$('fold-all').addEventListener('click', () => { const anyOpen = ['wait', 'resumo', 'notes', 'prices', 'assist'].some((k) => isOpen(k, TG_DEFAULT(k, 1))); setAll(!anyOpen); });
 $('collapsed').addEventListener('click', () => window.pulse.fanCollapse(false));
 $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'));
 window.pulse.onFan((f) => {
