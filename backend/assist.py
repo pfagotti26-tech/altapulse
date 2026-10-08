@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException
-from core import db, now, iso, uid, manager, audit
+from core import db, now, iso, uid, manager, owner, audit
 from schemas import Strict
 from extension_routes import extension_user
 from fans import can_see
@@ -516,3 +516,54 @@ async def app_prices(creator_id: str, user=Depends(extension_user)):
     await can_see(user, creator_id)
     prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'prices': 1}) or {}
     return {'prices': prof.get('prices') or []}
+
+
+# ---------- consumo da IA (só o dono da conta) ----------
+MODE_LABEL = {'suggest:normal': 'Sugestão de resposta', 'suggest:vendedora': 'Vender', 'improve': 'Criar mensagem (versão antiga do app)'}
+@router.get('/assist/consumption')
+async def consumption(days: int = 30, user=Depends(owner)):
+    days = max(1, min(days, 120))
+    c = await config()
+    start = (datetime.now(BR) - timedelta(days=days - 1)).strftime('%Y-%m-%d')
+    rows = await db.assist_usage.find({'day': {'$gte': start}}, {'_id': 0, 'user_id': 1, 'user_name': 1, 'creator_id': 1, 'mode': 1, 'style': 1,
+        'day': 1, 'at': 1, 'cost_usd': 1, 'prompt_tokens': 1, 'cached_tokens': 1, 'completion_tokens': 1, 'tokens': 1, 'ms': 1, 'used': 1}).to_list(300000)
+    names = {x['id']: x['name'] for x in await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(2000)}
+    td = today()
+    def blank(): return {'n': 0, 'cost': 0.0, 'used': 0, 'today': 0, 'cost_today': 0.0, 'ms': 0, 'ms_n': 0}
+    def add(b, r):
+        b['n'] += 1; b['cost'] += r.get('cost_usd') or 0; b['used'] += 1 if r.get('used') else 0
+        if r['day'] == td: b['today'] += 1; b['cost_today'] += r.get('cost_usd') or 0
+        if r.get('ms'): b['ms'] += r['ms']; b['ms_n'] += 1
+    tot = blank(); by_user, by_creator, by_mode, by_day, by_hour = {}, {}, {}, {}, [0] * 24
+    pt = ct = 0
+    for r in rows:
+        add(tot, r)
+        u = by_user.setdefault(r['user_id'], {**blank(), 'name': r.get('user_name') or '—'}); add(u, r)
+        cr = by_creator.setdefault(r.get('creator_id') or '', {**blank(), 'name': names.get(r.get('creator_id'), '—')}); add(cr, r)
+        mk = f"suggest:{r.get('style') or 'normal'}" if r.get('mode') == 'suggest' else (r.get('mode') or 'improve')
+        add(by_mode.setdefault(mk, {**blank(), 'name': MODE_LABEL.get(mk, mk)}), r)
+        d = by_day.setdefault(r['day'], {'day': r['day'], 'n': 0, 'cost': 0.0}); d['n'] += 1; d['cost'] += r.get('cost_usd') or 0
+        try: by_hour[datetime.fromisoformat(r['at']).astimezone(BR).hour] += 1
+        except Exception: pass
+        pt += r.get('prompt_tokens') or 0; ct += r.get('cached_tokens') or 0
+    def fin(b):
+        out = {k: v for k, v in b.items() if k not in ('ms', 'ms_n')}
+        out['cost'] = round(b['cost'], 4); out['cost_today'] = round(b['cost_today'], 4)
+        out['used_pct'] = round(100 * b['used'] / b['n']) if b['n'] else None
+        out['avg_cost'] = round(b['cost'] / b['n'], 5) if b['n'] else None
+        out['avg_seconds'] = round(b['ms'] / b['ms_n'] / 1000, 1) if b['ms_n'] else None
+        out['share'] = round(100 * b['n'] / tot['n'], 1) if tot['n'] else 0
+        return out
+    series = []
+    for i in range(days):
+        dd = (datetime.now(BR) - timedelta(days=days - 1 - i)).strftime('%Y-%m-%d')
+        x = by_day.get(dd, {'n': 0, 'cost': 0.0}); series.append({'day': dd, 'n': x['n'], 'cost': round(x['cost'], 4)})
+    active_days = [x for x in series if x['n']]
+    daily_avg = sum(x['cost'] for x in series[-7:]) / 7
+    return {'days': days, 'team_daily_limit': c['team_daily_limit'], 'daily_limit': c['daily_limit'], 'model': c.get('suggest_model'),
+            'total': fin(tot), 'month_projection': round(daily_avg * 30, 2), 'daily_avg_7d': round(daily_avg, 4),
+            'cache_pct': round(100 * ct / pt) if pt else None, 'active_days': len(active_days),
+            'by_user': sorted([{'user_id': k, **fin(v)} for k, v in by_user.items()], key=lambda x: -x['cost']),
+            'by_creator': sorted([{'creator_id': k, **fin(v)} for k, v in by_creator.items()], key=lambda x: -x['cost']),
+            'by_mode': sorted([fin(v) for v in by_mode.values()], key=lambda x: -x['n']),
+            'series': series, 'by_hour': by_hour}

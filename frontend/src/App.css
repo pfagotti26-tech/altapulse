@@ -14,4 +14,15 @@
 @media(max-width:760px){.auth-form-section h2{font-size:24px}.page-heading p{font-size:12px}.stat-top{font-size:11px}.stat-caption{font-size:10px}.creator-data strong{font-size:11px}.creator-name h3{font-size:13px}.creator-card-actions>button,.shift-link{font-size:10px}.filter-tabs>button{font-size:10px}.list-footer,.page-footer{font-size:9px}.connection-banner strong{font-size:12px}.connection-banner p{font-size:11px}.connection-banner a{font-size:11px}.criterion-options button{font-size:9px}.auth-security{font-size:10px}.auth-header>span{font-size:8px}.auth-footer{font-size:9px}.report-card h3{font-size:14px}.report-card p{font-size:11px}.subtle-label{font-size:10px}.section-heading h2{font-size:16px}.creator-data span{font-size:10px}}
 .filter-selects{flex:1}.filter-selects>select{width:210px}.period-select{width:auto;max-width:240px}.period-select select{width:auto}
 @media(max-width:760px){.filter-selects>select{width:calc(50% - 4px);min-width:0}.period-select{width:100%;max-width:none}.period-select select{width:100%}}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}/* Consumo da IA */
+.ai-panel{border:1px solid var(--line);border-radius:7px;background:#fff;padding:20px 22px;margin-top:18px;min-width:0}
+.ai-panel h2{font-size:17px;margin:0 0 4px}.ai-panel .body-muted{margin:0 0 12px;font-size:13px}
+.ai-bars{display:flex;align-items:flex-end;gap:3px;height:150px;overflow-x:auto;padding-top:6px}
+.ai-bars.hours{height:110px}
+.ai-bar{flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%}
+.ai-bar span{display:block;width:100%;max-width:22px;background:var(--green);border-radius:3px 3px 0 0}
+.ai-bar small{font-size:9.5px;color:var(--muted-text);white-space:nowrap}
+.ai-share{display:inline-block;width:60px;height:6px;background:var(--green-light);border-radius:3px;vertical-align:middle;margin-right:6px;overflow:hidden}
+.ai-share span{display:block;height:100%;background:var(--green)}
+.ai-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:900px){.ai-two{grid-template-columns:1fr}}
