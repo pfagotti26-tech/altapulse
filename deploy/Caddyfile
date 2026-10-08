@@ -1,0 +1,30 @@
+# SITE_HOSTS e ACME_EMAIL vêm do deploy/.env
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_HOSTS} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy backend:8001 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		root * /srv
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
+		header /static/* Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

@@ -101,3 +101,7 @@ desktop/pilot/dist/AltaPulseChromePilot-win32-x64/AltaPulseChromePilot.exe
 credentials.json
 *.key
 .credentials
+
+# servidor próprio
+deploy/.env
+deploy/backups/
