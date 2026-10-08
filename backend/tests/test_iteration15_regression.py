@@ -74,37 +74,10 @@ class TestDesktopRelease:
         assert '1.4.20' not in body_str, 'Unexpected 1.4.20 reference in /api/desktop/release'
 
 
-# --- Alta Auto new routes: auth guard ---
-class TestAltaAutoAuthGuard:
-    def test_plantao_reply_requires_auth(self):
-        r = requests.post(f'{BASE_URL}/api/extension/plantao/reply', json={}, timeout=10)
-        assert r.status_code == 401, f'expected 401 got {r.status_code}: {r.text[:200]}'
-
-    def test_plantao_opener_requires_auth(self):
-        r = requests.post(f'{BASE_URL}/api/extension/plantao/opener', json={}, timeout=10)
-        assert r.status_code == 401, f'expected 401 got {r.status_code}: {r.text[:200]}'
-
+# --- Plantão: auth/permission guard (rotas autônomas removidas) ---
+class TestPlantaoAuthGuard:
     def test_plantao_get_without_permission_returns_403(self, extension_token):
         headers = {'Authorization': f'Bearer {extension_token}'}
         r = requests.get(f'{BASE_URL}/api/extension/plantao', headers=headers, timeout=15)
-        assert r.status_code == 403, f'expected 403 got {r.status_code}: {r.text[:300]}'
-        # must not be 500
-        try:
-            data = r.json()
-            # mensagem esperada contém "Sem permissão para o plantão." ou similar
-            msg = (data.get('detail') or data.get('message') or '').lower()
-            assert 'permiss' in msg or 'plantao' in msg or 'plantão' in msg, f'unexpected detail: {data}'
-        except Exception:
-            pass
-
-    def test_plantao_reply_without_permission_returns_403(self, extension_token):
-        headers = {'Authorization': f'Bearer {extension_token}'}
-        r = requests.post(f'{BASE_URL}/api/extension/plantao/reply', headers=headers, json={}, timeout=15)
-        assert r.status_code == 403, f'expected 403 got {r.status_code}: {r.text[:300]}'
-        assert r.status_code != 500
-
-    def test_plantao_opener_without_permission_returns_403(self, extension_token):
-        headers = {'Authorization': f'Bearer {extension_token}'}
-        r = requests.post(f'{BASE_URL}/api/extension/plantao/opener', headers=headers, json={}, timeout=15)
         assert r.status_code == 403, f'expected 403 got {r.status_code}: {r.text[:300]}'
         assert r.status_code != 500

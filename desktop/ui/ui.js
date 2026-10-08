@@ -744,8 +744,7 @@ async function plantaoDialog() {
   const q = await plLoad(true); if (!q) return toast('Não consegui carregar o plantão.');
   const money = (c) => c ? fmtBRL(c) : 'nunca gastou';
   const groups = q.creators.map((c) => {
-    // no copiloto quem envia é a pessoa: a regra "só sem chatter em turno" vale só para o modo autônomo.
-    // Com chatter em turno é até melhor — quem responder cai direto na fila dele.
+    // copiloto: quem envia é a pessoa. Com chatter em turno é até melhor — quem responder cai direto na fila dele.
     const st = !c.open ? 'abra o Chat desta criadora no app para montar a fila' : c.in_shift ? 'chatter em turno · bom momento: quem responder cai para ele' : 'sem chatter em turno · quem responder fica nas Oportunidades';
     const onl = c.online ? ` · <span class="pl-on">● ${c.online} online agora</span>` : '';
     const empty = `<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora${c.inactive_days ? ` (parados há ${c.inactive_days}+ dias)` : ''}. Veja o motivo no painel → Plantão noturno → Fila agora.</small>`;

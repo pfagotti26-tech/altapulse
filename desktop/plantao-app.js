@@ -3,10 +3,7 @@
 // quem abordar (filtros do gestor) e com qual abertura aprovada — e, com um clique, abre a conversa com o texto
 // pronto na caixa. Quem envia é a pessoa. O app só registra: quando a última mensagem da conversa passa a ser nossa,
 // marca "enviada"; quando o fã responde, marca "respondeu" (vira oportunidade para o chatter no painel).
-// Só funciona para quem tem a permissão 'plantao'.
-//
-// // ALTA AUTO: o módulo autônomo (envio sozinho com cadência humana e respostas no modo "segurar") entra por cima
-// desta fila: ele chama prepare() e, em vez de esperar a pessoa, envia; e consulta POST /extension/plantao/reply.
+// Só funciona para quem tem a permissão 'plantao'. O envio é sempre da pessoa — não há envio nem resposta automática.
 const MONTHS = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
 
 // "17:09" → 0 dias; "Ontem" → 1; "set 25" ou "25/09" → diferença de dias; outro → null (não dá para saber)
@@ -53,7 +50,7 @@ function inWindow(cfg, now = new Date()) {
 }
 
 function create(deps) {
-  const { api, log, getState, roomKey, onHold } = deps;
+  const { api, log, getState, roomKey } = deps;
   const pl = { configs: [], fetchedAt: 0, rooms: new Map(), recent: new Map(), noted: new Map(), dismissed: new Set(),
     pending: new Map(), // `${creatorId}|${ref}` -> { text, at, name } (texto preenchido, esperando a pessoa enviar)
     sent: new Map(),    // `${creatorId}|${ref}` -> { text, at, name, replied }
@@ -87,13 +84,9 @@ function create(deps) {
       const s = pl.sent.get(key);
       if (s && !s.replied && !r.ours) {
         s.replied = true; s.repliedAt = Date.now();
+        // o fã respondeu: vira oportunidade "Voltou a falar" para o chatter assumir no painel
         api('POST', '/extension/plantao/replied', { creator_id: creatorId, fan_ref: key.split('|')[1] }).catch(() => {});
         log('respondeu', r.name);
-        // // ALTA AUTO: no modo "segurar a conversa" o módulo autônomo assume a próxima resposta
-        const cfg = pl.configs.find((x) => x.creator_id === creatorId);
-        if (cfg && cfg.after_reply === 'hold' && typeof onHold === 'function') {
-          try { onHold({ creatorId, fanRef: key.split('|')[1], name: r.name, rid: r.rid || null }); } catch (e) { log('hold', e.message); }
-        }
       }
     }
   }
@@ -149,9 +142,6 @@ function create(deps) {
   // a pessoa clicou "Abrir e preencher": quem abre a conversa e preenche é o main.js; aqui só fica a pendência
   function prepared(creatorId, fanRef, name, text) { pl.pending.set(`${creatorId}|${fanRef}`, { text, template: pl.templates.get(text) || text, at: Date.now(), name }); }
   function cancel(creatorId, fanRef) { pl.pending.delete(`${creatorId}|${fanRef}`); }
-  // // ALTA AUTO: depois que o plantão responde no modo "segurar", a conversa volta a escutar o fã
-  function rearm(creatorId, fanRef) { const s = pl.sent.get(`${creatorId}|${fanRef}`); if (s) s.replied = false; }
-  function cfgOf(creatorId) { return pl.configs.find((c) => c.creator_id === creatorId) || null; }
-  return { fetchConfigs, onRooms, queue, prepared, cancel, rearm, cfgOf, enabled, inWindow, daysSilent, get configs() { return pl.configs; }, get fetchedAt() { return pl.fetchedAt; } };
+  return { fetchConfigs, onRooms, queue, prepared, cancel, enabled, inWindow, daysSilent, get configs() { return pl.configs; }, get fetchedAt() { return pl.fetchedAt; } };
 }
 module.exports = { create, daysSilent, inWindow, fill, firstName };
