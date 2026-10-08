@@ -34,17 +34,22 @@ module.exports = String.raw`(() => {
     }
     return false;
   };
+  // reação (curtida) não é mensagem: "Você reagiu com ❤ a: …" ou o fã reagindo a uma mensagem nossa.
+  // Nos dois casos a última mensagem de verdade é nossa, então a conversa não conta como "esperando".
+  const REACTION = /\breagiu com\b|\bcurtiu\b|\breacted\b|\bliked\b/i;
+  const lastText = (r) => txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last'));
+  const isOurs = (r) => !!r.querySelector('.message-last .vac-icon-check') || REACTION.test(lastText(r));
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
     online: online(r),
     spent: money(txt(r.querySelector('.spent, .never-spent'))),
-    ours: !!r.querySelector('.message-last .vac-icon-check'),
+    ours: isOurs(r),
     unread: parseInt(txt(r.querySelector('.cn-unread-number')), 10) || 0,
     when: txt(r.querySelector('.vac-text-date')),
     // radar: id da conversa (abre direto com ?cid=) e se a última mensagem do fã tem cara de pedido de compra.
     // A frase é avaliada aqui e descartada: só o sim/não sai da página.
     rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
-    intent: !r.querySelector('.message-last .vac-icon-check') && INTENT.test(txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last')).toLowerCase()),
+    intent: !isOurs(r) && INTENT.test(lastText(r).toLowerCase()),
   })).filter((r) => r.name);
   // conversa aberta: o id vem do endereço (?cid= ou /chat/<id>); no layout estreito da Privacy ele pode
   // não aparecer, então cai no nome do cabeçalho (estável para a mesma conversa)
