@@ -149,7 +149,9 @@ class ProfileIn(Strict):
     persona: dict[str, str] = Field(default_factory=dict)
     suggest_auto: bool = False  # "Sugerir resposta": ligado por criadora, desligado por padrão
     fan_segments: list[Segment] = Field(default_factory=list, max_length=6)
-    hot_terms: str = Field(default='', max_length=1000)  # termômetro: palavras desta criadora que esquentam a conversa (uma por linha)
+    hot_terms: str = Field(default='', max_length=1000)
+    openers: dict[str, str] = Field(default_factory=dict)  # aberturas da criadora por situação: novo, cliente, sumido, voltando  # termômetro: palavras desta criadora que esquentam a conversa (uma por linha)
+OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
@@ -165,7 +167,8 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
     keys = [x.key for x in body.fan_segments]
     if len(set(keys)) != len(keys): raise HTTPException(422, 'Dois perfis de fã com o mesmo nome.')
     if sum(1 for x in body.fan_segments if x.default) > 1: raise HTTPException(422, 'Marque só um perfil de fã como padrão.')
-    row = {'creator_id': creator_id, **body.model_dump(), 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
+    openers = {k: str(v).strip()[:1500] for k, v in (body.openers or {}).items() if k in OPENER_KEYS and str(v or '').strip()}
+    row = {'creator_id': creator_id, **body.model_dump(), 'openers': openers, 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
     await db.assist_profiles.update_one({'creator_id': creator_id}, {'$set': row}, upsert=True)
     return row
 
@@ -456,12 +459,36 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor da tabela." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu, com o perfil dele e com o quanto ele costuma gastar (não ofereça muito acima do ticket dele). Diga o valor da tabela e preencha \"produto\" com o nome exato do item.")
     else: goal = 'Se fizer sentido oferecer algo, preencha "produto" com o item exato da tabela; senão deixe vazio.'
+    # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
+    GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
+    fan_msgs = [m for m in msgs if not m.ours]
+    opening = body.mode == 'reply' and not any(m.ours for m in msgs) and len(fan_msgs) <= 3 and all(GREET.search(m.text.strip()) or len(m.text.strip()) <= 12 for m in fan_msgs)
+    situation = ''
+    if opening:
+        tags = (card or {}).get('tags') or []
+        if (card or {}).get('purchases'):
+            situation = 'sumido' if ((card or {}).get('days_since_last') or 0) >= 7 or 'dormente' in tags or 'esfriando' in tags else 'cliente'
+        else: situation = 'voltando' if 'assinatura_inativa' in tags else 'novo'
+    SIT_TEXT = {
+        'novo': 'FÃ NOVO, nunca comprou: dê boas-vindas na voz dela e termine com uma pergunta que puxe conversa.',
+        'cliente': 'CLIENTE QUE VOLTA (já comprou): trate como conhecido, use o que se sabe dele (anotações, o que costuma comprar) e puxe assunto.',
+        'sumido': 'FÃ SUMIDO (dias sem comprar/falar): tom de reativação da ficha, sem cobrar e sem oferta ainda.',
+        'voltando': 'EX-ASSINANTE VOLTANDO: celebre a volta e reconquiste, sem venda logo de cara.',
+    }
+    opener_block = ''
+    if situation:
+        opener_block = f"COMEÇO DE CONVERSA. Situação: {SIT_TEXT[situation]} NÃO ofereça nada agora: só aqueça."
+        base_lines = ((prof.get('openers') or {}).get(situation) or '').strip()
+        if base_lines: opener_block += f"\nABERTURAS DA CRIADORA PARA ESTA SITUAÇÃO (use uma como base, variando levemente; não copie igual sempre):\n{base_lines}"
+        if segs and not seg:
+            opener_block += '\nO perfil do fã ainda não é conhecido: termine com UMA pergunta curta, no tom dela, cuja resposta revele qual perfil ele é (' + ', '.join(x['label'] for x in segs) + ').'
     sit = ('O fã ainda não respondeu à última mensagem da criadora, ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ela já disse e sem cobrar resposta.'
            if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem da criadora.')
     task = f"""INTENSIDADE: {LEVEL_TEXT[level]}
 O QUE SE SABE DO FÃ: {fan_block(card)}
 {seg_text}
-{goal}
+{goal if not situation or body.style == 'vendedora' else ''}
+{opener_block}
 
 FIM DA CONVERSA:
 {convo}
@@ -507,7 +534,7 @@ FIM DA CONVERSA:
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
             'product': {'item': prod['item'], 'cents': prod['cents']} if prod else None,
-            'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style,
+            'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
 
 @router.post('/extension/assist/used/{usage_id}')

@@ -265,7 +265,8 @@ function renderAssist() {
   else if (SG.err) h += `<div class="pend">${esc(SG.err)}</div>`;
   else if (r && r.alert) h += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
   else if (r) {
-    const meta = [STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
+    const SIT = { novo: 'Fã novo', cliente: 'Cliente que volta', sumido: 'Sumido', voltando: 'Ex-assinante voltando' };
+    const meta = [SIT[r.situation] ? `Começo de conversa: ${SIT[r.situation]}` : '', STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
     if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`;
     h += `<textarea id="aj-text" rows="3" maxlength="1500" title="Edite à vontade antes de colocar na caixa">${esc(SG.text)}</textarea>`;
     if (r.product) h += `<div class="sg-prod">Vendendo: <b>${esc(r.product.item)} · ${brlS(r.product.cents)}</b>${PR.list.length > 1 ? ` <select id="sg-swap" title="Trocar o produto (refaz a mensagem)"><option value="">trocar…</option>${PR.list.map((p) => `<option value="${esc(p.item)}">${esc(p.item)} · ${brlS(p.cents)}</option>`).join('')}</select>` : ''}</div>`;

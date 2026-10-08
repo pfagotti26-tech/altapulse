@@ -24,7 +24,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       // os 10 itens da tabela mínima sempre aparecem (vazios para preencher); itens extras vêm depois
       const fixed = meta.price_items.map(item => { const s = saved.find(x => x.item.toLowerCase() === item.toLowerCase()); return { item, value: s ? reais(s.cents) : '', obs: s?.obs || '', fixed: true }; });
       const extra = saved.filter(x => !meta.price_items.some(i => i.toLowerCase() === x.item.toLowerCase())).map(x => ({ item: x.item, value: reais(x.cents), obs: x.obs || '' }));
-      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', suggest_auto: !!p.suggest_auto, fan_segments: (p.fan_segments || []).map(x => ({ ...x })), hot_terms: p.hot_terms || '', prices: [...fixed, ...extra] });
+      setForm({ persona: { ...(p.persona || {}) }, style: p.style || '', limits: p.limits || '', max_level: p.max_level || 'picante', suggest_auto: !!p.suggest_auto, fan_segments: (p.fan_segments || []).map(x => ({ ...x })), hot_terms: p.hot_terms || '', openers: { ...(p.openers || {}) }, prices: [...fixed, ...extra] });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
   if (!form || !meta) return <p className="body-muted">Carregando…</p>;
@@ -36,7 +36,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const prices = form.prices.filter(p => p.item.trim() && String(p.value).trim() && toCents(p.value) != null).map(p => ({ item: p.item.trim(), cents: toCents(p.value), obs: (p.obs || '').trim() }));
       const slug = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'perfil';
       const segs = form.fan_segments.filter(x => x.label.trim()).map(x => ({ key: x.key || slug(x.label), label: x.label.trim(), tone: (x.tone || '').trim(), default: !!x.default, level: x.level || null }));
-      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, fan_segments: segs, hot_terms: form.hot_terms || '', prices, persona: form.persona })).data;
+      const r = (await api.put(`/assist/profiles/${creatorId}`, { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, fan_segments: segs, hot_terms: form.hot_terms || '', openers: form.openers || {}, prices, persona: form.persona })).data;
       toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
   };
@@ -66,6 +66,10 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         <div className="row-actions"><label className="checkbox-label small"><input type="radio" name="seg-default" checked={!!x.default} onChange={() => setSeg(i, { default: true })}/><span>padrão</span></label><Button variant="ghost" onClick={() => setForm({ ...form, fan_segments: form.fan_segments.filter((_, j) => j !== i) })}><Trash2 size={14}/></Button></div>
       </div>)}
       {form.fan_segments.length < 6 && <div><Button variant="outline" onClick={() => setForm({ ...form, fan_segments: [...form.fan_segments, { key: '', label: '', tone: '', default: !form.fan_segments.length }] })}><Plus size={14}/>Adicionar perfil de fã</Button></div>}
+    </section>
+    <section className="profile-sec"><h3>👋 Aberturas (começo de conversa)</h3>
+      <p className="body-muted" style={{ fontSize: 13 }}>Quando o fã só manda "oi", a sugestão usa a situação dele (pelo cartão do fã) e as frases da criadora daqui como base, variando um pouco. Uma frase por linha; o ideal é 3 a 5 por situação, escritas ou aprovadas por ela.</p>
+      <div className="profile-grid">{[['novo', 'Fã novo (nunca comprou)'], ['cliente', 'Cliente que volta'], ['sumido', 'Sumido (7+ dias)'], ['voltando', 'Ex-assinante voltando']].map(([k, l]) => <Field key={k} id={`pf-op-${k}`} label={l}><textarea className="assist-textarea" rows={3} maxLength={1500} value={(form.openers || {})[k] || ''} onChange={e => setForm({ ...form, openers: { ...(form.openers || {}), [k]: e.target.value } })} placeholder="Em aberto"/></Field>)}</div>
     </section>
     <section className="profile-sec"><h3>🌡 Termômetro de venda</h3>
       <p className="body-muted" style={{ fontSize: 13 }}>O termômetro já reconhece pedidos de nudez, de vídeo, de personalizado, pergunta de preço, "quer ver meu pau" e sinais de excitação. Aqui você acrescenta palavras que esquentam a conversa com esta criadora (uma por linha).</p>
