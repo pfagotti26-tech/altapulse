@@ -22,6 +22,7 @@ from extension_routes import extension_user
 from fans import can_see
 from fans import fan_card, money_br
 from quality_ai import scrub
+import profile_model as PM
 
 router = APIRouter()
 BR = ZoneInfo('America/Sao_Paulo')
@@ -135,6 +136,8 @@ class PriceItem(Strict):
     item: str = Field(min_length=1, max_length=80)
     cents: int = Field(ge=0, le=10000000)
     obs: str = Field(default='', max_length=300)
+    category: str = Field(default='', max_length=20)  # foto, pack_fotos, video… (PM.PRICE_CATS); vazio = adivinha pelo nome
+    explicit: bool = False
 class Segment(Strict):  # perfil de fã da criadora (ex.: Servo, Cuck, Baunilha): o chatter classifica, a IA segue o tom
     key: str = Field(pattern=r'^[a-z0-9_-]{1,24}$')
     label: str = Field(min_length=1, max_length=30)
@@ -150,31 +153,52 @@ class ProfileIn(Strict):
     suggest_auto: bool = False  # "Sugerir resposta": ligado por criadora, desligado por padrão
     fan_segments: list[Segment] = Field(default_factory=list, max_length=6)
     hot_terms: str = Field(default='', max_length=1000)
-    openers: dict[str, str] = Field(default_factory=dict)  # aberturas da criadora por situação: novo, cliente, sumido, voltando  # termômetro: palavras desta criadora que esquentam a conversa (uma por linha)
+    openers: dict[str, str] = Field(default_factory=dict)  # aberturas da criadora por situação: novo, cliente, sumido, voltando
+    # ficha padrão (fase 1): núcleo estruturado + módulos que o admin liga por criadora
+    modules: dict[str, bool] = Field(default_factory=dict)
+    voice: PM.Voice = Field(default_factory=PM.Voice)
+    sales: PM.Sales = Field(default_factory=PM.Sales)
+    limit_flags: list[str] = Field(default_factory=lambda: ['encontro', 'contato'], max_length=20)
+    call: PM.CallRules = Field(default_factory=PM.CallRules)
+    preview: PM.Preview = Field(default_factory=PM.Preview)
+    languages: PM.Languages = Field(default_factory=PM.Languages)
+    promos: list[PM.Promo] = Field(default_factory=list, max_length=10)
+    objections: list[PM.Objection] = Field(default_factory=list, max_length=15)
+    custom_delivery: str = Field(default='', max_length=300)
 OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
 @router.get('/assist/profiles')
 async def list_profiles(user=Depends(manager)):
-    return await db.assist_profiles.find({}, {'_id': 0}).to_list(1000)
+    rows = await db.assist_profiles.find({}, {'_id': 0}).to_list(1000)
+    return [{**PM.normalize(r), 'completeness': PM.completeness(r)} for r in rows]
 
 @router.put('/assist/profiles/{creator_id}')
 async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
     if not await db.creators.find_one({'id': creator_id}, {'_id': 1}): raise HTTPException(404, 'Criadora não encontrada.')
     if body.suggest_auto and (not body.prices or not body.limits.strip()):
         raise HTTPException(422, 'Para ligar o Sugerir resposta, preencha a tabela de preços e os limites da criadora.')
+    if any(f not in PM.LIMIT_FLAGS for f in body.limit_flags): raise HTTPException(422, 'Limite desconhecido.')
+    if any(k not in PM.MODULES for k in body.modules): raise HTTPException(422, 'Módulo desconhecido.')
+    if any(d not in PM.DAYS for d in body.call.days): raise HTTPException(422, 'Dia da videochamada inválido.')
+    if any(x.category and x.category not in PM.PRICE_CATS for x in body.prices): raise HTTPException(422, 'Categoria de preço inválida.')
     keys = [x.key for x in body.fan_segments]
     if len(set(keys)) != len(keys): raise HTTPException(422, 'Dois perfis de fã com o mesmo nome.')
     if sum(1 for x in body.fan_segments if x.default) > 1: raise HTTPException(422, 'Marque só um perfil de fã como padrão.')
     openers = {k: str(v).strip()[:1500] for k, v in (body.openers or {}).items() if k in OPENER_KEYS and str(v or '').strip()}
-    row = {'creator_id': creator_id, **body.model_dump(), 'openers': openers, 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
+    data = body.model_dump()
+    data['prices'] = [{**x, 'category': x['category'] or PM.guess_cat(x['item'])} for x in data['prices']]
+    if data['modules']: data['modules'] = {k: bool(data['modules'].get(k)) for k in PM.MODULES}
+    else: data['modules'] = PM.normalize({k: v for k, v in data.items() if k != 'modules'})['modules']  # tela antiga: liga pelo que já existe
+    row = {'creator_id': creator_id, **data, 'openers': openers, 'persona': clean_persona(body.persona), 'updated_at': iso(), 'updated_by': user['name']}
     await db.assist_profiles.update_one({'creator_id': creator_id}, {'$set': row}, upsert=True)
-    return row
+    return {**PM.normalize(row), 'completeness': PM.completeness(row)}
 
 @router.get('/assist/fields')
 async def fields(user=Depends(manager)):
-    return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS}
+    return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS,
+            'tones': PM.TONES, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
 
 class ImportItem(Strict):
     creator_id: str
@@ -211,8 +235,16 @@ async def app_profile(creator_id: str, user=Depends(extension_user)):
     await can_see(user, creator_id)
     prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
     persona = prof.get('persona') or {}
-    return {'fields': [{'label': l, 'section': s, 'value': persona[k]} for k, l, s in PERSONA if persona.get(k)],
-            'limits': prof.get('limits', ''), 'style': prof.get('style', ''), 'prices': prof.get('prices') or [], 'max_level': prof.get('max_level', 'picante')}
+    n = PM.normalize(prof); extra = []
+    flags = [PM.LIMIT_FLAGS[f] for f in n.get('limit_flags') or [] if f in PM.LIMIT_FLAGS]
+    if n['modules']['call']:
+        cr = n['call']; extra.append({'label': 'Videochamada', 'section': 'regras', 'value': '; '.join(x for x in [', '.join(cr.get('days') or []), cr.get('hours'), f"aviso {cr['notice_hours']} h" if cr.get('notice_hours') else '', 'confirmar com ela antes de o fã pagar' if cr.get('confirm_first', True) else '', cr.get('notes')] if x)})
+    if n['modules']['custom'] and n.get('custom_delivery'): extra.append({'label': 'Prazo de personalizados', 'section': 'regras', 'value': n['custom_delivery']})
+    if n['modules']['promos'] and PM.active_promos(n, today()): extra.append({'label': 'Promoções valendo', 'section': 'regras', 'value': ' | '.join(x['title'] + (f": {x['text']}" if x.get('text') else '') for x in PM.active_promos(n, today()))})
+    if n.get('objections'): extra.append({'label': 'Objeções', 'section': 'regras', 'value': ' | '.join(f"{o['q']} → {o['a']}" for o in n['objections'])})
+    extra.append({'label': 'Prévia', 'section': 'regras', 'value': PM.PREVIEW[(n['preview'] or {}).get('mode') or 'parcial']})
+    return {'fields': extra + [{'label': l, 'section': s, 'value': persona[k]} for k, l, s in PERSONA if persona.get(k) and k != 'cidade_estado'],
+            'limits': '; '.join(flags + ([n['limits']] if n.get('limits') else [])), 'style': n.get('style', ''), 'prices': n['prices'], 'max_level': n.get('max_level', 'picante')}
 
 @router.post('/assist/alerts/{alert_id}/resolve')
 async def resolve_alert(alert_id: str, user=Depends(manager)):
@@ -237,8 +269,8 @@ async def status(creator_id: str, user=Depends(extension_user)):
             'suggest': bool(c['enabled'] and key and prof.get('suggest_auto') and prof.get('prices') and prof.get('limits')),
             'has_profile': bool(prof), 'has_prices': bool(prof.get('prices')), 'remaining': await remaining_for(c, user),
             'manual': bool(c['enabled'] and key and (prof.get('persona') or prof.get('prices'))),
-            'hot_terms': [t.strip() for t in (prof.get('hot_terms') or '').splitlines() if t.strip()][:60],
-            'segments': [{'key': x['key'], 'label': x['label'], 'default': bool(x.get('default')), 'level': x.get('level')} for x in prof.get('fan_segments') or []]}
+            'hot_terms': [t.strip() for t in (prof.get('hot_terms') or '').splitlines() if t.strip()][:60] if PM.normalize(prof)['modules']['thermo'] else [],
+            'segments': [{'key': x['key'], 'label': x['label'], 'default': bool(x.get('default')), 'level': x.get('level')} for x in prof.get('fan_segments') or []] if PM.normalize(prof)['modules']['segments'] else []}
 
 # ---------- perfil do fã (classificado pelo chatter; vale para a equipe toda) ----------
 class FanSegIn(Strict):
@@ -389,14 +421,7 @@ class SuggestIn(Strict):
     level: Optional[Literal['leve', 'picante', 'explicito']] = None
 
 def profile_block(creator, prof):
-    prices = '; '.join(f"{p['item']}: {money_br(p['cents'])}" + (f" ({p['obs']})" if p.get('obs') else '') for p in prof.get('prices') or [])
-    persona = prof.get('persona') or {}
-    ficha = '\n'.join(f"{l}: {persona[k][:1500]}" for k, l, _ in PERSONA if persona.get(k) and k not in ('cidade_estado',))
-    return f"""PERFIL DA CRIADORA ({creator['name']})
-Observações da agência (siga à risca): {prof.get('style') or 'não informado'}
-{ficha}
-Limites (o que ela NÃO faz): {prof.get('limits') or 'não informado'}
-Tabela de preços: {prices or 'nenhuma cadastrada'}"""
+    return PM.compile_block(creator, prof, money_br, PERSONA)
 
 def fan_block(card):
     if not card: return 'Sem histórico de compras registrado.'
@@ -418,6 +443,9 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
     if not prof.get('persona') and not prof.get('prices'): raise HTTPException(409, 'A ficha desta criadora ainda não foi preenchida no painel.')
     await check_quota(c, user)
+    mods = PM.normalize(prof)['modules']
+    if not mods['segments']: prof = {**prof, 'fan_segments': []}
+    if not mods['openers']: prof = {**prof, 'openers': {}}
     msgs = [m for m in body.messages if m.text.strip()]
     if body.mode == 'reply' and (not msgs or msgs[-1].ours): raise HTTPException(422, 'A última mensagem é sua: nada para responder agora.')
     if not isinstance(creator, dict) or 'name' not in creator: creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {'name': 'a criadora'}
@@ -498,6 +526,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     task = f"""INTENSIDADE: {LEVEL_TEXT[level]}
 O QUE SE SABE DO FÃ: {fan_block(card)}
 {fan_list}
+{PM.promo_block(prof, today())}
 {seg_text}
 {goal if not situation or body.style == 'vendedora' else ''}
 {opener_block}
