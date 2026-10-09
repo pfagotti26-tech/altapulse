@@ -61,7 +61,9 @@ async def extension_user(request: Request):
     authorization = request.headers.get('authorization', '')
     if not authorization.startswith('Bearer '): raise HTTPException(401, 'Entre na extensão com seu acesso Alta Pulse.')
     token = await db.extension_tokens.find_one({'token_hash': digest(authorization[7:]), 'expires_at': {'$gt': now()}}, {'_id': 0})
-    if not token: raise HTTPException(401, 'A sessão da extensão expirou. Entre novamente.')
+    if not token:
+        if await db.revoked_tokens.find_one({'token_hash': digest(authorization[7:])}, {'_id': 1}): raise HTTPException(401, 'Este acesso foi desativado.')
+        raise HTTPException(401, 'A sessão da extensão expirou. Entre novamente.')
     user = await db.users.find_one({'id': token['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0})
     if not user: raise HTTPException(401, 'Este acesso foi desativado.')
     if token.get('auth_version', 0) != user.get('auth_version', 0): raise HTTPException(401, 'Sua senha foi alterada. Entre novamente na extensão.')
@@ -69,6 +71,14 @@ async def extension_user(request: Request):
     await db.extension_tokens.update_one({'token_hash': token['token_hash']}, {'$set': {'last_seen': iso()}})
     request.state.extension_token_hash = token['token_hash']
     return user
+
+class RevokedIn(Strict):
+    user_id: str = Field(min_length=6, max_length=40, pattern=r'^[a-f0-9]+$')
+@router.post('/extension/revoked-check')
+async def revoked_check(body: RevokedIn):
+    """O app desktop pergunta se a pessoa que estava logada nele foi desativada ou excluída (sem token válido)."""
+    u = await db.users.find_one({'id': body.user_id}, {'_id': 0, 'active': 1})
+    return {'revoked': (not u) or (not u.get('active'))}
 
 @router.post('/extension/login', response_model=TokenOut)
 async def login(body: ExtensionLogin, request: Request):

@@ -62,6 +62,8 @@ async def lifespan(app):
     await db.content_items.create_index([('creator_id', 1), ('privacy_ref', 1)])
     await db.content_reads.create_index('creator_id', unique=True)
     await db.content_thumbs.create_index('item_id', unique=True)
+    await db.revoked_tokens.create_index('token_hash', unique=True)
+    await db.revoked_tokens.create_index('expires_at', expireAfterSeconds=0)
     await db.content_thumbs.create_index('expires_at', expireAfterSeconds=0)
     await db.content_alerts.create_index([('creator_id', 1), ('day', 1), ('checkpoint', 1)])
     await db.content_alerts.create_index('expires_at', expireAfterSeconds=0)

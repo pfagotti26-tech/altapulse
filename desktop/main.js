@@ -163,7 +163,7 @@ async function api(method, route, body) {
   let data = null;
   try { data = await response.json(); } catch {}
   if (!response.ok) {
-    if (response.status === 401) { token = null; writeToken(null); state = { ...state, user: null, creators: [] }; }
+    if (response.status === 401) { token = null; writeToken(null); state = { ...state, user: null, creators: [] }; if (/desativad/i.test((data && data.detail) || '')) revokeLocal().catch(() => {}); else checkRevoked().catch(() => {}); }
     let detail = data && data.detail;
     if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg ? `${(d.loc || []).slice(-1)[0] || ''}: ${d.msg}` : JSON.stringify(d))).join('; ').slice(0, 300);
     throw new Error(detail || `Erro ${response.status} no painel.`);
@@ -175,6 +175,7 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
+    if (data.user && data.user.id) { const me = readJson('ultimo-usuario.json', null); if (!me || me.id !== data.user.id) writeJson('ultimo-usuario.json', { id: data.user.id }); }
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
     try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
     try { contentCfg = await api('GET', '/extension/content/config'); for (const cid of views.keys()) { const c = capture.get(cid); if (c && c.attach) c.attach(); } } catch { /* painel sem o módulo Conteúdo */ }
@@ -1769,6 +1770,31 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   restoreOpenTabs(); startVigia();
   return publicState();
 });
+// Acesso desativado ou excluído pelo admin: fecha todas as abas e desconecta as contas das criadoras DESTE
+// computador (apaga cookies e dados salvos de cada perfil), para quem saiu não continuar usando a Privacy aqui.
+// sessão "expirada": confere se a pessoa que usava este app foi desativada/excluída (quem saiu antes desta versão)
+async function checkRevoked() {
+  const me = readJson('ultimo-usuario.json', null); if (!me || !me.id) return;
+  try {
+    const r = await fetch(`${config.origin}/api/extension/revoked-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: me.id }) });
+    const d = await r.json(); if (d && d.revoked) await revokeLocal();
+  } catch {}
+}
+let revoking = false;
+async function revokeLocal() {
+  if (revoking) return; revoking = true;
+  try {
+    stopVigia();
+    const ids = new Set([...tabs.keys(), ...Object.keys(local.creators || {}), ...Object.keys(fanCids || {}), ...extratos.keys()]);
+    const saved = readJson('abas-abertas.json', null); if (saved && saved.tabs) for (const k of Object.keys(saved.tabs)) ids.add(k);
+    for (const id of [...tabs.keys()]) closeProfile(id);
+    for (const id of [...extratos.keys()]) closeStatsView(id);
+    for (const id of ids) { try { const ses = session.fromPartition(partitionFor(id)); await ses.clearStorageData(); await ses.clearCache(); } catch {} }
+    writeJson('abas-abertas.json', null); credentials = [];
+    state = { user: null, creators: [], sla_minutes: 5, version: null }; pushState();
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', 'Seu acesso ao Alta Pulse foi desativado. As contas das criadoras foram desconectadas deste computador.');
+  } finally { revoking = false; }
+}
 ipcMain.handle('auth:logout', async () => {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
