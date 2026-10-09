@@ -396,7 +396,8 @@ function pushFan() {
   if (!fanView || fanView.webContents.isDestroyed()) return;
   const creator = (state.creators || []).find((c) => c.id === fan.creatorId);
   const cc = (state.creators || []).find((c) => c.id === activeId);
-  const content = { allowed: !!(contentCfg.perms && contentCfg.perms.conteudo_app), ...contentCtx, creatorId: activeId, creatorName: cc ? cc.name : '' };
+  const xr = activeId && extratos.get(activeId);
+  const content = { allowed: !!(contentCfg.perms && contentCfg.perms.conteudo_app), ...contentCtx, creatorId: activeId, creatorName: cc ? cc.name : '', reading: !!(xr && xr.contentBusy), read: (xr && xr.content) || null };
   fanView.webContents.send('fan', { ...fan, content, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
 }
 async function loadFanCard(force = false) {
@@ -1018,7 +1019,7 @@ async function readExtratoNow(id, opts = {}) {
     // bloco E/F: Conteúdo — resultado de cada post (Engajamento) e calendário (posts e mensagens em massa)
     if (state.storage_allowed && contentOn(id, 'read') && (!x.reader.s.contentAt || Date.now() - x.reader.s.contentAt > (contentOn(id, 'goal') ? CONTENT_GOAL_MS : CONTENT_MS))) {
       try { await readContent(id, view, x); x.reader.s.contentAt = Date.now(); }
-      catch (error) { x.summary.contentError = error.message.slice(0, 120); x.reader.s.contentAt = Date.now() - CONTENT_MS + 30 * 60 * 1000; }
+      catch (error) { x.summary.contentError = error.message.slice(0, 120); x.content = { ...(x.content || {}), error: error.message.slice(0, 120), errorAt: Date.now() }; x.reader.s.contentAt = Date.now() - CONTENT_MS + 30 * 60 * 1000; }
     }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
@@ -1039,13 +1040,13 @@ async function readContent(id, view, x) {
   let t = await runE('tab');
   for (let i = 0; i < 8 && t.hadTab && !t.active; i++) { await sleep(2000); t = await runE('tab'); }
   if (t.active) {
-    await sleep(3500);
+    await sleep(3500); await runE('wake');
     let d = await runE('read');
-    for (let i = 0; i < 6 && !d.rows.length; i++) { await sleep(2000); d = await runE('read'); }
+    for (let i = 0; i < 10 && !d.rows.length; i++) { await sleep(2000); if (i % 2 === 0) await runE('wake'); d = await runE('read'); }
     let prev = d.rows.length;
     for (let i = 0; i < 15 && d.hasMore; i++) { await runE('more'); await sleep(1800); d = await runE('read'); if (d.rows.length <= prev) break; prev = d.rows.length; }
     if (d.rows.length) {
-      const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500).map(({ thumb, ...r }) => r) }); x.summary.contentPosts = out.saved;
+      const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500).map(({ thumb, ...r }) => r) }); x.summary.contentPosts = out.saved; x.content = { ...(x.content || {}), posts: out.saved, postsAt: Date.now(), error: '' };
       // miniatura (capa como a Privacy mostra no Engajamento), pequena, só dos posts que o painel ainda não tem
       const need = new Set((out.need_thumbs || []).map((a) => Math.round(Date.parse(a) / 60000)));
       const items = [];
@@ -1062,15 +1063,15 @@ async function readContent(id, view, x) {
       }
       if (items.length) { const t = await api('POST', '/extension/content/thumbs', { creator_id: id, items }).catch(() => null); if (t) x.summary.contentThumbs = t.saved; }
     }
-    else x.summary.contentError = 'Engajamento sem posts';
-  } else x.summary.contentError = 'sem aba Engajamento';
+    else { x.summary.contentError = 'Engajamento sem posts'; x.content = { ...(x.content || {}), error: 'Engajamento não carregou os posts', errorAt: Date.now() }; }
+  } else { x.summary.contentError = 'sem aba Engajamento'; x.content = { ...(x.content || {}), error: 'não abriu a aba Engajamento', errorAt: Date.now() }; }
   // calendário: mês atual e o anterior
   await new Promise((resolve) => { const done = () => { clearTimeout(tm); resolve(); }; const tm = setTimeout(done, 25000); view.webContents.once('did-finish-load', done); view.webContents.loadURL('https://privacy.com.br/calendar', { userAgent: UA }); });
   await sleep(4000);
   const runC = (a) => runJs(view, CONTENT.cal(a), 15000);
   let l = await runC('list');
   for (let i = 0; i < 8 && !l.ok; i++) { await sleep(2000); l = await runC('list'); }
-  if (!l.ok) { x.summary.contentError = 'calendário não abriu'; return; }
+  if (!l.ok) { x.summary.contentError = 'calendário não abriu'; x.content = { ...(x.content || {}), error: 'calendário não abriu', errorAt: Date.now() }; return; }
   if (!l.list) { await sleep(2500); l = await runC('list'); }
   const rows = [];
   for (const step of ['cur', 'prev']) {
@@ -1078,7 +1079,7 @@ async function readContent(id, view, x) {
     await runC('expand'); await sleep(2500);
     const d = await runC('read'); if (d.rows) rows.push(...d.rows);
   }
-  if (rows.length) { const out = await api('POST', '/extension/content/calendar', { creator_id: id, rows: rows.slice(0, 600) }); x.summary.contentCalendar = out.saved; }
+  if (rows.length) { const out = await api('POST', '/extension/content/calendar', { creator_id: id, rows: rows.slice(0, 600) }); x.summary.contentCalendar = out.saved; x.content = { ...(x.content || {}), calendar: out.saved, calendarAt: Date.now() }; }
 }
 
 // Registro de autoria: quando ALGUÉM NESTE APP envia uma mensagem em massa ou publica/agenda um post, o app
@@ -1704,6 +1705,12 @@ ipcMain.handle('task:open', async (_e, taskId) => {
   const view = views.get(t.creator_id); const cid = fanCids[t.creator_id] && fanCids[t.creator_id][t.fan_ref];
   if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
   return { found: !!cid, name: t.fan_name };
+});
+ipcMain.handle('content:readNow', async () => {
+  const id = activeId; if (!id) return { ok: false };
+  const x = extratoFor(id); x.reader.s.contentAt = 0; x.contentBusy = true; pushFan();
+  try { await readExtrato(id, { background: true }); } finally { x.contentBusy = false; pushFan(); }
+  return { ok: true, read: x.content || null };
 });
 ipcMain.handle('content:panel', async () => { if (!activeId) return null; return api('GET', `/extension/content/panel?creator_id=${encodeURIComponent(activeId)}`); });
 ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); if (ffTabOpen(id) || await hasFFSession(id)) await readFF(id, { background: true }); if (cfTabOpen(id) || await hasCFSession(id)) await readCF(id, { background: true }); if (ofTabOpen(id) || await hasOFSession(id)) await readOF(id, { background: true }); return publicState(); });

@@ -26,6 +26,8 @@ function eng(action) {
     const tab = qs('.seg-btn[data-tour="tour-engajamento"]');
     if (ACTION === 'tab') { if (tab && !tab.classList.contains('active')) tab.click(); return { hadTab: !!tab, active: !!(tab && tab.classList.contains('active')), onStats: /myprivacystats/i.test(location.pathname) }; }
     const view = qs('.pub-view');
+    // aba oculta: a lista só carrega quando "aparece" na tela; rola até ela para disparar o carregamento
+    if (ACTION === 'wake') { try { const l = view && view.querySelector('.pub-list'); if (l) l.scrollIntoView({ block: 'start' }); window.scrollTo(0, document.body.scrollHeight); window.dispatchEvent(new Event('scroll')); } catch {} return { ok: !!view }; }
     if (ACTION === 'more') { const b = view && view.querySelector('.ver-mais-btn'); if (b) b.click(); return { clicked: !!b }; }
     const when = (s) => { const m = (s || '').toLowerCase().match(/(\d{1,2})\s+([a-zç]{3})[a-zç]*\.?,?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})/); if (!m || MES[m[2]] == null) return null; const d = new Date(+m[3], MES[m[2]], +m[1], +m[4], +m[5]); return isNaN(d) ? null : d.toISOString(); };
     const rows = [];

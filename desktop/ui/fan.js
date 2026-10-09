@@ -450,7 +450,10 @@ function uniquePrice(c, used) {
 function renderContent() {
   const el = $('content'); const ct = ctNow();
   if (!document.body.classList.contains('mode-content')) return;
-  let h = `<div class="ct-head"><b>📣 ${esc(ct.creatorName || 'Conteúdo')}</b><button class="icon" id="ct-reload" title="Atualizar">↻</button></div>`;
+  const reading = ct.reading || ctReading;
+  let h = `<div class="ct-head"><b>📣 ${esc(ct.creatorName || 'Conteúdo')}</b><button class="icon" id="ct-reload" title="Ler a Privacy agora e atualizar" ${reading ? 'disabled' : ''}>${reading ? '⏳' : '↻'}</button></div>`;
+  if (reading) h += `<div class="sub">Lendo a Privacy agora (Engajamento e calendário). Leva de 1 a 3 minutos; o painel atualiza sozinho no fim.</div>`;
+  else if (cpAt) h += `<div class="ct-foot">Atualizado às ${new Date(cpAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ↻ lê a Privacy de novo</div>`;
   if (ct.page === 'mass') {
     const used = (CP && CP.used_mass_cents) || [], table = (CP && CP.table_cents) || [];
     if (ct.price_cents == null) h += `<div class="sub"><b>Mensagem em massa aberta.</b> Ao pôr preço, use um valor quebrado e diferente dos últimos disparos (ex.: R$ 49,87). Assim o painel mede exatamente quanto este disparo vendeu.</div>`;
@@ -478,8 +481,15 @@ function renderContent() {
     <div class="ct-hours">${(CP.hours || []).map((v, i) => `<i class="${(CP.best_hours || []).includes(i) ? 'best' : ''}" style="height:${Math.max(2, Math.round(46 * v / max))}px" title="${i}h · ${money(v)}"></i>`).join('')}</div><div class="ct-hl"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>`;
   h += `<div class="sec">Últimos 7 dias</div>`;
   h += (CP.recent || []).length ? CP.recent.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>';
-  const rd = CP.reads || {};
+  const rd = CP.reads || {}; const lr = ct.read || {};
+  if (lr.error && (!lr.postsAt || lr.errorAt > lr.postsAt)) h += `<div class="pend">Última leitura neste computador falhou: ${esc(lr.error)}. Clique em ↻ para tentar de novo.</div>`;
   h += `<div class="ct-foot">Leitura: posts ${rd.posts_at ? hm(rd.posts_at) : '—'} · calendário ${rd.calendar_at ? hm(rd.calendar_at) : '—'}<br>Análise completa: altapulse.com.br → Conteúdo e disparos.</div>`;
   el.innerHTML = h; wireContent();
 }
-function wireContent() { const r = $('ct-reload'); if (r) r.addEventListener('click', () => loadContent(true)); }
+let ctReading = false;
+async function readNow() {
+  if (ctReading) return; ctReading = true; renderContent();
+  try { await window.pulse.contentReadNow(); } catch (err) { cpErr = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+  finally { ctReading = false; loadContent(true); }
+}
+function wireContent() { const r = $('ct-reload'); if (r) r.addEventListener('click', () => readNow()); }
