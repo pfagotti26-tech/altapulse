@@ -86,6 +86,10 @@ async def sweep_loop():
                 from radar import sweep as radar_sweep
                 await radar_sweep()
             except Exception: logging.exception('radar de oportunidades')
+        try:
+            from content import goal_tick
+            await goal_tick()  # metas de posts: alertas às 14h e 19h, registro do dia às 23h50
+        except Exception: logging.exception('metas de conteúdo')
         await asyncio.sleep(60)
 
 class ExtendIn(Strict):

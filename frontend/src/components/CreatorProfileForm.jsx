@@ -15,8 +15,8 @@ const slug = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().rep
 const TABS = [['nucleo', 'Núcleo'], ['precos', 'Preços'], ['modulos', 'Módulos'], ['ia', 'Liga / desliga']];
 
 export function CreatorProfileForm({ creatorId, onSaved }) {
-  const [meta, setMeta] = useState(null), [form, setForm] = useState(null), [busy, setBusy] = useState(false), [info, setInfo] = useState(null), [tab, setTab] = useState('nucleo'), [comp, setComp] = useState(null);
-  useEffect(() => { api.get('/assist/fields').then(r => setMeta(r.data)).catch(e => toast.error(errorText(e))); }, []);
+  const [meta, setMeta] = useState(null), [people, setPeople] = useState([]), [form, setForm] = useState(null), [busy, setBusy] = useState(false), [info, setInfo] = useState(null), [tab, setTab] = useState('nucleo'), [comp, setComp] = useState(null);
+  useEffect(() => { api.get('/assist/fields').then(r => setMeta(r.data)).catch(e => toast.error(errorText(e))); api.get('/users').then(r => setPeople((r.data || []).filter(u => u.active))).catch(() => {}); }, []);
   useEffect(() => {
     if (!creatorId || !meta) return;
     api.get('/assist/profiles').then(r => {
@@ -32,7 +32,8 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
-        features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, ...(p.features || {}) },
+        features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, content_thumbs: true, ...(p.features || {}) },
+        content_goals: { posts_day: 0, paid_day: 0, mass_day: 0, videos_week: 0, responsible_id: '', ...(p.content_goals || {}) },
         connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
       });
     }).catch(e => toast.error(errorText(e)));
@@ -52,7 +53,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales: form.sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, connection: { ...form.connection, turns: Number(form.connection.turns) || 3 } };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 } };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -163,7 +164,16 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       <h3 style={{ marginTop: 14 }}>📣 Conteúdo e disparos</h3><p className="body-muted" style={{ fontSize: 12 }}>Mede posts e mensagens em massa desta criadora. Quem vê os números é definido por pessoa, em Equipe → Permissões especiais.</p>
       <div className="pf-switches">
         {chk(form.features.content_capture, v => sub('features', { content_capture: v }), 'Registrar quem disparou cada mensagem em massa e quem postou/agendou cada post pelo app')}
-        {chk(form.features.content_read, v => sub('features', { content_read: v }), 'Ler o resultado dos posts (Meu Privacy → Engajamento) e o calendário da Privacy a cada 3 h')}
+        {chk(form.features.content_read, v => sub('features', { content_read: v }), 'Ler o resultado dos posts (Meu Privacy → Engajamento) e o calendário da Privacy a cada 3 h (1 h quando tem meta)')}
+        {chk(form.features.content_thumbs, v => sub('features', { content_thumbs: v }), 'Guardar a miniatura (capa) de cada post como a Privacy mostra no Engajamento, pequena, por 90 dias; só quem vê o relatório enxerga')}
+      </div>
+      <h3 style={{ marginTop: 14 }}>🎯 Metas de conteúdo</h3><p className="body-muted" style={{ fontSize: 12 }}>0 = sem meta. Conta o que foi publicado e o que está agendado para mais tarde no mesmo dia. Alerta às 14h para o responsável e às 19h para o responsável e os admins.</p>
+      <div className="profile-grid">
+        <Field id="cg-posts" label="Posts por dia"><Input id="cg-posts" type="number" min="0" max="50" value={form.content_goals.posts_day} onChange={e => sub('content_goals', { posts_day: e.target.value })}/></Field>
+        <Field id="cg-paid" label="Posts pagos por dia (mínimo)"><Input id="cg-paid" type="number" min="0" max="50" value={form.content_goals.paid_day} onChange={e => sub('content_goals', { paid_day: e.target.value })}/></Field>
+        <Field id="cg-mass" label="Mensagens em massa por dia"><Input id="cg-mass" type="number" min="0" max="4" value={form.content_goals.mass_day} onChange={e => sub('content_goals', { mass_day: e.target.value })}/></Field>
+        <Field id="cg-vid" label="Vídeos por semana (mínimo)"><Input id="cg-vid" type="number" min="0" max="100" value={form.content_goals.videos_week} onChange={e => sub('content_goals', { videos_week: e.target.value })}/></Field>
+        <Field id="cg-resp" label="Responsável de conteúdo (recebe o alerta)"><Select id="cg-resp" value={form.content_goals.responsible_id} onChange={e => sub('content_goals', { responsible_id: e.target.value })}><option value="">Ninguém (alerta vai para os admins)</option>{people.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>
       </div></section>}
     {tab === 'ia' && <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => up({ max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>

@@ -60,6 +60,8 @@ class ActionIn(Strict):
     scheduled_for: Optional[str] = Field(default=None, max_length=40)
     audience: list[str] = Field(default_factory=list, max_length=12)
     media_count: int = Field(default=0, ge=0, le=50)
+    media_photos: int = Field(default=0, ge=0, le=50)
+    media_videos: int = Field(default=0, ge=0, le=50)
     privacy_ref: str = Field(default='', max_length=120)
     confidence: Literal['confirmed', 'probable'] = 'probable'
     net_path: str = Field(default='', max_length=200)
@@ -113,20 +115,23 @@ async def find_match(creator_id, kind, at, text, window_min=MATCH_MIN, extra=Non
         lo = (at - timedelta(days=14)).isoformat()
         return await db.content_items.find_one({**q, 'text_key': k, 'at_unknown': True, 'at': {'$gte': lo, '$lte': hi}}, {'_id': 0})
     return None
+def media_type(p, v):
+    return 'mixed' if p and v else 'video' if v else 'photo' if p else None
 def real_time(cur, at):
     return {'at': at.astimezone(timezone.utc).isoformat(), 'at_unknown': False} if cur.get('at_unknown') else {}
 
 @router.get('/extension/content/config')
 async def ext_config(user=Depends(extension_user)):
     ids = None if is_staff(user) else set(user.get('creator_ids') or [])
-    rows = await db.assist_profiles.find({}, {'_id': 0, 'creator_id': 1, 'features': 1}).to_list(2000)
+    rows = await db.assist_profiles.find({}, {'_id': 0, 'creator_id': 1, 'features': 1, 'content_goals': 1}).to_list(2000)
     feats = {r['creator_id']: PM.normalize(r)['features'] for r in rows}
     creators = await db.creators.find({'deleted_at': None}, {'_id': 0, 'id': 1}).to_list(2000)
     out = {}
     for c in creators:
         if ids is not None and c['id'] not in ids: continue
         f = feats.get(c['id']) or PM.normalize({})['features']
-        out[c['id']] = {'read': bool(f.get('content_read')), 'capture': bool(f.get('content_capture'))}
+        g = (next((r for r in rows if r['creator_id'] == c['id']), {}) or {}).get('content_goals') or {}
+        out[c['id']] = {'read': bool(f.get('content_read')), 'capture': bool(f.get('content_capture')), 'thumbs': bool(f.get('content_thumbs')), 'goal': bool(g.get('posts_day'))}
     return {'perms': perms_of(user), 'creators': out}
 
 @router.post('/extension/content/action')
@@ -158,11 +163,13 @@ async def ext_action(body: ActionIn, user=Depends(extension_user)):
             if v and not cur.get(k): patch[k] = v
         if body.text and not cur.get('text_key'): patch['text_key'] = text_key(body.text)
         if body.audience: patch['audience'] = body.audience
+        if body.media_photos or body.media_videos: patch.update(media_photos=body.media_photos, media_videos=body.media_videos, media_type=media_type(body.media_photos, body.media_videos))
         await db.content_items.update_one({'id': cur['id']}, {'$set': patch, '$push': {'history': hist}})
         return {'ok': True, 'id': cur['id'], 'matched': True}
     row = {'id': uid(), 'creator_id': body.creator_id, 'kind': body.kind, 'at': at.astimezone(timezone.utc).isoformat(),
            'status': 'scheduled' if body.action == 'schedule' and (at_unknown or at > now()) else 'done', 'text': body.text[:2000], 'text_key': text_key(body.text),
-           'price_cents': body.price_cents, 'audience': body.audience, 'media_count': body.media_count, 'privacy_ref': body.privacy_ref or '',
+           'price_cents': body.price_cents, 'audience': body.audience, 'media_count': body.media_count,
+           'media_photos': body.media_photos, 'media_videos': body.media_videos, 'media_type': media_type(body.media_photos, body.media_videos), 'privacy_ref': body.privacy_ref or '',
            'at_unknown': at_unknown, 'attribution': attr, **who, 'sources': ['app'], 'net_path': body.net_path, 'history': [hist], 'created_at': iso(), 'updated_at': iso()}
     await db.content_items.insert_one(dict(row))
     return {'ok': True, 'id': row['id'], 'matched': False}
@@ -195,7 +202,12 @@ async def ext_posts(body: PostsIn, user=Depends(extension_user)):
                 'history': [], 'created_at': t, 'updated_at': t})
         saved += 1
     await db.content_reads.update_one({'creator_id': body.creator_id}, {'$set': {'creator_id': body.creator_id, 'posts_at': t, 'posts_n': saved}}, upsert=True)
-    return {'ok': True, 'saved': saved}
+    need = []
+    if (await features(body.creator_id)).get('content_thumbs'):
+        lo = (now() - timedelta(days=60)).isoformat()
+        rows = await db.content_items.find({'creator_id': body.creator_id, 'kind': 'post', 'has_thumb': {'$ne': True}, 'at': {'$gte': lo}, 'sources': 'stats'}, {'_id': 0, 'at': 1}).sort('at', -1).to_list(30)
+        need = [r['at'] for r in rows]
+    return {'ok': True, 'saved': saved, 'need_thumbs': need}
 
 @router.post('/extension/content/calendar')
 async def ext_calendar(body: CalendarIn, user=Depends(extension_user)):
@@ -414,6 +426,175 @@ async def ext_panel(creator_id: str, user=Depends(extension_user)):
     # preços já usados em disparos dos últimos 7 dias (para sugerir um valor que não repete)
     used = sorted({i['price_cents'] for i in items if i['kind'] == 'mass' and i.get('price_cents')})
     rd = await db.content_reads.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
-    return {'today_cents': today_c, 'avg_cents': avg, 'hours': hours, 'best_hours': best, 'posts_today': posts_today, 'mass_today': mass_today,
+    gprof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'content_goals': 1}) or {}
+    goals = PM.normalize(gprof)['content_goals']
+    goal = await goal_status(creator_id, goals) if any(goals.get(k) for k in ('posts_day', 'paid_day', 'mass_day', 'videos_week')) else None
+    return {'goal': goal, 'today_cents': today_c, 'avg_cents': avg, 'hours': hours, 'best_hours': best, 'posts_today': posts_today, 'mass_today': mass_today,
             'limits': {'posts': 25, 'scheduled': 25, 'mass': 4}, 'upcoming': [slim(i) for i in upcoming[:12]], 'gaps': gaps, 'recent': [slim(i) for i in recent],
             'table_cents': table, 'used_mass_cents': used, 'reads': rd, 'now': n.isoformat()}
+
+
+# ---------------------------------------------------------------- miniaturas (capa do post, como a Privacy mostra)
+import base64
+from bson import Binary
+from fastapi.responses import Response
+class ThumbIn(Strict):
+    posted_at: str = Field(max_length=40)
+    caption: str = Field(default='', max_length=2000)
+    jpeg_b64: str = Field(max_length=120_000)  # ~60 KB: miniatura pequena, nunca a mídia inteira
+class ThumbsIn(Strict):
+    creator_id: str
+    items: list[ThumbIn] = Field(max_length=30)
+
+@router.post('/extension/content/thumbs')
+async def ext_thumbs(body: ThumbsIn, user=Depends(extension_user)):
+    await allowed_creator(user, body.creator_id)
+    if not (await features(body.creator_id)).get('content_thumbs'): return {'ok': False, 'saved': 0}
+    saved = 0
+    for it in body.items:
+        at = parse_at(it.posted_at); cur = await find_match(body.creator_id, 'post', at, it.caption) if at else None
+        if not cur: continue
+        try: data = base64.b64decode(it.jpeg_b64, validate=True)
+        except Exception: continue
+        if not data.startswith(b'\xff\xd8') or len(data) > 90_000: continue  # só JPEG pequeno
+        await db.content_thumbs.update_one({'item_id': cur['id']}, {'$set': {'item_id': cur['id'], 'creator_id': body.creator_id, 'data': Binary(data), 'created_at': iso(), 'expires_at': now() + timedelta(days=90)}}, upsert=True)
+        await db.content_items.update_one({'id': cur['id']}, {'$set': {'has_thumb': True}})
+        saved += 1
+    return {'ok': True, 'saved': saved}
+
+@router.get('/content/thumb/{item_id}')
+async def thumb(item_id: str, user=Depends(current_user)):
+    if not has_perm(user, 'conteudo_relatorio'): raise HTTPException(403, 'Só quem vê o relatório.')
+    row = await db.content_thumbs.find_one({'item_id': item_id}, {'_id': 0, 'data': 1})
+    if not row: raise HTTPException(404, 'Sem miniatura.')
+    return Response(bytes(row['data']), media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=86400'})
+
+# ---------------------------------------------------------------- metas de posts e alertas
+CHECKPOINTS = (('14h', 14), ('19h', 19))
+async def goal_status(creator_id, goals, nb=None):
+    """Situação da meta no dia (horário de Brasília): publicados + agendados para mais tarde no mesmo dia."""
+    nb = nb or now().astimezone(BRT); day0 = nb.replace(hour=0, minute=0, second=0, microsecond=0)
+    week0 = day0 - timedelta(days=day0.weekday())
+    rows = await db.content_items.find({'creator_id': creator_id, 'status': {'$ne': 'canceled'}, 'at': {'$gte': week0.astimezone(timezone.utc).isoformat(), '$lt': (day0 + timedelta(days=1)).astimezone(timezone.utc).isoformat()}},
+                                       {'_id': 0, 'kind': 1, 'at': 1, 'price_cents': 1, 'media_videos': 1, 'media_type': 1}).to_list(2000)
+    today = [r for r in rows if parse_at(r['at']) >= day0]
+    n = nb.astimezone(timezone.utc)
+    posts = [r for r in today if r['kind'] == 'post']
+    st = {'posts_done': sum(1 for r in posts if parse_at(r['at']) <= n), 'posts_sched': sum(1 for r in posts if parse_at(r['at']) > n),
+          'paid': sum(1 for r in posts if (r.get('price_cents') or 0) > 0), 'mass': sum(1 for r in today if r['kind'] == 'mass'),
+          'videos_week': sum(1 for r in rows if r['kind'] == 'post' and r.get('media_type') in ('video', 'mixed')),
+          'videos_known': sum(1 for r in rows if r['kind'] == 'post' and r.get('media_type'))}
+    st['posts'] = st['posts_done'] + st['posts_sched']
+    g = goals; miss = {}
+    if g.get('posts_day') and st['posts'] < g['posts_day']: miss['posts'] = g['posts_day'] - st['posts']
+    if g.get('paid_day') and st['paid'] < g['paid_day']: miss['paid'] = g['paid_day'] - st['paid']
+    if g.get('mass_day') and st['mass'] < g['mass_day']: miss['mass'] = g['mass_day'] - st['mass']
+    if g.get('videos_week') and st['videos_week'] < g['videos_week']: miss['videos_week'] = g['videos_week'] - st['videos_week']
+    st['missing'] = miss; st['met'] = not miss; st['goals'] = {k: g.get(k, 0) for k in ('posts_day', 'paid_day', 'mass_day', 'videos_week')}
+    return st
+
+def goal_text(name, st, best=None):
+    g = st['goals']; parts = []
+    if g['posts_day']: parts.append(f"posts {st['posts_done']} feitos + {st['posts_sched']} agendados de {g['posts_day']}")
+    if g['paid_day']: parts.append(f"pagos {st['paid']}/{g['paid_day']}")
+    if g['mass_day']: parts.append(f"massa {st['mass']}/{g['mass_day']}")
+    if g['videos_week']: parts.append(f"vídeos na semana {st['videos_week']}/{g['videos_week']}")
+    falta = []
+    m = st['missing']
+    if 'posts' in m: falta.append(f"{m['posts']} post(s)")
+    if 'paid' in m: falta.append(f"{m['paid']} pago(s)")
+    if 'mass' in m: falta.append(f"{m['mass']} mensagem(ns) em massa")
+    if 'videos_week' in m: falta.append(f"{m['videos_week']} vídeo(s) na semana")
+    txt = f"{name}: {' · '.join(parts)}."
+    if falta: txt += f" Falta: {', '.join(falta)}."
+    if best: txt += f" Melhores horários: {', '.join(f'{h}h' for h in best)}."
+    return txt
+
+async def best_hours(creator_id, after_hour):
+    since = (now() - timedelta(days=30)).isoformat(); hours = [0] * 24
+    for s in await db.events.find({'creator_id': creator_id, 'kind': 'sale', 'sale_status': {'$ne': 'refunded'}, 'confirmed_at': {'$gte': since}}, {'_id': 0, 'confirmed_at': 1, 'amount_cents': 1}).to_list(50000):
+        d = parse_at(s['confirmed_at'])
+        if d: hours[d.astimezone(BRT).hour] += s.get('amount_cents') or 0
+    return [h for h in sorted(range(24), key=lambda h: -hours[h]) if h > after_hour][:3]
+
+async def goal_tick(nb=None):
+    """Chamado a cada minuto pela varredura do servidor: alertas às 14h e às 19h e registro do dia às 23h50."""
+    nb = nb or now().astimezone(BRT); day = nb.strftime('%Y-%m-%d')
+    cps = [c for c in CHECKPOINTS if nb.hour == c[1] and nb.minute < 20]
+    closing = nb.hour == 23 and nb.minute >= 50
+    if not cps and not closing: return 0
+    made = 0
+    profs = await db.assist_profiles.find({'content_goals.posts_day': {'$gt': 0}}, {'_id': 0, 'creator_id': 1, 'content_goals': 1, 'features': 1}).to_list(2000)
+    for prof in profs:
+        c = await db.creators.find_one({'id': prof['creator_id'], 'deleted_at': None}, {'_id': 0, 'id': 1, 'name': 1})
+        if not c: continue
+        goals = PM.normalize(prof)['content_goals']
+        st = await goal_status(c['id'], goals, nb)
+        rd = await db.content_reads.find_one({'creator_id': c['id']}, {'_id': 0}) or {}
+        last = parse_at(rd.get('posts_at')); fresh = bool(last and now() - last < timedelta(hours=4))
+        if closing:
+            await db.content_goal_days.update_one({'creator_id': c['id'], 'day': day}, {'$set': {'creator_id': c['id'], 'creator_name': c['name'], 'day': day, 'met': st['met'], 'fresh': fresh,
+                'status': {k: st[k] for k in ('posts_done', 'posts_sched', 'posts', 'paid', 'mass', 'videos_week')}, 'goals': st['goals'], 'missing': st['missing'],
+                'responsible_id': goals.get('responsible_id') or None, 'closed_at': iso()}}, upsert=True)
+            continue
+        for cp, hour in cps:
+            if await db.content_alerts.find_one({'creator_id': c['id'], 'day': day, 'checkpoint': cp}, {'_id': 1}): continue
+            if st['met'] and fresh: continue
+            best = await best_hours(c['id'], nb.hour)
+            if not fresh: text = f"{c['name']}: sem leitura da Privacy há mais de 4 h. Abra a criadora no app para conferir a meta de posts."
+            else: text = goal_text(c['name'], st, best)
+            await db.content_alerts.insert_one({'id': uid(), 'creator_id': c['id'], 'creator_name': c['name'], 'day': day, 'checkpoint': cp, 'level': 'aviso' if cp == '14h' else 'cobranca',
+                'stale': not fresh, 'text': text, 'missing': st['missing'], 'responsible_id': goals.get('responsible_id') or None, 'to_admins': cp == '19h' or not goals.get('responsible_id'),
+                'delivered_to': [], 'created_at': iso(), 'expires_at': now() + timedelta(days=60)})
+            made += 1
+    return made
+
+def alert_query(user):
+    or_ = [{'responsible_id': user['id']}]
+    if has_perm(user, 'conteudo_relatorio'): or_.append({'to_admins': True})
+    return {'$or': or_}
+
+@router.get('/extension/content/alerts')
+async def ext_alerts(user=Depends(extension_user)):
+    """Alertas de meta ainda não mostrados neste usuário (o app mostra notificação e marca como entregue)."""
+    since = (now() - timedelta(hours=12)).isoformat()
+    rows = await db.content_alerts.find({**alert_query(user), 'created_at': {'$gte': since}, 'delivered_to': {'$ne': user['id']}}, {'_id': 0, 'expires_at': 0}).to_list(50)
+    if rows: await db.content_alerts.update_many({'id': {'$in': [r['id'] for r in rows]}}, {'$addToSet': {'delivered_to': user['id']}})
+    return {'alerts': [{k: r[k] for k in ('id', 'creator_id', 'creator_name', 'checkpoint', 'level', 'text', 'stale')} for r in rows]}
+
+@router.get('/content/alerts')
+async def web_alerts(days: int = 7, user=Depends(current_user)):
+    since = (now() - timedelta(days=max(1, min(days, 60)))).isoformat()
+    rows = await db.content_alerts.find({**alert_query(user), 'created_at': {'$gte': since}}, {'_id': 0, 'expires_at': 0, 'delivered_to': 0}).sort('created_at', -1).to_list(200)
+    return {'alerts': rows}
+
+@router.get('/content/goals')
+async def goals_report(start: str = '', end: str = '', creator_id: str = '', user=Depends(current_user)):
+    user, p = await report_user(user)
+    q = {}
+    if start: q.setdefault('day', {})['$gte'] = start[:10]
+    if end: q.setdefault('day', {})['$lt'] = end[:10]
+    if creator_id: q['creator_id'] = creator_id
+    if not p['conteudo_relatorio']: q['responsible_id'] = user['id']
+    days = await db.content_goal_days.find(q, {'_id': 0}).sort('day', -1).to_list(5000)
+    names = {u['id']: u['name'] for u in await db.users.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(1000)}
+    def agg(key, label):
+        out = {}
+        for d in days:
+            k = key(d); b = out.setdefault(k, {'key': k, 'name': label(d), 'days': 0, 'met': 0, 'no_read': 0, 'posts': 0, 'goal_posts': 0})
+            b['days'] += 1; b['met'] += 1 if d['met'] and d.get('fresh', True) else 0; b['no_read'] += 0 if d.get('fresh', True) else 1
+            b['posts'] += d['status'].get('posts', 0); b['goal_posts'] += d['goals'].get('posts_day', 0)
+        for b in out.values(): b['pct'] = round(100 * b['met'] / b['days']) if b['days'] else 0
+        return sorted(out.values(), key=lambda b: b['pct'])
+    # hoje, ao vivo
+    today = []
+    if p['conteudo_relatorio']:
+        for prof in await db.assist_profiles.find({'content_goals.posts_day': {'$gt': 0}}, {'_id': 0, 'creator_id': 1, 'content_goals': 1}).to_list(2000):
+            if creator_id and prof['creator_id'] != creator_id: continue
+            c = await db.creators.find_one({'id': prof['creator_id'], 'deleted_at': None}, {'_id': 0, 'name': 1})
+            if not c: continue
+            goals = PM.normalize(prof)['content_goals']; st = await goal_status(prof['creator_id'], goals)
+            today.append({'creator_id': prof['creator_id'], 'creator_name': c['name'], 'responsible': names.get(goals.get('responsible_id'), '—'), **st})
+    return {'by_creator': agg(lambda d: d['creator_id'], lambda d: d.get('creator_name', '—')),
+            'by_person': agg(lambda d: d.get('responsible_id') or 'none', lambda d: names.get(d.get('responsible_id'), 'Sem responsável')),
+            'days': days[:300], 'today': today}

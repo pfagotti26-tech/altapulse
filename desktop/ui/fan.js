@@ -464,6 +464,12 @@ function renderContent() {
   const diff = CP.avg_cents ? Math.round(100 * (CP.today_cents - CP.avg_cents) / CP.avg_cents) : null;
   h += `<div class="nums"><div><span>Vendido hoje</span><b>${moneyShort(CP.today_cents)}</b>${diff != null ? `<span class="${diff >= 0 ? 'ct-up' : 'ct-down'}">${diff >= 0 ? '+' : ''}${diff}% x média</span>` : ''}</div>
     <div><span>Posts hoje</span><b>${CP.posts_today}/${CP.limits.posts}</b></div><div><span>Disparos hoje</span><b>${CP.mass_today}/${CP.limits.mass}</b></div></div>`;
+  const G = CP.goal;
+  if (G) {
+    const gl = G.goals; const row = (lbl, have, want, extra) => want ? `<div class="ct-goal"><span>${lbl}</span><div class="ct-bar"><i style="width:${Math.min(100, Math.round(100 * have / want))}%" class="${have >= want ? 'ok' : ''}"></i></div><b>${have}/${want}</b>${extra || ''}</div>` : '';
+    h += `<div class="sec">Meta de hoje ${G.met ? '· ✅ cumprida' : ''}</div>`
+      + row('Posts', G.posts, gl.posts_day, G.posts_sched ? `<small>${G.posts_sched} agend.</small>` : '') + row('Pagos', G.paid, gl.paid_day) + row('Massa', G.mass, gl.mass_day) + row('Vídeos (semana)', G.videos_week, gl.videos_week);
+  }
   for (const g of CP.gaps || []) h += `<div class="pend">⏳ ${esc(g)}</div>`;
   h += `<div class="sec">Próximas 48 h</div>`;
   h += (CP.upcoming || []).length ? CP.upcoming.map((i) => `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span></div></div>`).join('') : '<div class="sub">Nada agendado nas próximas 48 h.</div>';

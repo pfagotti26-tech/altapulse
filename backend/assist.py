@@ -168,6 +168,7 @@ class ProfileIn(Strict):
     custom_delivery: str = Field(default='', max_length=300)
     features: PM.Features = Field(default_factory=PM.Features)
     connection: PM.Connection = Field(default_factory=PM.Connection)
+    content_goals: PM.ContentGoals = Field(default_factory=PM.ContentGoals)
 OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}

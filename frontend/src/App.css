@@ -35,3 +35,5 @@
 .ct-items td{vertical-align:top}
 .ct-text{max-width:340px;font-size:13px;line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 .ct-items select{min-width:150px;font-size:12px;padding:4px 6px}
+.ct-thumb{width:46px;height:58px;object-fit:cover;border-radius:5px;display:block;margin-bottom:4px;background:#eee}
+.ct-alert{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}

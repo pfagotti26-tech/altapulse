@@ -49,6 +49,7 @@ const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
 const SUBS_MS = 6 * 60 * 60 * 1000;
 const CONTENT_MS = 3 * 60 * 60 * 1000;   // Conteúdo: resultado dos posts e calendário a cada 3 h
+const CONTENT_GOAL_MS = 60 * 60 * 1000;  // criadora com meta de posts: a cada 1 h (o alerta precisa de dado fresco)
 const FF_URL = 'https://fatalfans.com/creator/dashboard'; // FatalFans → Minhas vendas
 const CF_URL = 'https://close.fans/sales-report';       // CloseFans → Vendas
 const OF_URL = 'https://onlyfans.com/my/statements/earnings'; // OnlyFans → Extratos → Renda (US$)     // bloco D: lista de assinantes a cada 6 h
@@ -373,6 +374,17 @@ async function pollContentCtx() {
   if (JSON.stringify(next) !== JSON.stringify(contentCtx)) { contentCtx = next; pushFan(); }
 }
 setInterval(() => { pollContentCtx().catch(() => {}); }, 2500);
+// metas de posts: alertas das 14h e 19h (o painel decide para quem); aparece como notificação do Windows
+async function pollContentAlerts() {
+  if (!state.user) return;
+  const r = await api('GET', '/extension/content/alerts').catch(() => null);
+  for (const a of (r && r.alerts) || []) {
+    try { new Notification({ title: a.level === 'cobranca' ? 'Meta de posts em risco' : 'Meta de posts', body: a.text.slice(0, 250) }).show(); } catch {}
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `📣 ${a.text}`);
+  }
+}
+setInterval(() => { pollContentAlerts().catch(() => {}); }, 5 * 60 * 1000);
+setTimeout(() => { pollContentAlerts().catch(() => {}); }, 60 * 1000);
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
@@ -1004,7 +1016,7 @@ async function readExtratoNow(id, opts = {}) {
       } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
     }
     // bloco E/F: Conteúdo — resultado de cada post (Engajamento) e calendário (posts e mensagens em massa)
-    if (state.storage_allowed && contentOn(id, 'read') && (!x.reader.s.contentAt || Date.now() - x.reader.s.contentAt > CONTENT_MS)) {
+    if (state.storage_allowed && contentOn(id, 'read') && (!x.reader.s.contentAt || Date.now() - x.reader.s.contentAt > (contentOn(id, 'goal') ? CONTENT_GOAL_MS : CONTENT_MS))) {
       try { await readContent(id, view, x); x.reader.s.contentAt = Date.now(); }
       catch (error) { x.summary.contentError = error.message.slice(0, 120); x.reader.s.contentAt = Date.now() - CONTENT_MS + 30 * 60 * 1000; }
     }
@@ -1032,7 +1044,24 @@ async function readContent(id, view, x) {
     for (let i = 0; i < 6 && !d.rows.length; i++) { await sleep(2000); d = await runE('read'); }
     let prev = d.rows.length;
     for (let i = 0; i < 15 && d.hasMore; i++) { await runE('more'); await sleep(1800); d = await runE('read'); if (d.rows.length <= prev) break; prev = d.rows.length; }
-    if (d.rows.length) { const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500) }); x.summary.contentPosts = out.saved; }
+    if (d.rows.length) {
+      const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500).map(({ thumb, ...r }) => r) }); x.summary.contentPosts = out.saved;
+      // miniatura (capa como a Privacy mostra no Engajamento), pequena, só dos posts que o painel ainda não tem
+      const need = new Set((out.need_thumbs || []).map((a) => Math.round(Date.parse(a) / 60000)));
+      const items = [];
+      for (const r of d.rows) {
+        if (!r.thumb || !need.has(Math.round(Date.parse(r.posted_at) / 60000)) || items.length >= 20) continue;
+        try {
+          const res = await session.fromPartition(partitionFor(id)).fetch(r.thumb, { headers: { 'User-Agent': UA, Accept: 'image/jpeg,image/png;q=0.9,*/*;q=0.5' } });
+          if (!res.ok) continue;
+          let img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())); if (img.isEmpty()) continue;
+          const sz = img.getSize(); if (sz.width > 240) img = img.resize({ width: 240, quality: 'good' });
+          const jpg = img.toJPEG(60); if (jpg.length > 85000) continue;
+          items.push({ posted_at: r.posted_at, caption: r.caption, jpeg_b64: jpg.toString('base64') });
+        } catch { /* sem miniatura deste post */ }
+      }
+      if (items.length) { const t = await api('POST', '/extension/content/thumbs', { creator_id: id, items }).catch(() => null); if (t) x.summary.contentThumbs = t.saved; }
+    }
     else x.summary.contentError = 'Engajamento sem posts';
   } else x.summary.contentError = 'sem aba Engajamento';
   // calendário: mês atual e o anterior
@@ -1079,6 +1108,8 @@ async function sendAction(id, a) {
   const c = capture.get(id); const k = `${a.kind}|${ckey(a.text)}`; // o mesmo envio pode chegar pela rede e pela tela
   if (c.recent.some((r) => r.k === k && Date.now() - r.t < 90000)) return; // mesmo envio já registrado
   c.recent = [...c.recent.filter((r) => Date.now() - r.t < 120000), { k, t: Date.now() }];
+  const up = c.up && Date.now() - c.up.t < 15 * 60000 ? c.up : { p: 0, v: 0 }; c.up = null;
+  a.media_photos = Math.max(a.media_photos || 0, up.p); a.media_videos = Math.max(a.media_videos || 0, up.v);
   try { await api('POST', '/extension/content/action', { creator_id: id, ...a }); } catch { /* sem painel: perde só este registro */ }
 }
 function flushNet(id) {
@@ -1099,7 +1130,11 @@ function attachContentCapture(id, view) {
   dbg.on('message', async (_e, method, params) => {
     try {
       if (method === 'Network.requestWillBeSent') {
-        const rq = params.request; if (!/^(POST|PUT|PATCH|DELETE)$/.test(rq.method) || !/privacy\.com\.br/i.test(rq.url) || !contentOn(id, 'capture')) return;
+        const rq = params.request; if (!/^(POST|PUT|PATCH|DELETE)$/.test(rq.method) || !contentOn(id, 'capture')) return;
+        // envio de arquivo (pode ir direto para o armazenamento, fora de privacy.com.br): conta foto x vídeo
+        const ctype = String((rq.headers || {})['Content-Type'] || (rq.headers || {})['content-type'] || '');
+        if (/^(image|video)\//i.test(ctype)) { if (!c.up || Date.now() - c.up.t > 15 * 60000) c.up = { p: 0, v: 0, t: Date.now() }; c.up[/^video/i.test(ctype) ? 'v' : 'p'] += 1; c.up.t = Date.now(); return; }
+        if (!/privacy\.com\.br/i.test(rq.url)) return;
         // registra já (a resposta pode chegar antes de a tela ser lida) e lê o contexto em paralelo
         let body = null; try { body = rq.postData ? JSON.parse(rq.postData) : null; } catch { body = null; }
         if (!c.ctx || Date.now() - c.ctx.t > 400) c.ctx = { t: Date.now(), p: runJs(view, CONTENT.CTX, 1500).catch(() => null) }; // várias chamadas seguidas: lê a tela uma vez
@@ -1119,7 +1154,7 @@ function attachContentCapture(id, view) {
           const priceB = p.body ? findVal(p.body, /price|valor|amount|value/i, 'number') : undefined;
           const scheduled = !!(when && Date.parse(when) > Date.now() + 120000);
           sendAction(id, { kind: p.ctx.kind, action: scheduled ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? (priceB != null ? (priceB > 1000 ? Math.round(priceB) : Math.round(priceB * 100)) : null),
-            scheduled_for: scheduled ? new Date(Date.parse(when)).toISOString() : null, audience: p.ctx.audience || [], media_count: p.ctx.media || 0, privacy_ref: String(ref || '').slice(0, 120),
+            scheduled_for: scheduled ? new Date(Date.parse(when)).toISOString() : null, audience: p.ctx.audience || [], media_count: p.ctx.media || 0, media_photos: p.ctx.photos || 0, media_videos: p.ctx.videos || 0, privacy_ref: String(ref || '').slice(0, 120),
             confidence: ref ? 'confirmed' : 'probable', net_path: maskPath(p.url) });
           return;
         }
@@ -1128,7 +1163,7 @@ function attachContentCapture(id, view) {
           const after = await runJs(view, CONTENT.CTX, 1500).catch(() => null);
           const gone = !after || after.kind !== p.ctx.kind || !after.text; // caixa esvaziou ou a tela fechou = foi enviado
           if (gone) sendAction(id, { kind: p.ctx.kind, action: /agend/i.test(p.ctx.sched || '') ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? null, scheduled_for: null,
-            audience: p.ctx.audience || [], media_count: p.ctx.media || 0, privacy_ref: '', confidence: 'probable', net_path: maskPath(p.url) });
+            audience: p.ctx.audience || [], media_count: p.ctx.media || 0, media_photos: p.ctx.photos || 0, media_videos: p.ctx.videos || 0, privacy_ref: '', confidence: 'probable', net_path: maskPath(p.url) });
         }, 5000);
       }
     } catch { /* nunca atrapalha a página */ }

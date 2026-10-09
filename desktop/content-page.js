@@ -39,7 +39,8 @@ function eng(action) {
       const all = box ? txt(box) : txt(card);
       const revS = sp.find((x) => /^R\$/.test(x) && !/mimo/i.test(x)); const tipsS = sp.find((x) => /mimo/i.test(x));
       const n = (re) => { const m = all.match(re); return m ? parseInt(m[1].replace(/\./g, ''), 10) : 0; };
-      rows.push({ posted_at: at, caption: cap.slice(0, 2000), price_cents: price, revenue_cents: money(revS) || 0, tips_cents: money(tipsS) || 0,
+      const im = card.querySelector('img'); const thumb = im ? (im.currentSrc || im.src || '') : '';
+      rows.push({ thumb: /^https:/.test(thumb) ? thumb : '', posted_at: at, caption: cap.slice(0, 2000), price_cents: price, revenue_cents: money(revS) || 0, tips_cents: money(tipsS) || 0,
         likes: n(/([\d.]+)\s*curtida/i), comments: n(/([\d.]+)\s*coment/i), purchases: n(/([\d.]+)\s*compra/i) });
     }
     return { ok: !!view, rows, hasMore: !!(view && view.querySelector('.ver-mais-btn')), period: txt(qs('.date-range-text')), loading: qsa('.skeleton-content, .animated-background').length };
@@ -93,13 +94,15 @@ const CTX = String.raw`(() => {
       const prices = [...footer.querySelectorAll('*')].filter((e) => !e.children.length && /R\$\s*[\d.]+,\d{2}/.test(e.textContent) && !/m[íi]nimo|m[áa]ximo/i.test(e.textContent)).map((e) => money(e.textContent)).filter((x) => x != null);
       const tags = [...wiz.querySelectorAll('.filter-tag')].filter((t) => !/el-tag--info/.test(t.className) || /is-active|selected|is-checked|el-tag--primary|el-tag--dark/.test(t.className)).map(txt).slice(0, 12);
       const sched = [...wiz.querySelectorAll('*')].filter((e) => !e.children.length && /agend/i.test(e.textContent) && /\d{1,2}[:/h]\d{2}/.test(e.textContent)).map(txt)[0] || '';
-      return { kind: 'mass', path, text: ((ta && ta.value) || '').slice(0, 2000), price_cents: prices[0] == null ? null : prices[0], audience: tags, sched, media: wiz.querySelectorAll('.ce-media-preview, .media-preview, img[src^="blob:"]').length };
+      const ph = wiz.querySelectorAll('img[src^="blob:"]').length, vd = wiz.querySelectorAll('video[src^="blob:"], video source[src^="blob:"]').length;
+      return { kind: 'mass', path, text: ((ta && ta.value) || '').slice(0, 2000), price_cents: prices[0] == null ? null : prices[0], audience: tags, sched, media: ph + vd, photos: ph, videos: vd };
     }
     if (/^\/publisher/i.test(path)) {
       const ta = qsa('textarea').find(visible);
       const prices = qsa('*').filter((e) => !e.children.length && /R\$\s*[\d.]+,\d{2}/.test(e.textContent) && !/m[íi]nimo|m[áa]ximo/i.test(e.textContent) && visible(e)).map((e) => money(e.textContent)).filter((x) => x != null);
       const sched = qsa('*').filter((e) => !e.children.length && visible(e) && /\b\d{1,2}\/\d{1,2}\b|\b\d{1,2}:\d{2}\b/.test(e.textContent) && e.textContent.length < 60).map(txt).slice(0, 3).join(' | ');
-      return { kind: 'post', path, text: ((ta && ta.value) || '').slice(0, 2000), price_cents: prices[0] == null ? null : prices[0], audience: [], sched, media: qsa('img[src^="blob:"], video[src^="blob:"]').length };
+      const ph = qsa('img[src^="blob:"]').length, vd = qsa('video[src^="blob:"], video source[src^="blob:"]').length;
+      return { kind: 'post', path, text: ((ta && ta.value) || '').slice(0, 2000), price_cents: prices[0] == null ? null : prices[0], audience: [], sched, media: ph + vd, photos: ph, videos: vd };
     }
     return { kind: null, path };
 })()`;
