@@ -7,7 +7,12 @@ import { PageHeading, Button, Badge, Modal, Field, Select, Submit, FormError, Em
 const localTime = value => value ? new Date(new Date(value).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 23) : '';
 export const ROLE_LABEL = { manager: 'Gestor', supervisor: 'Supervisor', chatter: 'Chatter' };
 // permissões especiais: só o dono da conta concede; nenhum papel as ganha sozinho
-export const PERMS = [['plantao', 'Plantão noturno', 'Configura e acompanha o agente que aborda assinantes parados de madrugada.']];
+export const PERMS = [['plantao', 'Plantão noturno', 'Configura e acompanha o agente que aborda assinantes parados de madrugada.'],
+  ['conteudo_relatorio', 'Conteúdo: ver o relatório de todos', 'Página Conteúdo e disparos com os números de todas as pessoas e criadoras.'],
+  ['conteudo_atribuir', 'Conteúdo: atribuir dono', 'Pode atribuir ou trocar quem fez cada disparo ou post (fica no histórico).'],
+  ['conteudo_proprio', 'Conteúdo: ver só os próprios números', 'A pessoa vê os disparos e posts dela, nunca os dos outros.'],
+  ['conteudo_app', 'Conteúdo: modo Conteúdo no app', 'Raio-X e calendário de conteúdo no app desktop (próxima etapa).'],
+  ['conteudo_planejar', 'Conteúdo: planejador e preencher na Privacy', 'Sugestões da semana e o botão que preenche o publisher (próxima etapa).']];
 export default function Team() {
   const { user, creators, refresh } = useApp(), manager = user.role === 'manager', staff = manager || user.role === 'supervisor', sup = user.role === 'supervisor';
   const canManage = u => !sup || u.role === 'chatter'; // supervisor só cuida de chatters

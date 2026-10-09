@@ -14,6 +14,7 @@ const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
 const SUBS = require('./subscribers-page.js');
+const CONTENT = require('./content-page.js');
 const { ExtratoReader } = require('./extrato.js');
 const FF = require('./fatalfans-page.js');
 const { FatalFansReader, SalesReader } = require('./fatalfans.js');
@@ -47,6 +48,7 @@ const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cad
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
 const SUBS_MS = 6 * 60 * 60 * 1000;
+const CONTENT_MS = 3 * 60 * 60 * 1000;   // Conteúdo: resultado dos posts e calendário a cada 3 h
 const FF_URL = 'https://fatalfans.com/creator/dashboard'; // FatalFans → Minhas vendas
 const CF_URL = 'https://close.fans/sales-report';       // CloseFans → Vendas
 const OF_URL = 'https://onlyfans.com/my/statements/earnings'; // OnlyFans → Extratos → Renda (US$)     // bloco D: lista de assinantes a cada 6 h
@@ -142,6 +144,8 @@ function localSecret() {
 // ---------- API do painel (chamada só pelo processo principal, nunca pela página da Privacy) ----------
 let token = null; // lido só depois do app ficar pronto (safeStorage depende disso no Windows)
 let state = { user: null, creators: [], sla_minutes: 5, version: null, storage_allowed: false };
+let contentCfg = { perms: {}, creators: {} }; // Conteúdo e disparos: chaves do admin por criadora
+const contentOn = (id, key) => !!(contentCfg.creators && contentCfg.creators[id] && contentCfg.creators[id][key]);
 let credentials = []; // acessos salvos (sem senha) das criadoras do usuário
 const loginPages = new Map(); // creatorId -> plataforma cuja tela de login está aberta
 const probeInfo = new Map(); // diagnóstico da sonda de login
@@ -172,6 +176,7 @@ async function refreshState() {
     const data = await api('GET', '/extension/state');
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
     try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
+    try { contentCfg = await api('GET', '/extension/content/config'); for (const cid of views.keys()) { const c = capture.get(cid); if (c && c.attach) c.attach(); } } catch { /* painel sem o módulo Conteúdo */ }
     if (!hashKey) await syncHashKey();
     await loadTasks();
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
@@ -653,6 +658,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   win.contentView.addChildView(view);
   t.set(platform, view);
   if (platform === 'privacy') views.set(creatorId, view);
+  if (platform === 'privacy') attachContentCapture(creatorId, view);
   activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
   view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
@@ -977,6 +983,11 @@ async function readExtratoNow(id, opts = {}) {
         } else x.summary.subsError = 'sem aba Assinantes';
       } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
     }
+    // bloco E/F: Conteúdo — resultado de cada post (Engajamento) e calendário (posts e mensagens em massa)
+    if (state.storage_allowed && contentOn(id, 'read') && (!x.reader.s.contentAt || Date.now() - x.reader.s.contentAt > CONTENT_MS)) {
+      try { await readContent(id, view, x); x.reader.s.contentAt = Date.now(); }
+      catch (error) { x.summary.contentError = error.message.slice(0, 120); x.reader.s.contentAt = Date.now() - CONTENT_MS + 30 * 60 * 1000; }
+    }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
     const old = /Extra inputs are not permitted/.test(error.message);
@@ -986,6 +997,122 @@ async function readExtratoNow(id, opts = {}) {
     if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
     else if (!x.shown) closeStatsView(id); // leitura de fundo: libera a memória até a próxima rodada
   }
+}
+// ---------- Conteúdo e disparos ----------
+// Leitura (aba oculta do extrato): Meu Privacy → Engajamento e Calendário em lista. Só lê; abrir o cartão do
+// calendário apenas mostra o texto (nunca toca em "Cancelar envio").
+async function readContent(id, view, x) {
+  const runE = (a) => runJs(view, CONTENT.eng(a), 15000);
+  if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
+  let t = await runE('tab');
+  for (let i = 0; i < 8 && t.hadTab && !t.active; i++) { await sleep(2000); t = await runE('tab'); }
+  if (t.active) {
+    await sleep(3500);
+    let d = await runE('read');
+    for (let i = 0; i < 6 && !d.rows.length; i++) { await sleep(2000); d = await runE('read'); }
+    let prev = d.rows.length;
+    for (let i = 0; i < 15 && d.hasMore; i++) { await runE('more'); await sleep(1800); d = await runE('read'); if (d.rows.length <= prev) break; prev = d.rows.length; }
+    if (d.rows.length) { const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500) }); x.summary.contentPosts = out.saved; }
+    else x.summary.contentError = 'Engajamento sem posts';
+  } else x.summary.contentError = 'sem aba Engajamento';
+  // calendário: mês atual e o anterior
+  await new Promise((resolve) => { const done = () => { clearTimeout(tm); resolve(); }; const tm = setTimeout(done, 25000); view.webContents.once('did-finish-load', done); view.webContents.loadURL('https://privacy.com.br/calendar', { userAgent: UA }); });
+  await sleep(4000);
+  const runC = (a) => runJs(view, CONTENT.cal(a), 15000);
+  let l = await runC('list');
+  for (let i = 0; i < 8 && !l.ok; i++) { await sleep(2000); l = await runC('list'); }
+  if (!l.ok) { x.summary.contentError = 'calendário não abriu'; return; }
+  if (!l.list) { await sleep(2500); l = await runC('list'); }
+  const rows = [];
+  for (const step of ['cur', 'prev']) {
+    if (step === 'prev') { await runC('prev'); await sleep(3000); }
+    await runC('expand'); await sleep(2500);
+    const d = await runC('read'); if (d.rows) rows.push(...d.rows);
+  }
+  if (rows.length) { const out = await api('POST', '/extension/content/calendar', { creator_id: id, rows: rows.slice(0, 600) }); x.summary.contentCalendar = out.saved; }
+}
+
+// Registro de autoria: quando ALGUÉM NESTE APP envia uma mensagem em massa ou publica/agenda um post, o app
+// guarda quem foi (o usuário logado aqui). Acompanha só as chamadas de envio da própria página (protocolo de
+// depuração do Chromium, que lê o pedido e a resposta). Chat individual é ignorado. Nada é enviado pelo app.
+const capture = new Map(); // creatorId -> { pending: Map, recent: [], net: [] }
+const ckey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9à-ÿ]+/g, '').slice(0, 60);
+function maskPath(u) { try { const x = new URL(u); return (x.host + x.pathname).replace(/\/[0-9a-f-]{8,}|\/\d+/gi, '/:id').slice(0, 200); } catch { return ''; } }
+function keysOf(obj, pre = '', out = [], depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 3 || out.length > 55) return out;
+  for (const k of Object.keys(obj).slice(0, 40)) { out.push(pre + k); if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) keysOf(obj[k], pre + k + '.', out, depth + 1); }
+  return out;
+}
+function findVal(obj, re, type, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 4) return undefined;
+  for (const [k, v] of Object.entries(obj)) { if (re.test(k) && typeof v === type) return v; }
+  for (const v of Object.values(obj)) { if (v && typeof v === 'object') { const r = findVal(v, re, type, depth + 1); if (r !== undefined) return r; } }
+  return undefined;
+}
+function hasText(obj, text, depth = 0) {
+  if (!text) return false; const k = ckey(text).slice(0, 25); if (k.length < 4) return false;
+  if (typeof obj === 'string') return ckey(obj).includes(k);
+  if (!obj || typeof obj !== 'object' || depth > 5) return false;
+  return Object.values(obj).some((v) => hasText(v, text, depth + 1));
+}
+async function sendAction(id, a) {
+  const c = capture.get(id); const k = `${a.kind}|${ckey(a.text)}`; // o mesmo envio pode chegar pela rede e pela tela
+  if (c.recent.some((r) => r.k === k && Date.now() - r.t < 90000)) return; // mesmo envio já registrado
+  c.recent = [...c.recent.filter((r) => Date.now() - r.t < 120000), { k, t: Date.now() }];
+  try { await api('POST', '/extension/content/action', { creator_id: id, ...a }); } catch { /* sem painel: perde só este registro */ }
+}
+function flushNet(id) {
+  const c = capture.get(id); if (!c || !c.net.length) return;
+  const entries = c.net.splice(0, 50);
+  api('POST', '/extension/content/netlog', { creator_id: id, entries }).catch(() => {});
+  if (isPortable()) try { const f = path.join(calibDir(), 'conteudo-rede.json'); fs.mkdirSync(calibDir(), { recursive: true }); let old = []; try { old = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {} fs.writeFileSync(f, JSON.stringify([...old, ...entries.map((e) => ({ ...e, at: new Date().toISOString() }))].slice(-300), null, 1)); } catch {}
+}
+function attachContentCapture(id, view) {
+  const wc = view.webContents; const dbg = wc.debugger;
+  if (!capture.has(id)) capture.set(id, { pending: new Map(), recent: [], net: [] });
+  const c = capture.get(id);
+  const attach = () => {
+    if (!contentOn(id, 'capture') || dbg.isAttached()) return;
+    try { dbg.attach('1.3'); dbg.sendCommand('Network.enable', { maxPostDataSize: 65536 }).catch(() => {}); } catch { /* ferramentas de desenvolvedor abertas: sem registro nesta aba */ }
+  };
+  c.attach = attach; wc.on('did-finish-load', attach); attach();
+  dbg.on('message', async (_e, method, params) => {
+    try {
+      if (method === 'Network.requestWillBeSent') {
+        const rq = params.request; if (!/^(POST|PUT|PATCH|DELETE)$/.test(rq.method) || !/privacy\.com\.br/i.test(rq.url) || !contentOn(id, 'capture')) return;
+        // registra já (a resposta pode chegar antes de a tela ser lida) e lê o contexto em paralelo
+        let body = null; try { body = rq.postData ? JSON.parse(rq.postData) : null; } catch { body = null; }
+        if (!c.ctx || Date.now() - c.ctx.t > 400) c.ctx = { t: Date.now(), p: runJs(view, CONTENT.CTX, 1500).catch(() => null) }; // várias chamadas seguidas: lê a tela uma vez
+        c.pending.set(params.requestId, { ctxP: c.ctx.p, method: rq.method, url: rq.url, body, raw: rq.postData || '', t: Date.now() });
+        setTimeout(() => c.pending.delete(params.requestId), 60000);
+      } else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+        const p = c.pending.get(params.requestId); if (!p) return; c.pending.delete(params.requestId);
+        p.ctx = await p.ctxP; if (!p.ctx || !p.ctx.kind) return; // chat individual, feed etc.: ignora
+        let res = null, status = 0;
+        if (method === 'Network.loadingFinished') { try { const r = await dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId }); res = JSON.parse(r.base64Encoded ? Buffer.from(r.body, 'base64').toString('utf8') : r.body); status = 200; } catch { res = null; } }
+        c.net.push({ method: p.method, path: maskPath(p.url), status, context: p.ctx.kind, req_keys: keysOf(p.body).slice(0, 60), res_keys: keysOf(res).slice(0, 60) }); setTimeout(() => flushNet(id), 3000);
+        const text = p.ctx.text || '';
+        const isCreate = method === 'Network.loadingFinished' && p.method !== 'DELETE' && !/upload|media|file|image|video|presign|vault|acervo/i.test(p.url) && (hasText(p.body, text) || p.raw.includes(text.slice(0, 20)) && text.length >= 4);
+        if (isCreate) {
+          const ref = res ? (findVal(res, /^(id|uuid|_id|messageId|postId|massMessageId|publicationId)$/i, 'string') ?? String(findVal(res, /^(id|messageId|postId)$/i, 'number') ?? '')) : '';
+          const when = p.body ? findVal(p.body, /schedul|agend|publish(ed)?_?at|send_?at|date/i, 'string') : undefined;
+          const priceB = p.body ? findVal(p.body, /price|valor|amount|value/i, 'number') : undefined;
+          const scheduled = !!(when && Date.parse(when) > Date.now() + 120000);
+          sendAction(id, { kind: p.ctx.kind, action: scheduled ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? (priceB != null ? (priceB > 1000 ? Math.round(priceB) : Math.round(priceB * 100)) : null),
+            scheduled_for: scheduled ? new Date(Date.parse(when)).toISOString() : null, audience: p.ctx.audience || [], media_count: p.ctx.media || 0, privacy_ref: String(ref || '').slice(0, 120),
+            confidence: ref ? 'confirmed' : 'probable', net_path: maskPath(p.url) });
+          return;
+        }
+        // sem casar o pedido: confere a tela 5 s depois; se a mensagem/legenda sumiu (foi enviada), registra como provável
+        if (text.length >= 4 && method === 'Network.loadingFinished') setTimeout(async () => {
+          const after = await runJs(view, CONTENT.CTX, 1500).catch(() => null);
+          const gone = !after || after.kind !== p.ctx.kind || !after.text; // caixa esvaziou ou a tela fechou = foi enviado
+          if (gone) sendAction(id, { kind: p.ctx.kind, action: /agend/i.test(p.ctx.sched || '') ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? null, scheduled_for: null,
+            audience: p.ctx.audience || [], media_count: p.ctx.media || 0, privacy_ref: '', confidence: 'probable', net_path: maskPath(p.url) });
+        }, 5000);
+      }
+    } catch { /* nunca atrapalha a página */ }
+  });
 }
 // ---------- foto da criadora: pega a foto de perfil na plataforma (aba oculta já logada) ----------
 // Só quando a criadora ainda não tem foto no painel. Se não deu (página ainda carregando, aba escondida,

@@ -30,6 +30,8 @@ class Features(Strict):  # chaves do admin por criadora (todas ligadas por padr�
     assist: bool = True   # Alta Ajuda inteira nesta criadora
     thermo: bool = True   # termômetro de venda
     sell: bool = True     # botão 💰 Vender e tabela de preços no cartão do fã
+    content_read: bool = True     # Conteúdo: ler resultado dos posts (Engajamento) e o calendário da Privacy
+    content_capture: bool = True  # Conteúdo: registrar quem disparou/postou pelo app
 class Connection(Strict):  # fase de conexão com fã novo/sem histórico, antes de vender
     enabled: bool = True
     turns: int = Field(default=3, ge=1, le=8)
@@ -89,7 +91,7 @@ def normalize(prof):
     p['modules'] = {k: bool(mods.get(k)) for k in MODULES}
     for k, d in (('voice', {}), ('sales', {}), ('call', {}), ('preview', {}), ('languages', {'langs': ['pt']})):
         p[k] = {**d, **(p.get(k) or {})}
-    p['features'] = {'assist': True, 'thermo': True, 'sell': True, **(p.get('features') or {})}
+    p['features'] = {'assist': True, 'thermo': True, 'sell': True, 'content_read': True, 'content_capture': True, **(p.get('features') or {})}
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p

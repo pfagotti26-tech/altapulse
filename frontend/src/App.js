@@ -11,6 +11,7 @@ import Operation from './pages/Operation';
 import Sales from './pages/Sales';
 import Performance from './pages/Performance';
 import AIUsage from './pages/AIUsage';
+import Content, { canContent } from './pages/Content';
 import Fans from './pages/Fans';
 import Quality from './pages/Quality';
 import Team from './pages/Team';
@@ -63,6 +64,7 @@ export default function App() {
       <Route path="/relatorios" element={staff ? <Reports/> : <Navigate to="/"/>}/>
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
+      <Route path="/conteudo" element={canContent(user) ? <Content user={user}/> : <Navigate to="/"/>}/>
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/minha-conta" element={<Account/>}/>
       <Route path="*" element={<Navigate to="/"/>}/>

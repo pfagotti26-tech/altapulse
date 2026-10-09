@@ -32,7 +32,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
-        features: { assist: true, thermo: true, sell: true, ...(p.features || {}) },
+        features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, ...(p.features || {}) },
         connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
       });
     }).catch(e => toast.error(errorText(e)));
@@ -159,6 +159,11 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         {chk(form.features.assist, v => sub('features', { assist: v }), 'Alta Ajuda (sugestões de mensagem)')}
         {chk(form.features.thermo, v => sub('features', { thermo: v }), 'Termômetro de venda')}
         {chk(form.features.sell, v => sub('features', { sell: v }), 'Venda: botão 💰 e tabela de preços no cartão do fã')}
+      </div>
+      <h3 style={{ marginTop: 14 }}>📣 Conteúdo e disparos</h3><p className="body-muted" style={{ fontSize: 12 }}>Mede posts e mensagens em massa desta criadora. Quem vê os números é definido por pessoa, em Equipe → Permissões especiais.</p>
+      <div className="pf-switches">
+        {chk(form.features.content_capture, v => sub('features', { content_capture: v }), 'Registrar quem disparou cada mensagem em massa e quem postou/agendou cada post pelo app')}
+        {chk(form.features.content_read, v => sub('features', { content_read: v }), 'Ler o resultado dos posts (Meu Privacy → Engajamento) e o calendário da Privacy a cada 3 h')}
       </div></section>}
     {tab === 'ia' && <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => up({ max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
