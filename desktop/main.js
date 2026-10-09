@@ -163,7 +163,7 @@ async function api(method, route, body) {
   let data = null;
   try { data = await response.json(); } catch {}
   if (!response.ok) {
-    if (response.status === 401) { token = null; writeToken(null); state = { ...state, user: null, creators: [] }; if (/desativad/i.test((data && data.detail) || '')) revokeLocal().catch(() => {}); else checkRevoked().catch(() => {}); }
+    if (response.status === 401) { const had = !!token; token = null; writeToken(null); state = { ...state, user: null, creators: [] }; if (/desativad/i.test((data && data.detail) || '')) revokeLocal().catch(() => {}); else if (had) checkRevoked().catch(() => {}); }
     let detail = data && data.detail;
     if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg ? `${(d.loc || []).slice(-1)[0] || ''}: ${d.msg}` : JSON.stringify(d))).join('; ').slice(0, 300);
     throw new Error(detail || `Erro ${response.status} no painel.`);
@@ -1774,7 +1774,10 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
 // computador (apaga cookies e dados salvos de cada perfil), para quem saiu não continuar usando a Privacy aqui.
 // sessão "expirada": confere se a pessoa que usava este app foi desativada/excluída (quem saiu antes desta versão)
 async function checkRevoked() {
-  const me = readJson('ultimo-usuario.json', null); if (!me || !me.id) return;
+  const me = readJson('ultimo-usuario.json', null);
+  // primeira vez nesta versão e o login salvo já não vale: só acontece com quem foi excluído antes desta versão
+  // (quem está ativo grava o arquivo no primeiro acesso válido). Limpa uma vez e marca para não repetir.
+  if (!me || !me.id) { if (!readJson('limpeza-revogado.json', null)) { writeJson('limpeza-revogado.json', { at: new Date().toISOString() }); await revokeLocal(); } return; }
   try {
     const r = await fetch(`${config.origin}/api/extension/revoked-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: me.id }) });
     const d = await r.json(); if (d && d.revoked) await revokeLocal();
