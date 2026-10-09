@@ -30,6 +30,10 @@ class Features(Strict):  # chaves do admin por criadora (todas ligadas por padr�
     assist: bool = True   # Alta Ajuda inteira nesta criadora
     thermo: bool = True   # termômetro de venda
     sell: bool = True     # botão 💰 Vender e tabela de preços no cartão do fã
+class Connection(Strict):  # fase de conexão com fã novo/sem histórico, antes de vender
+    enabled: bool = True
+    turns: int = Field(default=3, ge=1, le=8)
+    questions: str = Field(default='', max_length=1200)
 class Voice(Strict):
     tone: str = Field(default='', max_length=20)
     tone_notes: str = Field(default='', max_length=600)
@@ -86,6 +90,7 @@ def normalize(prof):
     for k, d in (('voice', {}), ('sales', {}), ('call', {}), ('preview', {}), ('languages', {'langs': ['pt']})):
         p[k] = {**d, **(p.get(k) or {})}
     p['features'] = {'assist': True, 'thermo': True, 'sell': True, **(p.get('features') or {})}
+    p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 

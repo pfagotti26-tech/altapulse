@@ -14,6 +14,7 @@ from performance import router as performance
 from fans import router as fans
 from quality_ai import router as quality_ai
 from assist import router as assist
+from fan_memory import router as fan_memory
 from scorecard import router as scorecard
 from team_live import router as team_live
 from radar import router as radar
@@ -52,6 +53,9 @@ async def lifespan(app):
     await db.assist_usage.create_index([('user_id', 1), ('day', 1)])
     await db.assist_alerts.create_index('expires_at', expireAfterSeconds=0)
     await db.assist_profiles.create_index('creator_id', unique=True)
+    await db.fan_memory.create_index('expires_at', expireAfterSeconds=0)
+    await db.fan_memory.create_index([('creator_id', 1), ('fan_ref', 1), ('created_at', -1)])
+    await db.fan_state.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)
     await db.credentials.create_index([('creator_id', 1), ('platform', 1)], unique=True)
     await db.shifts.create_index([('active', 1), ('operator_id', 1)])
     await db.presence.create_index('user_id', unique=True)
@@ -83,7 +87,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory]:
     app.include_router(router, prefix='/api')
 
 @app.get('/api/health')

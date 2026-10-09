@@ -33,6 +33,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
         features: { assist: true, thermo: true, sell: true, ...(p.features || {}) },
+        connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
       });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
@@ -51,7 +52,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales: form.sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, connection: { ...form.connection, turns: Number(form.connection.turns) || 3 } };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -114,6 +115,13 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     {tab === 'modulos' && <>
       <section className="profile-sec"><h3>🧩 Módulos desta criadora</h3><p className="body-muted" style={{ fontSize: 12 }}>Ligue só o que ela usa. Módulo desligado não aparece para o chatter nem vai para a IA.</p>
         <div className="pf-flags">{Object.entries(meta.modules).map(([k, l]) => <span key={k}>{chk(mod(k), v => sub('modules', { [k]: v }), l)}</span>)}</div></section>
+      <section className="profile-sec"><h3>🤝 Fase de conexão (fã novo ou sem compras)</h3>
+        <p className="body-muted" style={{ fontSize: 12 }}>Antes de vender, a sugestão busca conhecer o fã e fazer ele se sentir próximo. Sai na hora se ele pedir conteúdo ou preço, se responder seco, ou quando o chatter clicar em "pular". O que ele conta vira sugestão de anotação na memória do fã.</p>
+        <div className="profile-grid">
+          <div>{chk(form.connection.enabled, v => sub('connection', { enabled: v }), 'Usar fase de conexão com esta criadora')}</div>
+          <Field id="pf-cturns" label="Quantas trocas antes de seguir o roteiro" type="number" min={1} max={8} value={form.connection.turns} onChange={e => sub('connection', { turns: e.target.value })}/>
+          <Field id="pf-cq" label="Perguntas de conexão dela (opcional)">{ta(form.connection.questions, v => sub('connection', { questions: v }), 3, 'Como você me achou? Como quer que eu te chame? O que mais te prendeu em mim?', 1200)}</Field>
+        </div></section>
       {mod('segments') && <section className="profile-sec"><h3>👥 Perfis de fã</h3>
         <p className="body-muted" style={{ fontSize: 12 }}>O chatter classifica cada fã no app e a sugestão fala do jeito descrito aqui. Fã sem classificação recebe o perfil padrão.</p>
         {form.fan_segments.map((x, i) => <div key={i} className="profile-grid" style={{ alignItems: 'start', marginBottom: 8 }}>

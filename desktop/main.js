@@ -1435,6 +1435,22 @@ ipcMain.handle('thermo:read', async (_e, { extra } = {}) => {
   if (!read || !read.msgs || fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) return null;
   return { ...thermoScore(read.msgs, extra), fanRef: fanAt, n: read.msgs.length, lastOurs: !!(read.msgs.length && read.msgs[read.msgs.length - 1].ours) };
 });
+// memória do fã: fatos confirmados pelo chatter (pet, gostos, viagem…) e fase de conexão
+ipcMain.handle('fanmem:get', async () => {
+  if (!fan.creatorId || !fan.fanRef) return { facts: [], fanRef: null };
+  const r = await api('GET', `/extension/fan/memory?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${encodeURIComponent(fan.fanRef)}`).catch(() => ({ facts: [] }));
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanmem:add', async (_e, items) => {
+  if (!fan.creatorId || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const r = await api('POST', '/extension/fan/memory', { creator_id: fan.creatorId, fan_ref: fan.fanRef, items: (items || []).slice(0, 10) });
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanmem:del', async (_e, id) => { await api('DELETE', `/extension/fan/memory/${encodeURIComponent(id)}`); return true; });
+ipcMain.handle('fanconn:skip', async (_e, skip) => {
+  if (!fan.creatorId || !fan.fanRef) return false;
+  await api('PUT', '/extension/fan/connection', { creator_id: fan.creatorId, fan_ref: fan.fanRef, skip: skip !== false }); return true;
+});
 ipcMain.handle('assist:prices', async () => {
   if (!fan.creatorId) return { prices: [] };
   return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));

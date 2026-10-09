@@ -16,8 +16,8 @@ const isOpen = (k, def) => (k in open ? open[k] : def);
 const toggle = (k, def) => { open[k] = !isOpen(k, def); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} render(); };
 let noteOpen = false;
 // padrão de cada quadro (aberto = true); Últimas compras e o detalhe do termômetro vêm recolhidos
-const TG_DEFAULT = (k, nNotes) => k === 'notes' ? nNotes > 0 : k === 'buys' ? false : k === 'thermo' ? false : true;
-const ALL_TG = ['wait', 'resumo', 'buys', 'notes', 'prices', 'assist', 'thermo'];
+const TG_DEFAULT = (k, nNotes) => k === 'memory' ? true : k === 'notes' ? nNotes > 0 : k === 'buys' ? false : k === 'thermo' ? false : true;
+const ALL_TG = ['wait', 'resumo', 'memory', 'buys', 'notes', 'prices', 'assist', 'thermo'];
 function setAll(openAll) { for (const k of ALL_TG) open[k] = openAll; try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} render(); }
 // Alta Ajuda (um bloco só): sugestão de mensagem na voz da criadora, a partir do fim da conversa.
 // Automática quando a ficha liga "sugestão automática" e o fã falou por último; nas outras, o chatter clica em Sugerir.
@@ -127,6 +127,26 @@ function thermoHtml() {
   }
   return h + '</div>';
 }
+// memória do fã (confirmada pelo chatter; separada por criadora)
+const KIND_ICO = { sobre: '👤', gostos: '❤', fantasia: '🔥', momento: '📅', compras: '🛒' };
+let MEM = { for: null, facts: [], skip: false };
+async function loadMem(force) {
+  const k = fanKey(); if (!k || (!force && (MEM.for === k || MEM.loading === k))) return;
+  MEM = { ...MEM, loading: k };
+  const r = await window.pulse.fanMemGet().catch(() => ({ facts: [] }));
+  if (fanKey() !== k) return;
+  MEM = { for: k, facts: r.facts || [], skip: !!r.skip_connection }; render();
+}
+function memHtml() {
+  if (!F || !F.fanRef || MEM.for !== fanKey()) return '';
+  const n = MEM.facts.length; const o = isOpen('memory', true);
+  let h = `<button class="sec-t" data-tg="memory">${o ? '▾' : '▸'} 🧠 Memória do fã <span>${n}</span>${!o && n ? `<span class="mini-line">${esc(MEM.facts.slice(0, 2).map((f) => f.text).join(' · '))}</span>` : ''}</button>`;
+  if (!o) return h;
+  if (!n) h += '<div class="muted" style="font-size:11px">Nada anotado ainda. O que ele contar no chat aparece como sugestão na Alta Ajuda.</div>';
+  for (const f of MEM.facts) h += `<div class="mem-row" title="${esc((f.by_name || '') + (f.created_at ? ' · ' + day(f.created_at) : ''))}"><span>${KIND_ICO[f.kind] || '•'} ${esc(f.text)}${f.date ? ` <small>(${day(f.date + 'T12:00:00')})</small>` : ''}</span><button class="icon del" data-memdel="${esc(f.id)}" title="Apagar">×</button></div>`;
+  h += `<div class="mem-add"><input id="mem-new" maxlength="140" placeholder="Anotar algo sobre ele (Enter salva)"></div>`;
+  return h;
+}
 // perfil do fã (classificação da equipe)
 let SEG = { for: null, value: '', by: null, busy: false };
 const segList = () => (AS && AS.segments) || [];
@@ -180,7 +200,7 @@ async function runSuggest(k, { style, level, product } = {}) {
 
 function render() {
   const typing = document.activeElement && document.activeElement.id;
-  if (typing !== 'note') renderBody();
+  if (typing !== 'note' && typing !== 'mem-new') renderBody();
   if (typing !== 'aj-text') renderAssist();
 }
 function renderBody() {
@@ -236,6 +256,7 @@ function renderBody() {
     if (c.suggestion) h += `<div class="tip"><b>Sugestão:</b> ${esc(c.suggestion)}</div>`;
     for (const o of c.pending_offers || []) h += `<div class="pend">${OT[o.offer_type] || 'Oferta'}${MT[o.media_type] ? ` (${MT[o.media_type]})` : ''} de ${money(o.amount_cents)} ainda não paga · enviada ${day(o.offered_at)}</div>`;
   }
+  h += memHtml();
   if (c.task) h += `<div class="sub">Na sua lista${c.task.reason ? `: ${esc(c.task.reason)}` : ''}.<br><button class="btn" id="contacted" style="width:100%;margin-top:6px">Marcar como contatado</button></div>`;
   const recent = c.recent || [];
   if (recent.length) {
@@ -268,6 +289,9 @@ function renderBody() {
     ta.disabled = true;
     try { await window.pulse.fanNoteAdd(text); draft = ''; noteOpen = false; } catch (err) { alertLine(err.message); } finally { ta.disabled = false; }
   });
+  b.querySelectorAll('[data-memdel]').forEach((x) => x.addEventListener('click', async () => { await window.pulse.fanMemDel(x.dataset.memdel).catch((err) => alertLine(err.message)); loadMem(true); }));
+  const mn = $('mem-new'); if (mn) mn.addEventListener('keydown', async (e) => { if (e.key !== 'Enter' || !mn.value.trim()) return; e.preventDefault(); mn.disabled = true;
+    try { await window.pulse.fanMemAdd([{ kind: 'sobre', text: mn.value.trim() }]); } catch (err) { alertLine(err.message); } loadMem(true); });
   b.querySelectorAll('[data-del]').forEach((x) => x.addEventListener('click', () => window.pulse.fanNoteDel(x.dataset.del).catch((err) => alertLine(err.message))));
   const ct = $('contacted'); if (ct) ct.addEventListener('click', () => window.pulse.fanContacted(c.task.id).catch((err) => alertLine(err.message)));
 }
@@ -299,11 +323,13 @@ function renderAssist() {
   else if (r && r.alert) h += `<div class="tip"><b>Atenção:</b> possível menor de idade (${esc(r.reason)}). Nada foi gerado e o gestor foi avisado. Não ofereça conteúdo.</div>`;
   else if (r) {
     const SIT = { novo: 'Fã novo', cliente: 'Cliente que volta', sumido: 'Sumido', voltando: 'Ex-assinante voltando' };
-    const meta = [SIT[r.situation] ? `Começo de conversa: ${SIT[r.situation]}` : '', STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
-    if (meta) h += `<div class="sg-meta">${esc(meta)}</div>`;
+    const meta = [r.phase ? `🤝 Conexão ${r.phase.turn}/${r.phase.of}` : '', SIT[r.situation] && !r.phase ? `Começo de conversa: ${SIT[r.situation]}` : '', STEP[r.step] ? `Passo: ${STEP[r.step]}` : '', r.objection ? `objeção: ${r.objection}` : ''].filter(Boolean).join(' · ');
+    if (meta) h += `<div class="sg-meta">${esc(meta)}${r.phase ? ' · <a href="#" id="sg-skipconn" title="Encerrar a fase de conexão com este fã e seguir o roteiro de venda">pular conexão</a>' : ''}</div>`;
     h += `<textarea id="aj-text" rows="3" maxlength="1500" title="Edite à vontade antes de colocar na caixa">${esc(SG.text)}</textarea>`;
     if (r.product) h += `<div class="sg-prod">Vendendo: <b>${esc(r.product.item)} · ${brlS(r.product.cents)}</b>${r.product.table_cents && r.product.table_cents < r.product.cents ? ` <span class="muted" title="Este fã paga acima da tabela (ticket médio + 20%)">tabela ${brlS(r.product.table_cents)}</span>` : ''}${PR.list.length > 1 ? ` <select id="sg-swap" title="Trocar o produto (refaz a mensagem)"><option value="">trocar…</option>${PR.list.map((p) => `<option value="${esc(p.item)}">${esc(p.item)} · ${brlS(p.cents)}</option>`).join('')}</select>` : ''}</div>`;
     if (r.warning) h += `<div class="sg-warn">${esc(r.warning)}</div>`;
+    const nf = (r.facts || []).filter((f) => !f.saved);
+    if (nf.length) h += `<div class="mem-sug"><b>🧠 Anotar na memória?</b>${nf.map((f, i) => `<label><input type="checkbox" data-fact="${i}" checked> ${KIND_ICO[f.kind] || '•'} ${esc(f.text)}</label>`).join('')}<button class="btn ghost" id="mem-save">Salvar</button></div>`;
     const sug = r.suggested_segment && !SEG.value && segList().find((x) => x.key === r.suggested_segment);
     if (sug) h += `<div class="sg-seg">Parece <b>${esc(sug.label)}</b>. <button class="btn ghost" id="sg-class" data-k="${esc(sug.key)}">Classificar como ${esc(sug.label)}</button></div>`;
     if (r.price_fixed) h += '<div class="muted aj-note">Um valor fora da tabela virou [preço]. Complete antes de enviar.</div>';
@@ -352,6 +378,14 @@ function bindAssist() {
   const ajm = $('aj-mini'); if (ajm) ajm.addEventListener('click', ajt);
   const tg = $('th-toggle'); if (tg) tg.addEventListener('click', () => { open.thermo = !isOpen('thermo', false); try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} renderAssist(); });
   const ths = $('th-sell'); if (ths) ths.addEventListener('click', () => runSuggest(SG.key || k, { style: 'vendedora', product: ths.dataset.item || '', level: SG.level }));
+  const sk = $('sg-skipconn'); if (sk) sk.addEventListener('click', async (e) => { e.preventDefault(); await window.pulse.fanConnSkip(true).catch(() => {}); runSuggest(SG.key, { level: SG.level }); });
+  const ms = $('mem-save'); if (ms) ms.addEventListener('click', async () => {
+    const nf = (SG.res.facts || []).filter((f) => !f.saved); const pick = [...document.querySelectorAll('[data-fact]')].filter((x) => x.checked).map((x) => nf[+x.dataset.fact]).filter(Boolean);
+    if (!pick.length) { SG.res.facts = []; renderAssist(); return; }
+    ms.disabled = true;
+    try { await window.pulse.fanMemAdd(pick.map((f) => ({ kind: f.kind, text: f.text, date: f.date || '' }))); SG.res.facts = []; loadMem(true); } catch (err) { alertLine(err.message); ms.disabled = false; }
+    renderAssist();
+  });
   const cl = $('sg-class'); if (cl) cl.addEventListener('click', () => setSeg(cl.dataset.k));
   const use = $('sg-use'); if (use) use.addEventListener('click', async () => {
     const text = ($('aj-text') ? $('aj-text').value : SG.text) || ''; if (!text.trim()) return;
@@ -371,7 +405,7 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist(); loadSeg(); loadPrices(); maybeSuggest(); refreshThermo();
+  F = f; render(); loadAssist(); loadSeg(); loadPrices(); loadMem(); maybeSuggest(); refreshThermo();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação

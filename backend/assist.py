@@ -23,6 +23,7 @@ from fans import can_see
 from fans import fan_card, money_br
 from quality_ai import scrub
 import profile_model as PM
+import fan_memory as FM
 
 router = APIRouter()
 BR = ZoneInfo('America/Sao_Paulo')
@@ -166,6 +167,7 @@ class ProfileIn(Strict):
     objections: list[PM.Objection] = Field(default_factory=list, max_length=15)
     custom_delivery: str = Field(default='', max_length=300)
     features: PM.Features = Field(default_factory=PM.Features)
+    connection: PM.Connection = Field(default_factory=PM.Connection)
 OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
@@ -485,7 +487,8 @@ PERFIS DE FÃ DA CRIADORA (o perfil deste fã vem no pedido):
 {catalog or 'nenhum cadastrado: use o tom padrão da ficha.'}
 
 Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
-{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "temperatura": 0, "motivo_temperatura": "", "texto": "..."}}
+{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "temperatura": 0, "motivo_temperatura": "", "fatos": [], "texto": "..."}}
+"fatos": coisas NOVAS que o fã contou sobre ele nesta conversa e que ajudam a criar intimidade ou vender (ex.: {{"tipo": "sobre", "texto": "tem um cachorro chamado Thor"}}, {{"tipo": "momento", "texto": "foi pra praia no fim de semana", "data": "AAAA-MM-DD"}}). tipo: sobre | gostos | fantasia | momento | compras. Até 4, frases curtas. NUNCA inclua telefone, @, e-mail, endereço, cidade exata, local de trabalho, saúde, religião ou política. Não repita o que já está na memória. Se não houver nada novo, [].
 "temperatura" (0 a 100) diz o quanto o fã está pronto para comprar AGORA: 0-19 frio, 20-44 morno, 45-64 quente, 65+ hora de vender (pediu para ver, perguntou preço, ofereceu mostrar o dele, pediu algo sob medida). Objeção ou despedida baixa a temperatura. "motivo_temperatura": até 8 palavras."""
     if segs and seg: seg_text = f"PERFIL DESTE FÃ (classificado pela equipe): {seg['label']}. Use SÓ o jeito de falar deste perfil, mesmo que contrarie o padrão da ficha."
     elif segs:
@@ -513,25 +516,44 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         'sumido': 'FÃ SUMIDO (dias sem comprar/falar): tom de reativação da ficha, sem cobrar e sem oferta ainda.',
         'voltando': 'EX-ASSINANTE VOLTANDO: celebre a volta e reconquiste, sem venda logo de cara.',
     }
+    # memória do fã (confirmada pela equipe) e fase de conexão com fã novo/sem histórico
+    facts = await FM.list_facts(body.creator_id, body.fan_ref) if body.fan_ref else []
+    st = await db.fan_state.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 0}) if body.fan_ref else None
+    conn = PM.normalize(prof)['connection']
+    ours_n = sum(1 for m in msgs if m.ours)
+    asked = bool(body.temp is not None and body.temp >= 65) or bool(re.search(r'quanto|valor|pre[çc]o|\bpix\b|manda (foto|v[ií]deo|nude)|nudes?\b|pack|personaliz|chamada', ' '.join(m.text.lower() for m in msgs if not m.ours)))
+    no_hist = not (card or {}).get('purchases')
+    phase = None
+    if conn.get('enabled', True) and no_hist and not (st or {}).get('skip_connection') and body.style != 'vendedora' and not asked and ours_n < int(conn.get('turns') or 3):
+        phase = {'name': 'conexao', 'turn': ours_n + 1, 'of': int(conn.get('turns') or 3)}
     opener_block = ''
-    if situation:
+    if phase:
+        opener_block = (f"FASE DE CONEXÃO ({phase['turn']}/{phase['of']}): fã sem histórico de compra (novo ou ex-assinante voltando). Objetivo agora é ele se sentir próximo e conhecido: "
+                        "demonstre interesse genuíno por ele, no tom da criadora; faça UMA pergunta sobre ele por mensagem (como gosta de ser chamado, como a achou, o que chamou atenção nela, como foi o dia dele, do que gosta) "
+                        "e comente o que ele já contou. NÃO ofereça nada e não fale de preço. Nunca pergunte telefone, rede social, cidade exata ou trabalho. "
+                        "Se ele responder seco duas vezes ou pedir conteúdo, encerre a conexão e siga o roteiro normal.")
+        if conn.get('questions'): opener_block += '\nPERGUNTAS DE CONEXÃO DA CRIADORA (use como base): ' + conn['questions']
+        if segs and not seg: opener_block += '\nO perfil do fã ainda não é conhecido: as perguntas podem ajudar a revelar qual ele é (' + ', '.join(x['label'] for x in segs) + ').'
+    elif situation:
         opener_block = f"COMEÇO DE CONVERSA. Situação: {SIT_TEXT[situation]} NÃO ofereça nada agora: só aqueça."
         base_lines = ((prof.get('openers') or {}).get(situation) or '').strip()
         if base_lines: opener_block += f"\nABERTURAS DA CRIADORA PARA ESTA SITUAÇÃO (use uma como base, variando levemente; não copie igual sempre):\n{base_lines}"
         if segs and not seg:
             opener_block += '\nO perfil do fã ainda não é conhecido: termine com UMA pergunta curta, no tom dela, cuja resposta revele qual perfil ele é (' + ', '.join(x['label'] for x in segs) + ').'
-    sit = ('O fã ainda não respondeu à última mensagem da criadora, ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ela já disse e sem cobrar resposta.'
+    sit = ('O fã ainda não respondeu à última mensagem da criadora, ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ela já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
            if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem da criadora.')
     anchor = fan_anchor(card)
     fan_list = ''
     if anchor and any(p['cents'] < anchor for p in prices):
         fan_list = 'PREÇOS PARA ESTE FÃ (ele paga acima da tabela: ticket médio ' + money_br(card['ticket_cents']) + ' + 20%; nunca ofereça abaixo destes): ' + '; '.join(f"{p['item']}: {money_br(fan_price(p['cents'], anchor))}" for p in prices)
-    task = f"""INTENSIDADE: {LEVEL_TEXT[level]}
+    task = f"""HOJE: {today()}
+INTENSIDADE: {LEVEL_TEXT[level]}
 O QUE SE SABE DO FÃ: {fan_block(card)}
 {fan_list}
 {PM.promo_block(prof, today())}
 {seg_text}
-{goal if not situation or body.style == 'vendedora' else ''}
+{goal if not (situation or phase) or body.style == 'vendedora' else ''}
+{FM.facts_block(facts)}
 {opener_block}
 
 FIM DA CONVERSA:
@@ -578,6 +600,7 @@ FIM DA CONVERSA:
             'warning': warning, 'price_fixed': fixed, 'remaining': remaining, 'usage_id': usage_id,
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
+            'facts': FM.pick_new_facts(out.get('fatos'), facts), 'phase': phase,
             'product': {'item': prod['item'], 'cents': fan_price(prod['cents'], anchor), 'table_cents': prod['cents']} if prod else None,
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,

@@ -145,3 +145,12 @@ textarea:focus { outline: none; border-style: solid; border-color: #5a2630; }
 .aj-mini { font-size: 11.5px; color: #d6ccd9; padding: 6px 9px; border: 1px solid #2f2738; border-radius: 8px; background: #211b27; }
 .aj-mini.fire { border-color: #7a2233; color: #ff8a9b; animation: thpulse 1.8s infinite; }
 #aj-tg { cursor: pointer; }
+/* memória do fã */
+.mem-row { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; padding: 3px 2px; border-bottom: 1px dashed #2b262f; }
+.mem-row small { color: #9c93a0; }
+.mem-add input { width: 100%; margin-top: 5px; background: #120f18; border: 1px solid #3a2a4a; border-radius: 6px; color: #f1ece8; font: inherit; font-size: 11.5px; padding: 5px 7px; }
+.mem-sug { background: #1d2230; border: 1px solid #2f3a55; border-radius: 8px; padding: 7px 9px; font-size: 11.5px; display: flex; flex-direction: column; gap: 3px; }
+.mem-sug b { color: #9fc3ff; font-size: 11px; }
+.mem-sug label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.mem-sug .btn { align-self: flex-start; margin-top: 3px; padding: 4px 9px; font-size: 11px; }
+#sg-skipconn { color: #9fc3ff; }
