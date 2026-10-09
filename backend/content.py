@@ -242,7 +242,7 @@ async def mass_results(items):
         if it['kind'] == 'mass' and it.get('price_cents'): by_creator.setdefault(it['creator_id'], []).append(it)
     for cid, lst in by_creator.items():
         prof = await db.assist_profiles.find_one({'creator_id': cid}, {'_id': 0, 'prices': 1}) or {}
-        table = {round(float(p.get('price') or 0) * 100) for p in prof.get('prices') or [] if p.get('price')}
+        table = {int(p['cents']) for p in prof.get('prices') or [] if p.get('cents')}
         # todos os disparos da criadora no período (mesmo fora do filtro) para dividir janelas
         allm = await db.content_items.find({'creator_id': cid, 'kind': 'mass', 'price_cents': {'$gt': 0}}, {'_id': 0, 'id': 1, 'at': 1, 'price_cents': 1}).sort('at', 1).to_list(5000)
         for it in lst:
@@ -369,3 +369,51 @@ async def export(start: str = '', end: str = '', creator_id: str = '', kind: str
 async def netlog(user=Depends(current_user)):
     if not user.get('owner'): raise HTTPException(403, 'Só o dono da conta.')
     return await db.content_netlog.find({}, {'_id': 0}).sort('at', -1).to_list(300)
+
+# ---------------------------------------------------------------- modo Conteúdo no app (painel da direita)
+@router.get('/extension/content/panel')
+async def ext_panel(creator_id: str, user=Depends(extension_user)):
+    """Raio-X da criadora aberta: hoje x média, agenda das próximas 48 h, buracos, últimos itens, melhor horário."""
+    await allowed_creator(user, creator_id)
+    if not has_perm(user, 'conteudo_app'): raise HTTPException(403, 'Modo Conteúdo não liberado para você.')
+    n = now(); nb = n.astimezone(BRT); day0 = nb.replace(hour=0, minute=0, second=0, microsecond=0)
+    # vendas: hoje até agora x média dos últimos 14 dias até o mesmo horário; faturamento por hora (30 dias)
+    since = (day0 - timedelta(days=30)).astimezone(timezone.utc).isoformat()
+    sales = await db.events.find({'creator_id': creator_id, 'kind': 'sale', 'sale_status': {'$ne': 'refunded'}, 'confirmed_at': {'$gte': since}},
+                                 {'_id': 0, 'confirmed_at': 1, 'amount_cents': 1, 'sale_origin': 1}).to_list(50000)
+    today_c, prev, hours = 0, {}, [0] * 24
+    secs = nb.hour * 3600 + nb.minute * 60
+    for s in sales:
+        d = parse_at(s['confirmed_at']); 
+        if not d: continue
+        d = d.astimezone(BRT); c = s.get('amount_cents') or 0; hours[d.hour] += c
+        if d >= day0: today_c += c
+        elif d >= day0 - timedelta(days=14) and d.hour * 3600 + d.minute * 60 <= secs: prev[d.date()] = prev.get(d.date(), 0) + c
+    avg = round(sum(prev.values()) / 14) if prev else 0
+    best = sorted(range(24), key=lambda h: -hours[h])[:3]
+    # agenda e itens
+    lo = (day0 - timedelta(days=7)).astimezone(timezone.utc).isoformat(); hi = (n + timedelta(hours=48)).isoformat()
+    items = await db.content_items.find({'creator_id': creator_id, 'status': {'$ne': 'canceled'}, 'at': {'$gte': lo, '$lte': hi}}, {'_id': 0, 'stats_hist': 0, 'history': 0}).sort('at', -1).to_list(500)
+    items = await mass_results(items)
+    def bday(it): return parse_at(it['at']).astimezone(BRT).date()
+    posts_today = sum(1 for i in items if i['kind'] == 'post' and bday(i) == day0.date())
+    mass_today = sum(1 for i in items if i['kind'] == 'mass' and bday(i) == day0.date())
+    upcoming = sorted([i for i in items if parse_at(i['at']) > n], key=lambda i: i['at'])
+    gaps = []
+    for k, label in ((0, 'hoje'), (1, 'amanhã')):
+        d = (day0 + timedelta(days=k)).date()
+        if not any(i['kind'] == 'post' and bday(i) == d for i in items): gaps.append(f'Sem post {label}')
+    night = [h for h in best if h > nb.hour]
+    if nb.hour < 23 and not any(i['kind'] == 'mass' and parse_at(i['at']) > n and bday(i) == day0.date() for i in items):
+        gaps.append('Sem mensagem em massa programada para hoje' + (f' (pico de vendas às {night[0]}h)' if night else ''))
+    recent = [i for i in items if parse_at(i['at']) <= n][:8]
+    slim = lambda i: {'id': i['id'], 'kind': i['kind'], 'at': i['at'], 'status': i.get('status'), 'text': (i.get('text') or '')[:140], 'price_cents': i.get('price_cents'),
+                      'author_name': i.get('author_name'), 'attribution': i.get('attribution'), 'result': i.get('result')}
+    prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'prices': 1}) or {}
+    table = sorted({int(p['cents']) for p in prof.get('prices') or [] if p.get('cents')})
+    # preços já usados em disparos dos últimos 7 dias (para sugerir um valor que não repete)
+    used = sorted({i['price_cents'] for i in items if i['kind'] == 'mass' and i.get('price_cents')})
+    rd = await db.content_reads.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
+    return {'today_cents': today_c, 'avg_cents': avg, 'hours': hours, 'best_hours': best, 'posts_today': posts_today, 'mass_today': mass_today,
+            'limits': {'posts': 25, 'scheduled': 25, 'mass': 4}, 'upcoming': [slim(i) for i in upcoming[:12]], 'gaps': gaps, 'recent': [slim(i) for i in recent],
+            'table_cents': table, 'used_mass_cents': used, 'reads': rd, 'now': n.isoformat()}

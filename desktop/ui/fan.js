@@ -405,10 +405,75 @@ $('collapse').addEventListener('dblclick', () => window.pulse.fanCollapse('auto'
 window.pulse.onFan((f) => {
   // não re-renderiza enquanto o chatter digita uma anotação (evita perder o foco)
   if (!F || f.fanRef !== F.fanRef) { draft = ''; noteOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
-  F = f; render(); loadAssist(); loadSeg(); loadPrices(); loadMem(); maybeSuggest(); refreshThermo();
+  F = f; render(); applyMode(); loadAssist(); loadSeg(); loadPrices(); loadMem(); maybeSuggest(); refreshThermo();
 });
 render();
 // o "esperando há" anda sozinho; não re-renderiza enquanto digita uma anotação
 setInterval(() => { if (F && F.waitSince && !(document.activeElement && document.activeElement.id === 'note')) render(); }, 30000);
 // termômetro: confere a conversa aberta a cada 10 s (só lê; nada é enviado)
 setInterval(() => refreshThermo(), 10000);
+
+
+// ---------- modo Conteúdo (só para quem o admin liberou: Equipe → "Conteúdo: modo Conteúdo no app") ----------
+// Troca sozinho pela tela da Privacy: Feed, Postar, Calendário e Meu Privacy = Conteúdo; conversa = Chat.
+// A pessoa pode trocar na mão pelas abas; a escolha vale até mudar de tela.
+let MODE_MANUAL = null, MODE_PAGE = null, CP = null, cpFor = '', cpAt = 0, cpBusy = false, cpErr = '';
+const ctNow = () => (F && F.content) || {};
+function wantMode() {
+  const ct = ctNow(); if (!ct.allowed) return 'chat';
+  if (MODE_MANUAL && MODE_PAGE === ct.page) return MODE_MANUAL;
+  MODE_MANUAL = null; return ct.page === 'content' || ct.page === 'mass' ? 'content' : 'chat';
+}
+function applyMode() {
+  const ct = ctNow(); const m = wantMode();
+  $('modes').classList.toggle('hidden', !ct.allowed || !!(F && F.collapsed));
+  document.body.classList.toggle('mode-content', m === 'content');
+  $('modes').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  if (m === 'content') loadContent(false);
+}
+$('modes').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { MODE_MANUAL = b.dataset.m; MODE_PAGE = ctNow().page; applyMode(); }));
+async function loadContent(force) {
+  const ct = ctNow(); if (!ct.creatorId) { renderContent(); return; }
+  if (!force && cpFor === ct.creatorId && Date.now() - cpAt < 60000) { renderContent(); return; }
+  if (cpBusy) return; cpBusy = true; if (cpFor !== ct.creatorId) CP = null; cpFor = ct.creatorId; renderContent();
+  try { CP = await window.pulse.contentPanel(); cpErr = ''; cpAt = Date.now(); }
+  catch (err) { cpErr = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+  finally { cpBusy = false; renderContent(); }
+}
+const hm = (iso) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const isRound = (c) => [0, 90, 99, 50].includes(c % 100);
+function uniquePrice(c, used) {
+  const base = Math.floor(c / 100) * 100;
+  for (const x of [87, 83, 77, 73, 67, 63, 57, 53, 47, 43, 37, 33]) { const v = base + x; if (v !== c && !used.includes(v)) return v; }
+  return base + 87;
+}
+function renderContent() {
+  const el = $('content'); const ct = ctNow();
+  if (!document.body.classList.contains('mode-content')) return;
+  let h = `<div class="ct-head"><b>📣 ${esc(ct.creatorName || 'Conteúdo')}</b><button class="icon" id="ct-reload" title="Atualizar">↻</button></div>`;
+  if (ct.page === 'mass') {
+    const used = (CP && CP.used_mass_cents) || [], table = (CP && CP.table_cents) || [];
+    if (ct.price_cents == null) h += `<div class="sub"><b>Mensagem em massa aberta.</b> Ao pôr preço, use um valor quebrado e diferente dos últimos disparos (ex.: R$ 49,87). Assim o painel mede exatamente quanto este disparo vendeu.</div>`;
+    else if (isRound(ct.price_cents) || used.includes(ct.price_cents) || table.includes(ct.price_cents)) {
+      const sug = uniquePrice(ct.price_cents, used.concat(table));
+      h += `<div class="pend">⚠️ ${money(ct.price_cents)} ${used.includes(ct.price_cents) ? 'já foi usado em outro disparo desta semana' : 'é um valor redondo ou da tabela'}: as vendas vão se misturar com as do chat. Sugestão: <b>${money(sug)}</b>.</div>`;
+    } else h += `<div class="ct-ok">✓ ${money(ct.price_cents)} é um valor único: dá para medir exatamente quanto este disparo vendeu.</div>`;
+  }
+  if (cpErr) { el.innerHTML = h + `<div class="pend">${esc(cpErr)}</div>`; wireContent(); return; }
+  if (!CP) { el.innerHTML = h + `<div class="empty">${cpBusy ? 'Carregando…' : 'Abra uma criadora na Privacy.'}</div>`; wireContent(); return; }
+  const diff = CP.avg_cents ? Math.round(100 * (CP.today_cents - CP.avg_cents) / CP.avg_cents) : null;
+  h += `<div class="nums"><div><span>Vendido hoje</span><b>${moneyShort(CP.today_cents)}</b>${diff != null ? `<span class="${diff >= 0 ? 'ct-up' : 'ct-down'}">${diff >= 0 ? '+' : ''}${diff}% x média</span>` : ''}</div>
+    <div><span>Posts hoje</span><b>${CP.posts_today}/${CP.limits.posts}</b></div><div><span>Disparos hoje</span><b>${CP.mass_today}/${CP.limits.mass}</b></div></div>`;
+  for (const g of CP.gaps || []) h += `<div class="pend">⏳ ${esc(g)}</div>`;
+  h += `<div class="sec">Próximas 48 h</div>`;
+  h += (CP.upcoming || []).length ? CP.upcoming.map((i) => `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span></div></div>`).join('') : '<div class="sub">Nada agendado nas próximas 48 h.</div>';
+  const max = Math.max(1, ...(CP.hours || [0]));
+  h += `<div class="sec">Vendas por hora (30 dias) · melhores: ${(CP.best_hours || []).map((x) => `${x}h`).join(', ')}</div>
+    <div class="ct-hours">${(CP.hours || []).map((v, i) => `<i class="${(CP.best_hours || []).includes(i) ? 'best' : ''}" style="height:${Math.max(2, Math.round(46 * v / max))}px" title="${i}h · ${money(v)}"></i>`).join('')}</div><div class="ct-hl"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>`;
+  h += `<div class="sec">Últimos 7 dias</div>`;
+  h += (CP.recent || []).length ? CP.recent.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>';
+  const rd = CP.reads || {};
+  h += `<div class="ct-foot">Leitura: posts ${rd.posts_at ? hm(rd.posts_at) : '—'} · calendário ${rd.calendar_at ? hm(rd.calendar_at) : '—'}<br>Análise completa: altapulse.com.br → Conteúdo e disparos.</div>`;
+  el.innerHTML = h; wireContent();
+}
+function wireContent() { const r = $('ct-reload'); if (r) r.addEventListener('click', () => loadContent(true)); }

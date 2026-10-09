@@ -355,6 +355,24 @@ function zoomKeys(view, platform) {
   // Ctrl + rodinha do mouse (e pinça no touchpad)
   view.webContents.on('zoom-changed', (_e, direction) => changeZoom(platform, direction === 'in' ? 'in' : 'out'));
 }
+// modo Conteúdo do painel da direita: em que tela da Privacy a pessoa está (feed/postar/calendário = conteúdo)
+let contentCtx = { page: 'other', mass: false, price_cents: null };
+function contentPageOf(url) {
+  let p = ''; try { const u = new URL(url); if (!/privacy\.com\.br$/i.test(u.host)) return 'other'; p = u.pathname; } catch { return 'other'; }
+  if (/^\/chat/i.test(p)) return 'chat';
+  if (p === '/' || /^\/(publisher|calendar|myprivacystats|topcreators|feed|profile)/i.test(p)) return 'content';
+  return 'other';
+}
+async function pollContentCtx() {
+  if (!(contentCfg.perms && contentCfg.perms.conteudo_app) || !activeId || activeTab.get(activeId) !== 'privacy') return;
+  const view = views.get(activeId); if (!view || view.webContents.isDestroyed()) return;
+  const page = contentPageOf(view.webContents.getURL());
+  let mass = false, price = null;
+  if (page === 'chat') { const c = await runJs(view, CONTENT.CTX, 1500).catch(() => null); if (c && c.kind === 'mass') { mass = true; price = c.price_cents; } }
+  const next = { page: mass ? 'mass' : page, mass, price_cents: price };
+  if (JSON.stringify(next) !== JSON.stringify(contentCtx)) { contentCtx = next; pushFan(); }
+}
+setInterval(() => { pollContentCtx().catch(() => {}); }, 2500);
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
@@ -365,7 +383,9 @@ function fanPanelWidth() {
 function pushFan() {
   if (!fanView || fanView.webContents.isDestroyed()) return;
   const creator = (state.creators || []).find((c) => c.id === fan.creatorId);
-  fanView.webContents.send('fan', { ...fan, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
+  const cc = (state.creators || []).find((c) => c.id === activeId);
+  const content = { allowed: !!(contentCfg.perms && contentCfg.perms.conteudo_app), ...contentCtx, creatorId: activeId, creatorName: cc ? cc.name : '' };
+  fanView.webContents.send('fan', { ...fan, content, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
 }
 async function loadFanCard(force = false) {
   if (!fan.creatorId || !fan.fanRef) return;
@@ -1650,6 +1670,7 @@ ipcMain.handle('task:open', async (_e, taskId) => {
   if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
   return { found: !!cid, name: t.fan_name };
 });
+ipcMain.handle('content:panel', async () => { if (!activeId) return null; return api('GET', `/extension/content/panel?creator_id=${encodeURIComponent(activeId)}`); });
 ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); if (ffTabOpen(id) || await hasFFSession(id)) await readFF(id, { background: true }); if (cfTabOpen(id) || await hasCFSession(id)) await readCF(id, { background: true }); if (ofTabOpen(id) || await hasOFSession(id)) await readOF(id, { background: true }); return publicState(); });
 // diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
 ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {

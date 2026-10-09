@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('pulse', {
 
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
   onFan: (fn) => ipcRenderer.on('fan', (_e, f) => fn(f)),
+  contentPanel: () => ipcRenderer.invoke('content:panel'),
   fanCollapse: (collapsed) => ipcRenderer.invoke('fan:collapse', collapsed),
   assistStatus: (force) => ipcRenderer.invoke('assist:status', force),
   assistRun: (opts) => ipcRenderer.invoke('assist:run', opts),
