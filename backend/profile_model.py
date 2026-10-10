@@ -139,6 +139,56 @@ def plan_text(plan, seg_labels=None):
     if sg.get('after_no'): rules.append('depois de um "não", ' + SALES_SINGLE['after_no'][1][sg['after_no']])
     if rules: L.append('Regras: ' + '; '.join(rules) + '.')
     return '\n'.join(L)
+# naturalidade: o que faz a mensagem parecer de gente (baseado nas conversas reais dos chatters da agência)
+CLICHES = ['ui amor', 'ui, amor', 'que delícia de pergunta', 'imagina só', 'com certeza', 'fico feliz', 'que bom saber', 'adorei saber',
+           'hmm', 'aiai', 'meu bem', 'você é incrível', 'confesso que', 'não vou mentir', 'deixa eu te contar', 'que tal']
+LENGTH_TXT = {'curta': 'Este perfil escreve BEM CURTO: quase sempre 1 linha, muitas vezes 2 a 6 palavras.',
+              'equilibrado': 'Tamanho equilibrado: maioria curta (1 linha), às vezes 2 linhas.',
+              'elaborada': 'Este perfil escreve um pouco mais: 1 a 2 linhas na maioria, 3 quando fizer sentido.'}
+WRITING_TXT = {'chat': 'Escrita de chat de verdade: pode minúscula, "vc", "tô", "pq", "tb", "rs", "kkkk", pontuação solta, letra esticada ("amorrr").',
+               'caprichado': 'Escrita mais caprichada (sem abreviações), mas ainda solta e informal, nada de texto de redação.'}
+EMOJI_TXT = {'pouco': 'Emoji quase nunca.', 'as_vezes': 'Emoji às vezes (no máximo 1), nunca em toda mensagem.', 'bastante': 'Pode usar emoji com frequência (1 a 2), variando.'}
+def natural_rules(prof):
+    v = (normalize(prof) or {}).get('voice') or {}
+    L = ['NATURALIDADE (é isto que faz parecer gente, siga sempre):',
+         '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
+         '- A maioria das mensagens é curta. Mensagem mais longa só na oferta com mídia, nas boas-vindas ou ao contar a história de um conteúdo.',
+         '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
+         '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
+         '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
+         '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
+         '- Nada de frase de efeito, texto poético, lista ou explicação. Nunca soe como atendimento ou assistente.',
+         '- Nunca use estes clichês: ' + ', '.join(f'"{x}"' for x in CLICHES) + (f"; nem: {v['avoid_words']}" if v.get('avoid_words') else '') + '.',
+         '- ' + LENGTH_TXT[v.get('length') or 'equilibrado'], '- ' + WRITING_TXT[v.get('writing') or 'chat'], '- ' + EMOJI_TXT[v.get('emoji_level') or 'as_vezes']]
+    return '\n'.join(L)
+import unicodedata as _ud
+def _norm(t):
+    t = _ud.normalize('NFD', (t or '').lower()); t = ''.join(c for c in t if _ud.category(c) != 'Mn')
+    return re.sub(r'[^a-z0-9 ]+', ' ', t).split()
+def avoid_now(recent_ours, prof):
+    """O que a criadora acabou de dizer nesta conversa: aberturas, apelidos e bordões para NÃO repetir agora."""
+    recent = [x for x in recent_ours if x and x.strip()][-6:]
+    if not recent: return ''
+    opens = []
+    for x in recent:
+        w = _norm(x)[:3]
+        if w: opens.append(' '.join(w))
+    persona = (prof or {}).get('persona') or {}
+    pool = [y.strip(' "“”') for y in re.split(r'[,;/\n]', (persona.get('como_chama_assinantes') or '') + ',' + (persona.get('bordoes') or '') + ',' + (((prof or {}).get('voice') or {}).get('use_words') or '')) if len(y.strip(' "“”')) >= 3]
+    joined = ' '.join(' '.join(_norm(x)) for x in recent[-3:])
+    used = [y for y in pool if ' '.join(_norm(y)) and ' '.join(_norm(y)) in joined][:6]
+    out = 'NÃO REPITA AGORA (já foi dito nas últimas mensagens desta conversa): começar com ' + ' / '.join(f'"{o}"' for o in dict.fromkeys(opens))
+    if used: out += '; usar de novo ' + ', '.join(f'"{u}"' for u in used)
+    return out + '. Varie a abertura e o jeito.'
+def repeats(text, recent_ours):
+    """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora ou é idêntica."""
+    t = _norm(text)
+    if not t: return False
+    for x in [y for y in recent_ours if y][-6:]:
+        r = _norm(x)
+        if len(t) >= 2 and len(r) >= 2 and t[:2] == r[:2]: return True
+        if t == r: return True
+    return False
 PRICE_CATS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'personalizado': 'Personalizado',
               'chamada': 'Videochamada', 'chamada_gravada': 'Chamada gravada', 'avaliacao': 'Avaliação', 'audio': 'Áudio', 'sexting': 'Sexting',
               'itens': 'Itens pessoais', 'outro': 'Outro'}
@@ -171,6 +221,9 @@ class Voice(Strict):
     use_words: str = Field(default='', max_length=600)
     avoid_words: str = Field(default='', max_length=600)
     emojis: str = Field(default='', max_length=80)
+    length: Literal['', 'curta', 'equilibrado', 'elaborada'] = ''  # tamanho das mensagens ('' = equilibrado)
+    writing: Literal['', 'chat', 'caprichado'] = ''  # jeito de escrever ('' = chat)
+    emoji_level: Literal['', 'pouco', 'as_vezes', 'bastante'] = ''  # quantidade de emojis ('' = às vezes)
 class SalesPlan(Strict):
     preset: str = Field(default='', max_length=20)
     picks: list[str] = Field(default_factory=list, max_length=60)
@@ -265,7 +318,8 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
     w = who(p)
     L = [f"PERFIL {'DO CRIADOR' if p['gender'] == 'm' else 'DA CRIADORA'} ({creator['name']})", gender_lines(p)]
     for k, label, _ in persona_fields:
-        if persona.get(k) and k != 'cidade_estado' and not (k == 'itens_pessoais' and not m['items']): L.append(f"{label}: {persona[k][:1500]}")
+        if persona.get(k) and k not in ('cidade_estado', 'exemplos_mensagens') and not (k == 'itens_pessoais' and not m['items']): L.append(f"{label}: {persona[k][:1500]}")
+    if persona.get('exemplos_mensagens'): L.append('EXEMPLOS DE MENSAGENS REAIS DESTE PERFIL (imite o tamanho, o ritmo e o jeito; não copie as frases):\n' + persona['exemplos_mensagens'][:1500])
     voz = []
     if v.get('tone'): voz.append('tom: ' + TONES.get(v['tone'], v['tone']) + (f" ({v['tone_notes']})" if v.get('tone_notes') else ''))
     elif v.get('tone_notes'): voz.append('tom: ' + v['tone_notes'])
