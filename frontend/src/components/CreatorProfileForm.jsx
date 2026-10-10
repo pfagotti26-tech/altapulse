@@ -35,6 +35,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, content_thumbs: true, ...(p.features || {}) },
         content_goals: { posts_day: 0, paid_day: 0, mass_day: 0, videos_week: 0, responsible_id: '', ...(p.content_goals || {}) },
         connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
+        gender: p.gender || 'f', audience: p.audience || 'homens',
       });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
@@ -53,7 +54,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales: form.sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 } };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens' };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -73,7 +74,9 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     <div className="pf-tabs">{TABS.map(([k, l]) => <button key={k} type="button" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
 
     {tab === 'nucleo' && <>
-      <section className="profile-sec"><h3>📝 Identidade</h3><div className="profile-grid">{pf('basico').map(f => persona(f.key, f.label))}{pf('extras').map(f => persona(f.key, f.label, f.key === 'resumo_ia' ? 6 : 3))}</div></section>
+      <section className="profile-sec"><h3>📝 Identidade</h3><div className="profile-grid">
+        <Field id="pf-gender" label="Gênero da persona"><Select id="pf-gender" data-testid="pf-gender" value={form.gender} onChange={e => up({ gender: e.target.value })}>{Object.entries(meta.genders || { f: 'Feminino', m: 'Masculino', o: 'Outro / não binário' }).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
+        <Field id="pf-audience" label="Público principal (quem compra)"><Select id="pf-audience" data-testid="pf-audience" value={form.audience} onChange={e => up({ audience: e.target.value })}>{Object.entries(meta.audiences || { homens: 'Homens (hétero)', mulheres: 'Mulheres', gays: 'Homens gays / bi', misto: 'Misto' }).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>{pf('basico').map(f => persona(f.key, f.label))}{pf('extras').map(f => persona(f.key, f.label, f.key === 'resumo_ia' ? 6 : 3))}</div></section>
       <section className="profile-sec"><h3>🗣 Voz</h3><div className="profile-grid">
         <Field id="pf-tone" label="Tom padrão"><Select id="pf-tone" value={form.voice.tone} onChange={e => sub('voice', { tone: e.target.value })}><option value="">Escolha…</option>{Object.entries(meta.tones).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
         <Field id="pf-tone-notes" label="Detalhe do tom">{ta(form.voice.tone_notes, v => sub('voice', { tone_notes: v }), 2, 'Ex.: manda, não pede; frases curtas', 600)}</Field>

@@ -17,6 +17,24 @@ LIMIT_FLAGS = {'encontro': 'Encontro presencial / programa', 'contato': 'Passar 
                'golden': 'Golden shower', 'ageplay': 'Ageplay', 'fisting': 'Fisting', 'traicao': 'Insinuação de traição',
                'incesto': 'Incesto (mesmo fantasia)', 'violencia': 'Violência / falta de consentimento', 'nome_fa': 'Falar o nome do fã',
                'trisal': 'Trisal', 'com_fa': 'Gravar com fã / assinante'}
+GENDERS = {'f': 'Feminino', 'm': 'Masculino', 'o': 'Outro / não binário'}
+AUDIENCES = {'homens': 'Homens (hétero)', 'mulheres': 'Mulheres', 'gays': 'Homens gays / bi', 'misto': 'Misto'}
+WHO = {'f': {'cr': 'a criadora', 'ela': 'ela', 'dela': 'dela'}, 'm': {'cr': 'o criador', 'ela': 'ele', 'dela': 'dele'},
+       'o': {'cr': 'a pessoa criadora', 'ela': 'essa pessoa', 'dela': 'dessa pessoa'}}
+def who(prof):
+    """Palavras para falar de quem cria (ela/ele), pelo gênero da ficha. Ficha antiga = feminino."""
+    return WHO.get((prof or {}).get('gender') or 'f', WHO['f'])
+def gender_lines(prof):
+    """Gênero da persona e público principal, em linhas que a IA segue à risca."""
+    g = (prof or {}).get('gender') or 'f'; a = (prof or {}).get('audience') or 'homens'
+    gl = {'f': 'GÊNERO: mulher. Escreva sempre no feminino quando falar de si (obrigada, cansada, "sua gatinha").',
+          'm': 'GÊNERO: homem. Escreva SEMPRE no masculino quando falar de si (obrigado, cansado, "seu gatinho"); nunca use o feminino para ele.',
+          'o': 'GÊNERO: não binário/outro. Fale de si como a ficha descreve; na dúvida, prefira formas neutras.'}[g]
+    al = {'homens': 'PÚBLICO: os fãs são em maioria homens; trate o fã no masculino.',
+          'mulheres': 'PÚBLICO: as fãs são em maioria mulheres; trate a fã no feminino (linda, gata, amor) e adapte fantasias e apelidos a ela.',
+          'gays': 'PÚBLICO: os fãs são em maioria homens gays/bi; trate o fã no masculino e adapte fantasias e apelidos a homens que gostam de homens.',
+          'misto': 'PÚBLICO: misto; trate cada pessoa pelo gênero que ela mostrar na conversa (nome, como se refere a si); na dúvida, use formas neutras.'}[a]
+    return gl + '\n' + al
 PRICE_CATS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'personalizado': 'Personalizado',
               'chamada': 'Videochamada', 'chamada_gravada': 'Chamada gravada', 'avaliacao': 'Avaliação', 'audio': 'Áudio', 'sexting': 'Sexting',
               'itens': 'Itens pessoais', 'outro': 'Outro'}
@@ -101,6 +119,7 @@ def normalize(prof):
     p['features'] = {'assist': True, 'thermo': True, 'sell': True, 'content_read': True, 'content_capture': True, 'content_thumbs': True, **(p.get('features') or {})}
     p['content_goals'] = {'posts_day': 0, 'paid_day': 0, 'mass_day': 0, 'videos_week': 0, 'responsible_id': '', **(p.get('content_goals') or {})}
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
+    p.setdefault('gender', 'f'); p.setdefault('audience', 'homens')
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 
@@ -133,7 +152,8 @@ def active_promos(p, day=None):
 
 def compile_block(creator, prof, money_br, persona_fields, day=None):
     p = normalize(prof); persona = p.get('persona') or {}; m = p['modules']; v = p['voice']; s = p['sales']
-    L = [f"PERFIL DA CRIADORA ({creator['name']})"]
+    w = who(p)
+    L = [f"PERFIL {'DO CRIADOR' if p['gender'] == 'm' else 'DA CRIADORA'} ({creator['name']})", gender_lines(p)]
     for k, label, _ in persona_fields:
         if persona.get(k) and k != 'cidade_estado' and not (k == 'itens_pessoais' and not m['items']): L.append(f"{label}: {persona[k][:1500]}")
     voz = []
@@ -147,20 +167,20 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
     if s.get('script'): L.append('ROTEIRO DE VENDA:\n' + s['script'])
     if p.get('style'): L.append('OBSERVAÇÕES DA AGÊNCIA (siga à risca): ' + p['style'])
     flags = [LIMIT_FLAGS[f] for f in p.get('limit_flags') or [] if f in LIMIT_FLAGS]
-    L.append('LIMITES (o que ela NÃO faz): ' + '; '.join(flags + ([p['limits']] if p.get('limits') else [])) if (flags or p.get('limits')) else 'LIMITES: não informado')
+    L.append(f"LIMITES (o que {w['ela']} NÃO faz): " + '; '.join(flags + ([p['limits']] if p.get('limits') else [])) if (flags or p.get('limits')) else 'LIMITES: não informado')
     if p['prices']:
         L.append('TABELA DE PREÇOS (mínimos): ' + '; '.join(f"{x['item']} [{PRICE_CATS.get(x['category'], 'Outro')}{', explícito' if x.get('explicit') else ''}]: {money_br(x['cents'])}" + (f" ({x['obs']})" if x.get('obs') else '') for x in p['prices']))
     else: L.append('TABELA DE PREÇOS: nenhuma cadastrada')
-    if p.get('objections'): L.append('RESPOSTAS DELA A OBJEÇÕES (use como base): ' + ' | '.join(f"\"{o['q']}\" → {o['a']}" for o in p['objections']))
+    if p.get('objections'): L.append(f"RESPOSTAS {w['dela'].upper()} A OBJEÇÕES (use como base): " + ' | '.join(f"\"{o['q']}\" → {o['a']}" for o in p['objections']))
     if m['call']:
         c = p['call']; parts = []
         if c.get('days'): parts.append('dias: ' + ', '.join(c['days']))
         if c.get('hours'): parts.append('horário: ' + c['hours'])
         if c.get('notice_hours'): parts.append(f"aviso prévio de {c['notice_hours']} h")
-        if c.get('confirm_first', True): parts.append('confirmar com ela ANTES de o fã pagar; nunca fechar horário sozinho')
+        if c.get('confirm_first', True): parts.append(f"confirmar com {w['ela']} ANTES de o fã pagar; nunca fechar horário sozinho")
         if c.get('notes'): parts.append(c['notes'])
         L.append('VIDEOCHAMADA: ' + '; '.join(parts))
-    else: L.append('VIDEOCHAMADA: ela não faz; não ofereça.')
+    else: L.append(f"VIDEOCHAMADA: {w['ela']} não faz; não ofereça.")
     if m['custom'] and p.get('custom_delivery'): L.append('PERSONALIZADOS: prazo de entrega ' + p['custom_delivery'] + '; nunca prometa entrega mais rápida.')
     if m['languages']:
         lg = p['languages']; names = {'pt': 'português', 'en': 'inglês', 'es': 'espanhol'}
