@@ -2129,7 +2129,8 @@ async function downloadQuick() {
     if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
     const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
     try { const cur = JSON.parse(ofs.readFileSync(path.join(process.resourcesPath, 'alta-atual.json'), 'utf8')); if (cur.file === name && ofs.existsSync(path.join(process.resourcesPath, name))) return { version: d.asar.version, ready: true }; } catch {}
-    const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
+    // a partir da 1.4.35 o download da atualização vai com o login do app (o painel só entrega para quem tem acesso)
+    const res = await fetch(`${config.origin}/api/desktop/asar`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
     const buf = Buffer.from(await res.arrayBuffer());
     if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
     ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
@@ -2184,6 +2185,7 @@ function setupAutoUpdate() {
       if (!electronUpdater) {
         try { ({ autoUpdater: electronUpdater } = require('electron-updater')); } catch { return; }
         electronUpdater.autoDownload = true; electronUpdater.autoInstallOnAppQuit = true;
+        if (token) electronUpdater.requestHeaders = { Authorization: `Bearer ${token}` };
         electronUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
         electronUpdater.on('error', () => {});
       }
