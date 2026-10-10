@@ -451,7 +451,7 @@ function renderContent() {
   const el = $('content'); const ct = ctNow();
   if (!document.body.classList.contains('mode-content')) return;
   const reading = ct.reading || ctReading;
-  let h = `<div class="ct-head"><b>📣 ${esc(ct.creatorName || 'Conteúdo')}</b><button class="icon" id="ct-reload" title="Ler a Privacy agora e atualizar" ${reading ? 'disabled' : ''}>${reading ? '⏳' : '↻'}</button></div>`;
+  let h = `<div class="ct-head"><b>📣 ${esc(ct.creatorName || 'Conteúdo')}</b><button class="icon" id="ct-fold" title="Recolher tudo / abrir tudo">⇕</button><button class="icon" id="ct-reload" title="Ler a Privacy agora e atualizar" ${reading ? 'disabled' : ''}>${reading ? '⏳' : '↻'}</button></div>`;
   if (reading) h += `<div class="sub">Lendo a Privacy agora (Engajamento e calendário). Leva de 1 a 3 minutos; o painel atualiza sozinho no fim.</div>`;
   else if (cpAt) h += `<div class="ct-foot">Atualizado às ${new Date(cpAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ↻ lê a Privacy de novo</div>`;
   if (ct.page === 'mass') {
@@ -464,23 +464,30 @@ function renderContent() {
   }
   if (cpErr) { el.innerHTML = h + `<div class="pend">${esc(cpErr)}</div>`; wireContent(); return; }
   if (!CP) { el.innerHTML = h + `<div class="empty">${cpBusy ? 'Carregando…' : 'Abra uma criadora na Privacy.'}</div>`; wireContent(); return; }
+  // quadros minimizáveis (cada pessoa guarda o seu jeito); recolhido mostra uma linha com o essencial
+  const sec = (k, title, mini, body, def = true) => { const o = isOpen('ct-' + k, def);
+    return `<button class="sec-t" data-ct="${k}" data-def="${def ? 1 : 0}">${o ? '▾' : '▸'} ${title}${!o && mini ? `<span class="mini-line">${mini}</span>` : ''}</button>${o ? body : ''}`; };
   const diff = CP.avg_cents ? Math.round(100 * (CP.today_cents - CP.avg_cents) / CP.avg_cents) : null;
-  h += `<div class="nums"><div><span>Vendido hoje</span><b>${moneyShort(CP.today_cents)}</b>${diff != null ? `<span class="${diff >= 0 ? 'ct-up' : 'ct-down'}">${diff >= 0 ? '+' : ''}${diff}% x média</span>` : ''}</div>
-    <div><span>Posts hoje</span><b>${CP.posts_today}/${CP.limits.posts}</b></div><div><span>Disparos hoje</span><b>${CP.mass_today}/${CP.limits.mass}</b></div></div>`;
+  h += sec('hoje', 'Hoje', `${moneyShort(CP.today_cents)} · posts ${CP.posts_today} · disparos ${CP.mass_today}`,
+    `<div class="nums"><div><span>Vendido hoje</span><b>${moneyShort(CP.today_cents)}</b>${diff != null ? `<span class="${diff >= 0 ? 'ct-up' : 'ct-down'}">${diff >= 0 ? '+' : ''}${diff}% x média</span>` : ''}</div>
+    <div><span>Posts hoje</span><b>${CP.posts_today}/${CP.limits.posts}</b></div><div><span>Disparos hoje</span><b>${CP.mass_today}/${CP.limits.mass}</b></div></div>`);
   const G = CP.goal;
   if (G) {
     const gl = G.goals; const row = (lbl, have, want, extra) => want ? `<div class="ct-goal"><span>${lbl}</span><div class="ct-bar"><i style="width:${Math.min(100, Math.round(100 * have / want))}%" class="${have >= want ? 'ok' : ''}"></i></div><b>${have}/${want}</b>${extra || ''}</div>` : '';
-    h += `<div class="sec">Meta de hoje ${G.met ? '· ✅ cumprida' : ''}</div>`
-      + row('Posts', G.posts, gl.posts_day, G.posts_sched ? `<small>${G.posts_sched} agend.</small>` : '') + row('Pagos', G.paid, gl.paid_day) + row('Massa', G.mass, gl.mass_day) + row('Vídeos (semana)', G.videos_week, gl.videos_week);
+    h += sec('meta', `Meta de hoje ${G.met ? '· ✅ cumprida' : ''}`, G.met ? '' : `posts ${G.posts}/${gl.posts_day || 0}`,
+      row('Posts', G.posts, gl.posts_day, G.posts_sched ? `<small>${G.posts_sched} agend.</small>` : '') + row('Pagos', G.paid, gl.paid_day) + row('Massa', G.mass, gl.mass_day) + row('Vídeos (semana)', G.videos_week, gl.videos_week));
   }
-  for (const g of CP.gaps || []) h += `<div class="pend">⏳ ${esc(g)}</div>`;
-  h += `<div class="sec">Próximas 48 h</div>`;
-  h += (CP.upcoming || []).length ? CP.upcoming.map((i) => `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span></div></div>`).join('') : '<div class="sub">Nada agendado nas próximas 48 h.</div>';
-  const max = Math.max(1, ...(CP.hours || [0]));
-  h += `<div class="sec">Vendas por hora (30 dias) · melhores: ${(CP.best_hours || []).map((x) => `${x}h`).join(', ')}</div>
-    <div class="ct-hours">${(CP.hours || []).map((v, i) => `<i class="${(CP.best_hours || []).includes(i) ? 'best' : ''}" style="height:${Math.max(2, Math.round(46 * v / max))}px" title="${i}h · ${money(v)}"></i>`).join('')}</div><div class="ct-hl"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>`;
-  h += `<div class="sec">Últimos 7 dias</div>`;
-  h += (CP.recent || []).length ? CP.recent.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>';
+  const gaps = CP.gaps || [];
+  if (gaps.length) h += sec('gaps', `Alertas <span>${gaps.length}</span>`, esc(gaps[0]), gaps.map((g) => `<div class="pend">⏳ ${esc(g)}</div>`).join(''));
+  const up = CP.upcoming || [];
+  h += sec('agenda', `Próximas 48 h <span>${up.length}</span>`, up.length ? `${up[0].kind === 'mass' ? 'massa' : 'post'} ${hm(up[0].at)}` : 'nada agendado',
+    up.length ? up.map((i) => `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span></div></div>`).join('') : '<div class="sub">Nada agendado nas próximas 48 h.</div>');
+  const max = Math.max(1, ...(CP.hours || [0])); const best = (CP.best_hours || []).map((x) => `${x}h`).join(', ');
+  h += sec('horas', 'Vendas por hora (30 dias)', `melhores: ${best}`,
+    `<div class="ct-foot">Melhores horários: ${best}</div><div class="ct-hours">${(CP.hours || []).map((v, i) => `<i class="${(CP.best_hours || []).includes(i) ? 'best' : ''}" style="height:${Math.max(2, Math.round(46 * v / max))}px" title="${i}h · ${money(v)}"></i>`).join('')}</div><div class="ct-hl"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>`);
+  const rec = CP.recent || []; const recTot = rec.reduce((t, i) => t + ((i.result || {}).revenue_cents || 0), 0);
+  h += sec('ultimos', `Últimos 7 dias <span>${rec.length}</span>`, `${money(recTot)} vendidos`,
+    rec.length ? rec.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>');
   const rd = CP.reads || {}; const lr = ct.read || {};
   if (lr.error && (!lr.postsAt || lr.errorAt > lr.postsAt)) h += `<div class="pend">Última leitura neste computador falhou: ${esc(lr.error)}. Clique em ↻ para tentar de novo.</div>`;
   h += `<div class="ct-foot">Leitura: posts ${rd.posts_at ? hm(rd.posts_at) : '—'} · calendário ${rd.calendar_at ? hm(rd.calendar_at) : '—'}<br>Análise completa: altapulse.com.br → Conteúdo e disparos.</div>`;
@@ -492,4 +499,10 @@ async function readNow() {
   try { await window.pulse.contentReadNow(); } catch (err) { cpErr = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
   finally { ctReading = false; loadContent(true); }
 }
-function wireContent() { const r = $('ct-reload'); if (r) r.addEventListener('click', () => readNow()); }
+const CT_KEYS = ['hoje', 'meta', 'gaps', 'agenda', 'horas', 'ultimos'];
+function ctSet(k, v) { open['ct-' + k] = v; try { localStorage.setItem('fan-open', JSON.stringify(open)); } catch {} }
+function wireContent() {
+  const r = $('ct-reload'); if (r) r.addEventListener('click', () => readNow());
+  $('content').querySelectorAll('[data-ct]').forEach((b) => b.addEventListener('click', () => { ctSet(b.dataset.ct, !isOpen('ct-' + b.dataset.ct, b.dataset.def === '1')); renderContent(); }));
+  const f = $('ct-fold'); if (f) f.addEventListener('click', () => { const any = CT_KEYS.some((k) => isOpen('ct-' + k, true)); for (const k of CT_KEYS) ctSet(k, !any); renderContent(); });
+}
