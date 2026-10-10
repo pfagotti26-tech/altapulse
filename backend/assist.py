@@ -189,6 +189,9 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
     if any(k not in PM.MODULES for k in body.modules): raise HTTPException(422, 'Módulo desconhecido.')
     if any(d not in PM.DAYS for d in body.call.days): raise HTTPException(422, 'Dia da videochamada inválido.')
     if any(x.category and x.category not in PM.PRICE_CATS for x in body.prices): raise HTTPException(422, 'Categoria de preço inválida.')
+    pl = body.sales.plan
+    if any(k not in PM.SALES_OPT for k in pl.picks) or any(k not in PM.SALES_OPT for k in pl.only): raise HTTPException(422, 'Opção de roteiro desconhecida.')
+    if any(k not in PM.SALES_SINGLE or v not in PM.SALES_SINGLE[k][1] for k, v in pl.single.items() if v): raise HTTPException(422, 'Regra de roteiro inválida.')
     keys = [x.key for x in body.fan_segments]
     if len(set(keys)) != len(keys): raise HTTPException(422, 'Dois perfis de fã com o mesmo nome.')
     if sum(1 for x in body.fan_segments if x.default) > 1: raise HTTPException(422, 'Marque só um perfil de fã como padrão.')
@@ -204,7 +207,7 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
 @router.get('/assist/fields')
 async def fields(user=Depends(manager)):
     return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS,
-            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
+            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'sales_stages': PM.SALES_STAGES, 'sales_single': PM.SALES_SINGLE, 'sales_presets': PM.SALES_PRESETS, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
 
 class ImportItem(Strict):
     creator_id: str

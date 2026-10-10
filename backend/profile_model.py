@@ -54,6 +54,88 @@ FAN_CATALOG = [
     {'key': 'safado', 'label': 'Safado direto', 'level': 'explicito', 'about': 'Quer conversa quente e explícito sem rodeio.',
      'tone': 'Quer conversa quente e conteúdo explícito sem rodeio. Responda no mesmo ritmo, linguagem direta, pouca enrolação; vá logo para a oferta do que ele pediu.'},
 ]
+# ---------- roteiro de venda por opções (montador) ----------
+# etapas = as mesmas que a Alta Ajuda acompanha ("passo"); cada opção vira uma instrução curta para a IA
+SALES_STAGES = [
+    {'key': 'abertura', 'label': 'Abertura', 'options': [
+        ('ab_bloqueada', 'Boas-vindas com mídia bloqueada', 'manda boas-vindas junto com uma mídia bloqueada (o item de entrada da tabela)'),
+        ('ab_pergunta', 'Pergunta pessoal', 'puxa conversa com uma pergunta pessoal leve sobre o fã'),
+        ('ab_elogio', 'Elogio', 'começa elogiando o fã (nome, foto, jeito de falar)'),
+        ('ab_previa', 'Prévia grátis', 'dá uma prévia grátis (parcial) para despertar vontade')]},
+    {'key': 'aquecimento', 'label': 'Aquecimento', 'options': [
+        ('aq_agora', 'Contar o que está fazendo agora', 'conta o que está fazendo agora, de forma sensual ("acabei de sair do banho")'),
+        ('aq_crescente', 'Provocação crescente', 'aumenta a provocação aos poucos, mensagem a mensagem'),
+        ('aq_perguntas', 'Perguntas sobre ele', 'faz perguntas sobre o fã e comenta as respostas'),
+        ('aq_borrada', 'Prévia borrada', 'usa prévia borrada ou parcial para criar curiosidade')]},
+    {'key': 'oferta', 'label': 'Oferta', 'options': [
+        ('of_entrada', 'Oferecer o item de entrada', 'a primeira oferta é o item mais barato da tabela'),
+        ('of_pedido', 'Oferecer o que ele pediu', 'oferece exatamente o que o fã pediu ou insinuou'),
+        ('of_habito', 'Oferecer o que ele mais compra', 'oferece o tipo de conteúdo que o fã mais compra (pelo histórico)'),
+        ('of_exclusivo', 'Apresentar como "só pra você"', 'apresenta o conteúdo como exclusivo, feito ou guardado só para ele'),
+        ('of_tempo', 'Tempo limitado', 'dá um prazo curto para o valor ou o conteúdo'),
+        ('of_historia', 'Contar a história do conteúdo', 'conta como foi gravar o conteúdo para dar vontade'),
+        ('of_ordem', 'Venda como ordem', 'vende como ordem ou tributo ("vai comprar porque eu mandei")'),
+        ('of_presente', 'Venda como presente', 'vende como presente ou surpresa para o fã'),
+        ('of_preco_direto', 'Dizer o preço direto', 'diz o preço junto com a oferta'),
+        ('of_preco_pedido', 'Deixar ele pedir o preço', 'desperta vontade e só diz o preço quando o fã perguntar')]},
+    {'key': 'objecao', 'label': 'Se ele disser "caro" ou "depois"', 'options': [
+        ('ob_menor', 'Oferecer item menor', 'oferece um item menor da tabela, sem baixar o preço do mesmo item'),
+        ('ob_bonus', 'Bônus no mesmo valor', 'mantém o valor e oferece um bônus pequeno junto'),
+        ('ob_prazo', 'Prazo curto', 'segura o valor por pouco tempo'),
+        ('ob_parar', 'Parar e voltar depois', 'aceita numa boa, volta para a conversa e tenta de novo mais tarde')]},
+    {'key': 'upsell', 'label': 'Depois que compra (upsell)', 'options': [
+        ('up_escada', 'Subir a escada de preço', 'depois da compra, oferece o próximo degrau (foto → pack → vídeo → personalizado)'),
+        ('up_combo', 'Combo', 'oferece um combo de itens com valor fechado da tabela'),
+        ('up_achou', 'Perguntar o que achou', 'pergunta o que ele achou antes de oferecer o próximo')]},
+    {'key': 'pos', 'label': 'Pós-venda', 'options': [
+        ('po_agradece', 'Agradecer e perguntar se gostou', 'agradece com carinho e pergunta se gostou'),
+        ('po_memoria', 'Anotar na memória', 'guarda o que ele comprou e gostou para usar depois')]},
+    {'key': 'reativacao', 'label': 'Fã sumido (reativação)', 'options': [
+        ('re_saudade', 'Saudade', 'puxa dizendo que sentiu falta dele'),
+        ('re_novidade', 'Novidade', 'puxa contando uma novidade ou conteúdo novo'),
+        ('re_promo', 'Promoção', 'puxa com a promoção da ficha que estiver valendo')]},
+]
+SALES_OPT = {k: (st['key'], label, txt) for st in SALES_STAGES for k, label, txt in st['options']}
+SALES_SINGLE = {
+    'warm_turns': ('Ofertar depois de quantas trocas', {'0': 'logo (0)', '2': '2 trocas', '3': '3 trocas', '5': '5 trocas'}),
+    'pace': ('Ritmo de venda', {'devagar': 'Devagar', 'medio': 'Médio', 'rapido': 'Rápido'}),
+    'max_offer': ('Máximo de ofertas', {'4': '1 a cada 4 mensagens', '6': '1 a cada 6 mensagens', '10': '1 a cada 10 mensagens'}),
+    'after_no': ('Depois de um "não"', {'conversa': 'só volta depois de umas trocas', '24h': 'para por 24 h', '3d': 'para por 3 dias'}),
+    'reactivate_days': ('Puxar fã sumido depois de', {'1': '1 dia', '3': '3 dias', '7': '7 dias', '15': '15 dias'}),
+}
+SALES_PRESETS = {
+    'namoradinha': {'label': 'Namoradinha', 'picks': ['ab_pergunta', 'ab_elogio', 'aq_perguntas', 'aq_crescente', 'of_pedido', 'of_exclusivo', 'of_presente', 'of_preco_pedido', 'ob_parar', 'ob_menor', 'up_achou', 'up_escada', 'po_agradece', 'po_memoria', 're_saudade'],
+                    'single': {'warm_turns': '5', 'pace': 'devagar', 'max_offer': '10', 'after_no': '24h', 'reactivate_days': '3'}},
+    'dominadora': {'label': 'Dominadora', 'picks': ['ab_bloqueada', 'aq_crescente', 'aq_borrada', 'of_ordem', 'of_exclusivo', 'of_preco_direto', 'ob_prazo', 'ob_menor', 'up_escada', 'po_memoria', 're_novidade'],
+                   'single': {'warm_turns': '2', 'pace': 'rapido', 'max_offer': '4', 'after_no': 'conversa', 'reactivate_days': '3'}},
+    'direto': {'label': 'Direto ao ponto', 'picks': ['ab_bloqueada', 'aq_agora', 'of_pedido', 'of_preco_direto', 'of_tempo', 'ob_menor', 'up_escada', 'up_combo', 'po_agradece', 're_promo'],
+               'single': {'warm_turns': '0', 'pace': 'rapido', 'max_offer': '4', 'after_no': 'conversa', 'reactivate_days': '1'}},
+    'premium': {'label': 'Premium / alto ticket', 'picks': ['ab_pergunta', 'ab_elogio', 'aq_perguntas', 'aq_crescente', 'of_habito', 'of_exclusivo', 'of_historia', 'of_preco_pedido', 'ob_bonus', 'ob_parar', 'up_achou', 'up_escada', 'po_agradece', 'po_memoria', 're_saudade', 're_novidade'],
+                'single': {'warm_turns': '5', 'pace': 'devagar', 'max_offer': '10', 'after_no': '3d', 'reactivate_days': '7'}},
+    'volume': {'label': 'Volume', 'picks': ['ab_bloqueada', 'ab_previa', 'aq_agora', 'aq_borrada', 'of_entrada', 'of_tempo', 'of_preco_direto', 'ob_menor', 'ob_prazo', 'up_escada', 'up_combo', 'po_agradece', 're_promo', 're_novidade'],
+               'single': {'warm_turns': '2', 'pace': 'rapido', 'max_offer': '6', 'after_no': 'conversa', 'reactivate_days': '3'}},
+}
+def plan_text(plan, seg_labels=None):
+    """Roteiro montado pelas opções, em linhas por etapa (o que vai para a IA e a prévia do painel)."""
+    plan = plan or {}; picks = [k for k in plan.get('picks') or [] if k in SALES_OPT]; only = plan.get('only') or {}; sg = plan.get('single') or {}
+    seg_labels = seg_labels or {}
+    if not picks and not sg: return ''
+    L = []
+    for st in SALES_STAGES:
+        parts = []
+        for k, _, txt in st['options']:
+            if k not in picks: continue
+            segs = [seg_labels.get(x, x) for x in only.get(k) or []]
+            parts.append(txt + (f" (só com fã {' / '.join(segs)})" if segs else ''))
+        if st['key'] == 'aquecimento' and sg.get('warm_turns'): parts.insert(0, 'oferece só depois de ' + ('nenhuma troca' if sg['warm_turns'] == '0' else f"{sg['warm_turns']} trocas de mensagem"))
+        if st['key'] == 'reativacao' and sg.get('reactivate_days'): parts.insert(0, f"fã sem responder há {sg['reactivate_days']} dia(s) ou mais")
+        if parts: L.append(f"{st['label']}: " + '; '.join(parts) + '.')
+    rules = []
+    if sg.get('pace'): rules.append('ritmo de venda ' + SALES_SINGLE['pace'][1][sg['pace']].lower())
+    if sg.get('max_offer'): rules.append('no máximo ' + SALES_SINGLE['max_offer'][1][sg['max_offer']] + ' com oferta')
+    if sg.get('after_no'): rules.append('depois de um "não", ' + SALES_SINGLE['after_no'][1][sg['after_no']])
+    if rules: L.append('Regras: ' + '; '.join(rules) + '.')
+    return '\n'.join(L)
 PRICE_CATS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'personalizado': 'Personalizado',
               'chamada': 'Videochamada', 'chamada_gravada': 'Chamada gravada', 'avaliacao': 'Avaliação', 'audio': 'Áudio', 'sexting': 'Sexting',
               'itens': 'Itens pessoais', 'outro': 'Outro'}
@@ -86,10 +168,16 @@ class Voice(Strict):
     use_words: str = Field(default='', max_length=600)
     avoid_words: str = Field(default='', max_length=600)
     emojis: str = Field(default='', max_length=80)
+class SalesPlan(Strict):
+    preset: str = Field(default='', max_length=20)
+    picks: list[str] = Field(default_factory=list, max_length=60)
+    only: dict[str, list[str]] = Field(default_factory=dict)  # opção -> perfis de fã (vazio = todos)
+    single: dict[str, str] = Field(default_factory=dict)
 class Sales(Strict):
     warm_first: bool = True
     discount: Literal['nunca', 'uma_vez', 'livre'] = 'uma_vez'
-    script: str = Field(default='', max_length=2000)
+    script: str = Field(default='', max_length=2000)  # detalhes livres deste perfil (antes: roteiro inteiro)
+    plan: SalesPlan = Field(default_factory=SalesPlan)
 class CallRules(Strict):
     days: list[str] = Field(default_factory=list, max_length=7)
     hours: str = Field(default='', max_length=60)
@@ -152,7 +240,7 @@ def completeness(prof):
         ('Frases de venda dela', bool(persona.get('frases_venda'))),
         ('Limites', bool(p.get('limits') or len(p.get('limit_flags') or []) > 2)),
         ('Tabela de preços (3+ itens)', len(p['prices']) >= 3),
-        ('Roteiro de venda', bool((p['sales'] or {}).get('script') or p.get('style'))),
+        ('Roteiro de venda', bool((p['sales'] or {}).get('script') or ((p['sales'] or {}).get('plan') or {}).get('picks') or p.get('style'))),
         ('Respostas a objeções (2+)', len(p.get('objections') or []) >= 2),
     ]
     if m['segments']: checks.append(('Perfis de fã', bool(p.get('fan_segments'))))
@@ -183,7 +271,8 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
     if v.get('emojis'): voz.append('emojis: ' + v['emojis'])
     if voz: L.append('VOZ: ' + ' | '.join(voz))
     L.append('ESTRATÉGIA: ' + ('aquece a conversa antes de vender (nunca oferta fria). ' if s.get('warm_first', True) else 'pode oferecer direto quando o fã der abertura. ') + DISCOUNT[s.get('discount') or 'uma_vez'] + ' ' + PREVIEW[(p['preview'] or {}).get('mode') or 'parcial'] + (f" Mimo grátis: {p['preview']['gift']}" if (p['preview'] or {}).get('gift') else ''))
-    if s.get('script'): L.append('ROTEIRO DE VENDA:\n' + s['script'])
+    pt = plan_text(s.get('plan'), {x.get('key'): x.get('label') for x in p.get('fan_segments') or []})
+    if pt or s.get('script'): L.append('ROTEIRO DE VENDA (siga por etapa):\n' + '\n'.join(x for x in [pt, s.get('script') or ''] if x))
     if p.get('style'): L.append('OBSERVAÇÕES DA AGÊNCIA (siga à risca): ' + p['style'])
     flags = [LIMIT_FLAGS[f] for f in p.get('limit_flags') or [] if f in LIMIT_FLAGS]
     L.append(f"LIMITES (o que {w['ela']} NÃO faz): " + '; '.join(flags + ([p['limits']] if p.get('limits') else [])) if (flags or p.get('limits')) else 'LIMITES: não informado')

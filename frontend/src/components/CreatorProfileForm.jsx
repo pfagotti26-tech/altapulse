@@ -28,7 +28,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         prices: (p.prices || []).map(x => ({ item: x.item, value: reais(x.cents), obs: x.obs || '', category: x.category || 'outro', explicit: !!x.explicit })),
         fan_segments: (p.fan_segments || []).map(x => ({ ...x })), hot_terms: p.hot_terms || '', openers: { ...(p.openers || {}) },
         modules: { ...(p.modules || {}) }, voice: { tone: '', tone_notes: '', use_words: '', avoid_words: '', emojis: '', ...(p.voice || {}) },
-        sales: { warm_first: true, discount: 'uma_vez', script: '', ...(p.sales || {}) }, limit_flags: p.limit_flags || ['encontro', 'contato'],
+        sales: { warm_first: true, discount: 'uma_vez', script: '', ...(p.sales || {}), plan: { preset: '', picks: [], only: {}, single: {}, ...((p.sales || {}).plan || {}) } }, limit_flags: p.limit_flags || ['encontro', 'contato'],
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
@@ -51,9 +51,11 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     try {
       const prices = form.prices.filter(p => p.item.trim() && String(p.value).trim() && toCents(p.value) != null).map(p => ({ item: p.item.trim(), cents: toCents(p.value), obs: (p.obs || '').trim(), category: p.category || '', explicit: !!p.explicit }));
       const segs = form.fan_segments.filter(x => x.label.trim()).map(x => ({ key: x.key || slug(x.label), label: x.label.trim(), tone: (x.tone || '').trim(), default: !!x.default, level: x.level || null }));
+      const segKey = Object.fromEntries(form.fan_segments.map(x => [x.key || x.label, x.key || slug(x.label)]));
+      const plan = form.sales.plan || {}; const sales = { ...form.sales, plan: { ...plan, only: Object.fromEntries(Object.entries(plan.only || {}).map(([k, v]) => [k, v.map(x => segKey[x]).filter(Boolean)]).filter(([, v]) => v.length)) } };
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
-        voice: form.voice, sales: form.sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
+        voice: form.voice, sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
         languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens' };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
@@ -94,9 +96,10 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         <Field id="pf-disc" label="Desconto"><Select id="pf-disc" value={form.sales.discount} onChange={e => sub('sales', { discount: e.target.value })}><option value="nunca">Nunca</option><option value="uma_vez">Uma vez por fã, com prazo</option><option value="livre">Pode negociar</option></Select></Field>
         <Field id="pf-prev" label="Prévia"><Select id="pf-prev" value={form.preview.mode} onChange={e => sub('preview', { mode: e.target.value })}><option value="nao">Não manda prévia</option><option value="parcial">Só parcial (pedaço curto / foto borrada)</option><option value="borrada">Só borrada</option><option value="livre">Pode mandar</option></Select></Field>
         <Field id="pf-gift" label="Mimo grátis para cliente bom (opcional)"><Input id="pf-gift" maxLength={300} value={form.preview.gift} onChange={e => sub('preview', { gift: e.target.value })} placeholder="Ex.: uma foto de lingerie no aniversário"/></Field>
-        <Field id="pf-script" label="Roteiro de venda (passos)">{ta(form.sales.script, v => sub('sales', { script: v }), 5, '1 Abertura: …\n2 Aquecimento: …\n3 Oferta: …')}</Field>
         <Field id="pf-style" label="Observações livres para a IA">{ta(form.style, v => up({ style: v }), 5, 'Cuidados, jeito dela, o que não pode faltar')}</Field>
       </div>
+        <SalesPlan meta={meta} plan={form.sales.plan} segs={mod('segments') ? form.fan_segments.filter(x => x.label.trim()) : []} onChange={plan => sub('sales', { plan })}/>
+        <Field id="pf-script" label="Detalhes do roteiro deste perfil (opcional)">{ta(form.sales.script, v => sub('sales', { script: v }), 4, 'O que não couber nas opções. Ex.: na oferta, sempre citar que o vídeo foi gravado no carro')}</Field>
         <h3 style={{ marginTop: 14 }}>Respostas a objeções</h3>
         {form.objections.map((o, i) => <div key={i} className="pf-row"><Input maxLength={120} value={o.q} onChange={e => setRow('objections', i, { q: e.target.value })} placeholder='Objeção (ex.: "tá caro")'/><Input maxLength={400} value={o.a} onChange={e => setRow('objections', i, { a: e.target.value })} placeholder="Como ela responde"/><Button variant="ghost" onClick={() => delRow('objections', i)}><Trash2 size={14}/></Button></div>)}
         <Button variant="outline" onClick={() => up({ objections: [...form.objections, { q: '', a: '' }] })}><Plus size={14}/>Adicionar objeção</Button>
@@ -185,5 +188,42 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     </div><p className="body-muted" style={{ fontSize: 12 }}>As mensagens vão mascaradas (sem telefone, e-mail ou links) com a ficha para a xAI. Nada é enviado ao fã sozinho.</p></section>}
 
     <div className="form-actions"><Button data-testid="profile-save" disabled={busy} onClick={save}>Salvar ficha</Button></div>
+  </div>;
+}
+
+// montador do roteiro de venda: modelo pronto + opções por etapa (várias) + regras (uma cada) + prévia
+function planPreview(meta, plan, segs) {
+  const picks = new Set(plan.picks || []), only = plan.only || {}, sg = plan.single || {}, lab = Object.fromEntries(segs.map(x => [x.key || x.label, x.label]));
+  const single = meta.sales_single || {}, out = [];
+  for (const st of meta.sales_stages || []) {
+    const parts = st.options.filter(([k]) => picks.has(k)).map(([k, , t]) => t + ((only[k] || []).length ? ` (só com fã ${only[k].map(x => lab[x] || x).join(' / ')})` : ''));
+    if (st.key === 'aquecimento' && sg.warm_turns) parts.unshift('oferece só depois de ' + (sg.warm_turns === '0' ? 'nenhuma troca' : `${sg.warm_turns} trocas de mensagem`));
+    if (st.key === 'reativacao' && sg.reactivate_days) parts.unshift(`fã sem responder há ${sg.reactivate_days} dia(s) ou mais`);
+    if (parts.length) out.push(`${st.label}: ${parts.join('; ')}.`);
+  }
+  const rules = [];
+  if (sg.pace) rules.push('ritmo de venda ' + single.pace[1][sg.pace].toLowerCase());
+  if (sg.max_offer) rules.push('no máximo ' + single.max_offer[1][sg.max_offer] + ' com oferta');
+  if (sg.after_no) rules.push('depois de um "não", ' + single.after_no[1][sg.after_no]);
+  if (rules.length) out.push('Regras: ' + rules.join('; ') + '.');
+  return out.join('\n');
+}
+function SalesPlan({ meta, plan, segs, onChange }) {
+  const [open, setOpen] = useState(null);
+  const p = { preset: '', picks: [], only: {}, single: {}, ...(plan || {}) };
+  const picks = new Set(p.picks);
+  const set = (patch) => onChange({ ...p, ...patch });
+  const toggle = (k) => { const n = new Set(picks); const only = { ...p.only }; if (n.has(k)) { n.delete(k); delete only[k]; } else n.add(k); set({ picks: [...n], only }); };
+  const toggleSeg = (k, sk) => { const cur = new Set(p.only[k] || []); cur.has(sk) ? cur.delete(sk) : cur.add(sk); const only = { ...p.only, [k]: [...cur] }; if (!only[k].length) delete only[k]; set({ only }); };
+  const applyPreset = (key) => { const pr = (meta.sales_presets || {})[key]; if (!pr) return set({ preset: '' }); set({ preset: key, picks: [...pr.picks], single: { ...pr.single }, only: {} }); };
+  const preview = planPreview(meta, p, segs);
+  return <div className="sales-plan" data-testid="sales-plan">
+    <h3 style={{ marginTop: 14 }}>🧭 Roteiro de venda</h3>
+    <p className="body-muted" style={{ fontSize: 12 }}>Escolha um modelo como base e ajuste: em cada etapa dá para marcar várias opções; nas regras, uma de cada.{segs.length ? ' Clique em 👥 numa opção marcada para ela valer só para alguns perfis de fã.' : ''}</p>
+    <div className="sp-presets">{Object.entries(meta.sales_presets || {}).map(([k, pr]) => <button type="button" key={k} data-testid={`sp-preset-${k}`} className={`sp-chip${p.preset === k ? ' on' : ''}`} onClick={() => applyPreset(k)}>{pr.label}</button>)}</div>
+    {(meta.sales_stages || []).map(st => <div className="sp-stage" key={st.key}><strong>{st.label}</strong><div className="sp-opts">{st.options.map(([k, label]) => { const on = picks.has(k); const lim = (p.only[k] || []).length; return <span key={k} className="sp-optwrap"><button type="button" data-testid={`sp-opt-${k}`} className={`sp-chip${on ? ' on' : ''}`} onClick={() => toggle(k)}>{label}{lim ? ` · ${lim} perfil${lim > 1 ? 's' : ''}` : ''}</button>{on && segs.length > 0 && <button type="button" className="sp-seg-btn" title="Valer só para alguns perfis de fã" onClick={() => setOpen(open === k ? null : k)}>👥</button>}
+      {open === k && <span className="sp-seg-pop">{segs.map(x => { const sk = x.key || x.label; const sel = (p.only[k] || []).includes(sk); return <label key={sk} className="checkbox-label small"><input type="checkbox" checked={sel} onChange={() => toggleSeg(k, sk)}/><span>{x.label}</span></label>; })}<small>nenhum marcado = todos os fãs</small></span>}</span>; })}</div></div>)}
+    <div className="profile-grid" style={{ marginTop: 8 }}>{Object.entries(meta.sales_single || {}).map(([k, [label, opts]]) => <Field key={k} id={`sp-${k}`} label={label}><Select id={`sp-${k}`} value={p.single[k] || ''} onChange={e => set({ single: { ...p.single, [k]: e.target.value } })}><option value="">Não definido</option>{Object.entries(opts).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>)}</div>
+    {preview && <div className="sp-preview" data-testid="sp-preview"><span>Como a IA vai receber</span><pre>{preview}</pre></div>}
   </div>;
 }

@@ -46,3 +46,19 @@
 .seg-cat span { display: flex; flex-direction: column; gap: 2px; }
 .seg-cat strong { font-size: 13px; }
 .seg-cat small { font-size: 11.5px; color: #777; }
+
+/* montador do roteiro de venda */
+.sales-plan { margin-top: 6px; }
+.sp-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.sp-stage { margin-bottom: 10px; }
+.sp-stage > strong { display: block; font-size: 12.5px; margin-bottom: 5px; }
+.sp-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-optwrap { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+.sp-chip { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+.sp-chip.on { background: #c8102e; border-color: #c8102e; color: #fff; }
+.sp-seg-btn { border: none; background: transparent; cursor: pointer; font-size: 13px; padding: 2px; }
+.sp-seg-pop { position: absolute; top: 100%; left: 0; z-index: 5; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 170px; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.sp-seg-pop small { color: var(--muted-text); font-size: 11px; }
+.sp-preview { margin-top: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.sp-preview span { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-text); }
+.sp-preview pre { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; margin: 6px 0 0; }
