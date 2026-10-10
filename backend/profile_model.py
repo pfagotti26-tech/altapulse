@@ -66,7 +66,8 @@ SALES_STAGES = [
         ('aq_agora', 'Contar o que está fazendo agora', 'conta o que está fazendo agora, de forma sensual ("acabei de sair do banho")'),
         ('aq_crescente', 'Provocação crescente', 'aumenta a provocação aos poucos, mensagem a mensagem'),
         ('aq_perguntas', 'Perguntas sobre ele', 'faz perguntas sobre o fã e comenta as respostas'),
-        ('aq_borrada', 'Prévia borrada', 'usa prévia borrada ou parcial para criar curiosidade')]},
+        ('aq_borrada', 'Prévia borrada', 'usa prévia borrada ou parcial para criar curiosidade'),
+        ('aq_experiente', 'Conduz com experiência', 'conduz com segurança de quem tem experiência: diz o que o fã vai sentir e o que faria com ele, como quem já sabe do que ele gosta')]},
     {'key': 'oferta', 'label': 'Oferta', 'options': [
         ('of_entrada', 'Oferecer o item de entrada', 'a primeira oferta é o item mais barato da tabela'),
         ('of_pedido', 'Oferecer o que ele pediu', 'oferece exatamente o que o fã pediu ou insinuou'),
@@ -110,6 +111,8 @@ SALES_PRESETS = {
                    'single': {'warm_turns': '2', 'pace': 'rapido', 'max_offer': '4', 'after_no': 'conversa', 'reactivate_days': '3'}},
     'direto': {'label': 'Direto ao ponto', 'picks': ['ab_bloqueada', 'aq_agora', 'of_pedido', 'of_preco_direto', 'of_tempo', 'ob_menor', 'up_escada', 'up_combo', 'po_agradece', 're_promo'],
                'single': {'warm_turns': '0', 'pace': 'rapido', 'max_offer': '4', 'after_no': 'conversa', 'reactivate_days': '1'}},
+    'experiente': {'label': 'Safada experiente', 'picks': ['ab_elogio', 'ab_pergunta', 'aq_crescente', 'aq_agora', 'aq_experiente', 'of_pedido', 'of_habito', 'of_exclusivo', 'of_historia', 'of_preco_direto', 'ob_bonus', 'ob_menor', 'up_escada', 'up_achou', 'po_agradece', 'po_memoria', 're_saudade', 're_novidade'],
+                   'single': {'warm_turns': '3', 'pace': 'medio', 'max_offer': '6', 'after_no': 'conversa', 'reactivate_days': '3'}},
     'premium': {'label': 'Premium / alto ticket', 'picks': ['ab_pergunta', 'ab_elogio', 'aq_perguntas', 'aq_crescente', 'of_habito', 'of_exclusivo', 'of_historia', 'of_preco_pedido', 'ob_bonus', 'ob_parar', 'up_achou', 'up_escada', 'po_agradece', 'po_memoria', 're_saudade', 're_novidade'],
                 'single': {'warm_turns': '5', 'pace': 'devagar', 'max_offer': '10', 'after_no': '3d', 'reactivate_days': '7'}},
     'volume': {'label': 'Volume', 'picks': ['ab_bloqueada', 'ab_previa', 'aq_agora', 'aq_borrada', 'of_entrada', 'of_tempo', 'of_preco_direto', 'ob_menor', 'ob_prazo', 'up_escada', 'up_combo', 'po_agradece', 're_promo', 're_novidade'],
