@@ -1551,9 +1551,9 @@ const FILL_SCRIPT = (text) => `(() => {
 })()`;
 ipcMain.handle('assist:use', async (_e, text) => {
   const t = String(text || '').slice(0, 2000); clipboard.writeText(t);
-  const view = fan.creatorId && views.get(fan.creatorId);
+  const tg = chatTarget();
   let filled = false;
-  if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
+  if (tg) { try { const r = await runJs(tg.view, tg.fill(t), 4000); if (r === 'paste') { tg.view.webContents.focus(); tg.view.webContents.paste(); filled = true; } else filled = !!r; if (filled) tg.view.webContents.focus(); } catch {} }
   return { filled };
 });
 // ---------- Sugerir resposta (só nas criadoras com a chave ligada na ficha) ----------
@@ -1577,6 +1577,63 @@ const READ_MSGS_SCRIPT = String.raw`(() => {
   }
   return { name, msgs: msgs.slice(-14) };
 })()`;
+// FatalFans e OnlyFans: mesmo formato do leitor da Privacy ({ name, msgs: [{ ours, text }] }), só da conversa aberta.
+// Estruturas das calibrações: FatalFans [data-message-id] (texto em p.whitespace-pre-wrap, nossa = .justify-end);
+// OnlyFans .b-chat__message (m-from-me = nossa, texto em .b-chat__message__text-holder, pagamento em __payment-state).
+const READ_FF_MSGS = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const pen = document.querySelector('.iconify.i-lucide\\:square-pen');
+  const h2 = pen && pen.closest('button') && pen.closest('button').parentElement.querySelector('h2');
+  const msgs = [];
+  for (const el of document.querySelectorAll('[data-message-id]')) {
+    const row = el.querySelector(':scope > .relative'); const ours = !!(row && row.classList.contains('justify-end'));
+    let t = [...el.querySelectorAll('p.whitespace-pre-wrap')].map(txt).join(' ').trim();
+    const price = [...el.querySelectorAll('*')].find((x) => !x.children.length && /R\$\s*[\d.,]+/.test(x.textContent));
+    if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
+    else if (!t && el.querySelector('img, video')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours, text: t.slice(0, 1200) });
+  }
+  return { name: txt(h2), msgs: msgs.slice(-14) };
+})()`;
+const READ_OF_MSGS = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const head = document.querySelector('.b-chat__header.b-header-conversation') || document.querySelector('.b-header-conversation');
+  const name = txt(head && (head.querySelector('.g-user-name .g-user-name') || head.querySelector('.g-user-name')));
+  const box = document.querySelector('.b-chats__conversations-content') || document;
+  const msgs = [];
+  for (const el of box.querySelectorAll('.b-chat__message')) {
+    if (el.classList.contains('b-chat__message__system')) continue;
+    let t = [...el.querySelectorAll('.b-chat__message__text-holder')].map(txt).join(' ').trim();
+    const pay = el.querySelector('.b-chat__message__payment-state');
+    if (pay) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(pay) + ']';
+    else if (!t && el.querySelector('.b-chat__message__media, img, video')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours: el.classList.contains('m-from-me'), text: t.slice(0, 1200) });
+  }
+  return { name, msgs: msgs.slice(-14) };
+})()`;
+const FILL_FF = (text) => `(() => {
+  const ta = [...document.querySelectorAll('textarea')].find((x) => x.getBoundingClientRect().width > 0); if (!ta) return false;
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  set.call(ta, ${JSON.stringify(text)}); ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); return true;
+})()`;
+const FILL_OF = (text) => `(() => {
+  const ed = document.querySelector('.b-chat__footer .ProseMirror[role="textbox"], .ProseMirror[role="textbox"]'); if (!ed) return false;
+  ed.focus(); const sel = window.getSelection(); const r = document.createRange(); r.selectNodeContents(ed); sel.removeAllRanges(); sel.addRange(r);
+  try { document.execCommand('insertText', false, ${JSON.stringify(text)}); } catch {}
+  return ed.textContent.includes(${JSON.stringify(text.slice(0, 20))}) ? true : 'paste'; // editor que não aceita: cola do clipboard
+})()`;
+// conversa aberta agora: a aba ativa da criadora do cartão (Privacy, FatalFans ou OnlyFans)
+function chatTarget() {
+  const id = fan.creatorId; if (!id) return null;
+  const platform = activeTab.get(id) || 'privacy';
+  const view = (tabs.get(id) || new Map()).get(platform);
+  if (!view || view.webContents.isDestroyed() || !['privacy', 'fatalfans', 'onlyfans'].includes(platform)) return null;
+  const read = platform === 'fatalfans' ? READ_FF_MSGS : platform === 'onlyfans' ? READ_OF_MSGS : READ_MSGS_SCRIPT;
+  const fill = platform === 'fatalfans' ? FILL_FF : platform === 'onlyfans' ? FILL_OF : FILL_SCRIPT;
+  return { id, platform, view, read, fill };
+}
 // ---------- Termômetro de venda: lê as últimas mensagens da conversa aberta e dá uma nota (0–100) ----------
 // Roda só no computador do chatter: o texto é avaliado aqui e descartado; nada é gravado nem enviado.
 // faixas (no cartão): < 20 frio · < 45 morno · < 65 quente · 65+ hora de vender. Um pedido claro do fã já põe em "hora de vender".
@@ -1613,9 +1670,9 @@ function thermoScore(msgs, extra) {
 }
 ipcMain.handle('thermo:read', async (_e, { extra } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) return null;
-  const view = views.get(id); if (!view || view.webContents.isDestroyed()) return null;
+  const tg = chatTarget(); if (!tg) return null;
   const fanAt = fan.fanRef;
-  const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+  const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
   if (!read || !read.msgs || fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) return null;
   return { ...thermoScore(read.msgs, extra), fanRef: fanAt, n: read.msgs.length, lastOurs: !!(read.msgs.length && read.msgs[read.msgs.length - 1].ours) };
 });
@@ -1642,14 +1699,14 @@ ipcMain.handle('assist:prices', async () => {
 ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
 ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
-  const view = views.get(id); if (!view || view.webContents.isDestroyed()) throw new Error('Abra a conversa na Privacy.');
+  const tg = chatTarget(); if (!tg) throw new Error('Abra a conversa do fã (Privacy, FatalFans ou OnlyFans).');
   const fanAt = fan.fanRef;
-  const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+  const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
   const m = mode === 'followup' ? 'followup' : 'reply';
   if (!read || !read.msgs || (m === 'reply' && !read.msgs.length)) throw new Error('Não consegui ler a conversa. Tente de novo em alguns segundos.');
   if (fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) throw new Error('A conversa mudou.');
   if (m === 'reply' && read.msgs[read.msgs.length - 1].ours) return { skip: true };
-  const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m };
+  const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m, platform: tg.platform };
   if (['leve', 'picante', 'explicito'].includes(level)) body.level = level;
   if (product) body.product = String(product).slice(0, 80);
   if (Number.isFinite(temp)) body.temp = Math.max(0, Math.min(100, Math.round(temp)));

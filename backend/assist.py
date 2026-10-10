@@ -424,6 +424,7 @@ class SuggestIn(Strict):
     temp: Optional[int] = Field(default=None, ge=0, le=100)  # nota do termômetro no app quando o chatter pediu
     mode: Literal['reply', 'followup'] = 'reply'  # followup: a última é nossa (puxar conversa, reativar)
     level: Optional[Literal['leve', 'picante', 'explicito']] = None
+    platform: Literal['privacy', 'fatalfans', 'onlyfans'] = 'privacy'  # onde está a conversa aberta
 
 def profile_block(creator, prof):
     return PM.compile_block(creator, prof, money_br, PERSONA)
@@ -547,7 +548,15 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     fan_list = ''
     if anchor and any(p['cents'] < anchor for p in prices):
         fan_list = 'PREÇOS PARA ESTE FÃ (ele paga acima da tabela: ticket médio ' + money_br(card['ticket_cents']) + ' + 20%; nunca ofereça abaixo destes): ' + '; '.join(f"{p['item']}: {money_br(fan_price(p['cents'], anchor))}" for p in prices)
+    plat = ''
+    if body.platform == 'onlyfans':
+        from core import settings as _settings
+        rate = float((await _settings()).get('usd_brl_rate') or 5.0)
+        plat = f"PLATAFORMA: OnlyFans. Os fãs pagam em DÓLAR: ao citar preço, converta os valores da tabela (em reais) para US$ pela cotação {rate:.2f} e arredonde para cima em valores redondos (ex.: US$ 9, US$ 15). Nunca cite reais nem Pix."
+    elif body.platform == 'fatalfans':
+        plat = 'PLATAFORMA: FatalFans (preços em reais, mesma tabela). Nunca cite outra plataforma.'
     task = f"""HOJE: {today()}
+{plat}
 INTENSIDADE: {LEVEL_TEXT[level]}
 O QUE SE SABE DO FÃ: {fan_block(card)}
 {fan_list}
