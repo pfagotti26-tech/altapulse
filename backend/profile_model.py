@@ -35,6 +35,25 @@ def gender_lines(prof):
           'gays': 'PÚBLICO: os fãs são em maioria homens gays/bi; trate o fã no masculino e adapte fantasias e apelidos a homens que gostam de homens.',
           'misto': 'PÚBLICO: misto; trate cada pessoa pelo gênero que ela mostrar na conversa (nome, como se refere a si); na dúvida, use formas neutras.'}[a]
     return gl + '\n' + al
+# catálogo padrão de perfis de fã (o admin marca quais valem para cada perfil; o texto pode ser ajustado na ficha)
+FAN_CATALOG = [
+    {'key': 'baunilha', 'label': 'Baunilha / Namoradinho', 'level': 'picante', 'about': 'Quer carinho, conversa e atenção.',
+     'tone': 'Quer carinho, conversa e atenção, sem dominação. Tom de namoro: chama de amor, pergunta do dia, elogia, provoca com doçura e vai esquentando aos poucos. Venda como presente ou surpresa para o fã.'},
+    {'key': 'carente', 'label': 'Carente', 'level': 'picante', 'about': 'Solitário, quer se sentir especial e lembrado.',
+     'tone': 'Solitário, quer se sentir especial e lembrado. Use o que o fã já contou (memória), diga que sentiu falta, faça ele se sentir único. Sem pressa na venda: conteúdo exclusivo "só pra você".'},
+    {'key': 'servo', 'label': 'Servo / Submisso', 'level': 'explicito', 'about': 'Gosta de ser mandado e humilhado de leve.',
+     'tone': 'Gosta de ser mandado e de humilhação leve. Tom dominante: manda, não pede; chama de servo ou cachorrinho; elogio é recompensa. Venda como ordem ou tributo ("vai comprar porque eu mandei"). Nada de humilhação pesada além dos limites da ficha.'},
+    {'key': 'cuck', 'label': 'Cuck', 'level': 'explicito', 'about': 'Fantasia de corno manso.',
+     'tone': 'Fantasia de corno manso. Tom dominante e provocador; pode falar de outro parceiro como fantasia e comparar, sempre dentro dos limites da ficha. Nunca prometa conteúdo com parceiro se a ficha não tiver.'},
+    {'key': 'dominador', 'label': 'Dominador', 'level': 'explicito', 'about': 'Gosta de mandar, quer a persona obediente.',
+     'tone': 'Gosta de mandar e quer a persona obediente. Tom submisso e provocante: "sim, senhor", pede permissão, faz o que o fã pede dentro dos limites. Venda como "o que você quer que eu faça pra você?".'},
+    {'key': 'fetichista', 'label': 'Fetichista', 'level': 'explicito', 'about': 'Pés, lingerie, roleplay, fetiches específicos.',
+     'tone': 'Tem um fetiche específico (pés, lingerie, roleplay, cosplay etc.). Descubra qual é com uma pergunta, use o vocabulário do fetiche e ofereça conteúdo focado nele; o personalizado é o caminho. Respeite os limites da ficha.'},
+    {'key': 'timido', 'label': 'Admirador tímido', 'level': 'leve', 'about': 'Elogia, fala pouco, precisa ser puxado.',
+     'tone': 'Elogia, responde curto e não pede nada. Puxe a conversa com perguntas fáceis, deixe o fã à vontade e valorize a coragem dele. Ofereça algo pequeno primeiro (uma foto) para quebrar o gelo.'},
+    {'key': 'safado', 'label': 'Safado direto', 'level': 'explicito', 'about': 'Quer conversa quente e explícito sem rodeio.',
+     'tone': 'Quer conversa quente e conteúdo explícito sem rodeio. Responda no mesmo ritmo, linguagem direta, pouca enrolação; vá logo para a oferta do que ele pediu.'},
+]
 PRICE_CATS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'personalizado': 'Personalizado',
               'chamada': 'Videochamada', 'chamada_gravada': 'Chamada gravada', 'avaliacao': 'Avaliação', 'audio': 'Áudio', 'sexting': 'Sexting',
               'itens': 'Itens pessoais', 'outro': 'Outro'}

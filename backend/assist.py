@@ -152,7 +152,7 @@ class ProfileIn(Strict):
     prices: list[PriceItem] = Field(default_factory=list, max_length=40)
     persona: dict[str, str] = Field(default_factory=dict)
     suggest_auto: bool = False  # "Sugerir resposta": ligado por criadora, desligado por padrão
-    fan_segments: list[Segment] = Field(default_factory=list, max_length=6)
+    fan_segments: list[Segment] = Field(default_factory=list, max_length=12)
     hot_terms: str = Field(default='', max_length=1000)
     openers: dict[str, str] = Field(default_factory=dict)  # aberturas da criadora por situação: novo, cliente, sumido, voltando
     # ficha padrão (fase 1): núcleo estruturado + módulos que o admin liga por criadora
@@ -204,7 +204,7 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
 @router.get('/assist/fields')
 async def fields(user=Depends(manager)):
     return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS,
-            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
+            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
 
 class ImportItem(Strict):
     creator_id: str
