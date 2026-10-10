@@ -475,19 +475,19 @@ function renderContent() {
   if (G) {
     const gl = G.goals; const row = (lbl, have, want, extra) => want ? `<div class="ct-goal"><span>${lbl}</span><div class="ct-bar"><i style="width:${Math.min(100, Math.round(100 * have / want))}%" class="${have >= want ? 'ok' : ''}"></i></div><b>${have}/${want}</b>${extra || ''}</div>` : '';
     h += sec('meta', `Meta de hoje ${G.met ? '· ✅ cumprida' : ''}`, G.met ? '' : `posts ${G.posts}/${gl.posts_day || 0}`,
-      row('Posts', G.posts, gl.posts_day, G.posts_sched ? `<small>${G.posts_sched} agend.</small>` : '') + row('Pagos', G.paid, gl.paid_day) + row('Massa', G.mass, gl.mass_day) + row('Vídeos (semana)', G.videos_week, gl.videos_week));
+      row('Posts', G.posts, gl.posts_day, G.posts_sched ? `<small>${G.posts_sched} agend.</small>` : '') + row('Pagos', G.paid, gl.paid_day) + row('Mensagem em massa', G.mass, gl.mass_day) + row('Vídeos (semana)', G.videos_week, gl.videos_week));
   }
   const gaps = CP.gaps || [];
   if (gaps.length) h += sec('gaps', `Alertas <span>${gaps.length}</span>`, esc(gaps[0]), gaps.map((g) => `<div class="pend">⏳ ${esc(g)}</div>`).join(''));
   const up = CP.upcoming || [];
-  h += sec('agenda', `Próximas 48 h <span>${up.length}</span>`, up.length ? `${up[0].kind === 'mass' ? 'massa' : 'post'} ${hm(up[0].at)}` : 'nada agendado',
+  h += sec('agenda', `Próximas 48 h <span>${up.length}</span>`, up.length ? `${up[0].kind === 'mass' ? 'mensagem em massa' : 'post'} ${hm(up[0].at)}` : 'nada agendado',
     up.length ? up.map((i) => `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span></div></div>`).join('') : '<div class="sub">Nada agendado nas próximas 48 h.</div>');
   const max = Math.max(1, ...(CP.hours || [0])); const best = (CP.best_hours || []).map((x) => `${x}h`).join(', ');
   h += sec('horas', 'Vendas por hora (30 dias)', `melhores: ${best}`,
     `<div class="ct-foot">Melhores horários: ${best}</div><div class="ct-hours">${(CP.hours || []).map((v, i) => `<i class="${(CP.best_hours || []).includes(i) ? 'best' : ''}" style="height:${Math.max(2, Math.round(46 * v / max))}px" title="${i}h · ${money(v)}"></i>`).join('')}</div><div class="ct-hl"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>`);
   const rec = CP.recent || []; const recTot = rec.reduce((t, i) => t + ((i.result || {}).revenue_cents || 0), 0);
   h += sec('ultimos', `Últimos 7 dias <span>${rec.length}</span>`, `${money(recTot)} vendidos`,
-    rec.length ? rec.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>');
+    rec.length ? rec.map((i) => { const r = i.result || {}; return `<div class="ct-item"><div class="l1"><span>${i.kind === 'mass' ? '📣 Mensagem em massa' : '🖼 Post'} · ${hm(i.at)}</span><span>${i.price_cents ? money(i.price_cents) : ''}</span></div>${i.text ? `<div class="tx">${esc(i.text)}</div>` : ''}<div class="l3"><span class="muted">${esc(i.author_name || 'sem atribuição')}</span><span><b>${money(r.revenue_cents || 0)}</b> · ${r.purchases || 0} compras${r.quality === 'estimado' ? ' (estim.)' : ''}</span></div></div>`; }).join('') : '<div class="sub">Sem posts ou disparos lidos nos últimos 7 dias. A leitura roda a cada 3 h com a criadora aberta no app.</div>');
   const rd = CP.reads || {}; const lr = ct.read || {};
   if (lr.error && (!lr.postsAt || lr.errorAt > lr.postsAt)) h += `<div class="pend">Última leitura neste computador falhou: ${esc(lr.error)}. Clique em ↻ para tentar de novo.</div>`;
   h += `<div class="ct-foot">Leitura: posts ${rd.posts_at ? hm(rd.posts_at) : '—'} · calendário ${rd.calendar_at ? hm(rd.calendar_at) : '—'}<br>Análise completa: altapulse.com.br → Conteúdo e disparos.</div>`;

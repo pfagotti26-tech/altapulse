@@ -497,7 +497,7 @@ def goal_text(name, st, best=None):
     g = st['goals']; parts = []
     if g['posts_day']: parts.append(f"posts {st['posts_done']} feitos + {st['posts_sched']} agendados de {g['posts_day']}")
     if g['paid_day']: parts.append(f"pagos {st['paid']}/{g['paid_day']}")
-    if g['mass_day']: parts.append(f"massa {st['mass']}/{g['mass_day']}")
+    if g['mass_day']: parts.append(f"mensagem em massa {st['mass']}/{g['mass_day']}")
     if g['videos_week']: parts.append(f"vídeos na semana {st['videos_week']}/{g['videos_week']}")
     falta = []
     m = st['missing']

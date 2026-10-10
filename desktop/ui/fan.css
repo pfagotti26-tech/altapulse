@@ -175,7 +175,7 @@ body.mode-content #scroll, body.mode-content #assist { display: none !important;
 .ct-hl { display: flex; justify-content: space-between; font-size: 9px; color: var(--mut); }
 .ct-ok { background: #123022; border: 1px solid #1f5a3a; border-radius: 8px; padding: 8px 10px; color: #a9e5c2; }
 .ct-foot { font-size: 10px; color: var(--mut); line-height: 1.5; }
-.ct-goal { display: grid; grid-template-columns: 74px 1fr auto auto; gap: 6px; align-items: center; font-size: 11px; }
+.ct-goal { display: grid; grid-template-columns: 88px 1fr auto auto; gap: 6px; align-items: center; font-size: 11px; }
 .ct-goal span { color: var(--mut); } .ct-goal small { color: var(--mut); font-size: 10px; }
 .ct-bar { height: 7px; background: #2a2a30; border-radius: 4px; overflow: hidden; }
 .ct-bar i { display: block; height: 100%; background: var(--amber); } .ct-bar i.ok { background: #3fb27f; }
