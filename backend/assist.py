@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Literal
 from zoneinfo import ZoneInfo
 import httpx
-from pydantic import Field
+from pydantic import Field, BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from core import db, now, iso, uid, manager, owner, audit
 from schemas import Strict
