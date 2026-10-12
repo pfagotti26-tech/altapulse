@@ -18,6 +18,7 @@ import Team from './pages/Team';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import Plantao, { canPlantao } from './pages/Plantao';
+import Shadow from './pages/Shadow';
 import InstallExtension from './pages/InstallExtension';
 import Account, { PasswordSetup } from './pages/Account';
 import './App.css';
@@ -65,6 +66,7 @@ export default function App() {
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
       <Route path="/conteudo" element={canContent(user) ? <Content user={user}/> : <Navigate to="/"/>}/>
+      <Route path="/sombra" element={staff ? <Shadow/> : <Navigate to="/"/>}/>
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/minha-conta" element={<Account/>}/>
       <Route path="*" element={<Navigate to="/"/>}/>
