@@ -744,10 +744,23 @@ FIM DA CONVERSA:
         result['shadow'] = False
 
     return result
+class UsedIn(BaseModel):
+    final_text: Optional[str] = None
+
 @router.post('/extension/assist/used/{usage_id}')
-async def mark_used(usage_id: str, user=Depends(extension_user)):
+async def mark_used(usage_id: str, body: UsedIn = None, user=Depends(extension_user)):
     """O chatter colocou a sugestão na caixa (para medir o aproveitamento)."""
-    await db.assist_usage.update_one({'id': usage_id, 'user_id': user['id']}, {'$set': {'used': True}})
+    update = {'used': True, 'used_at': iso()}
+    if body and body.final_text:
+        update['final_text'] = body.final_text.strip()[:2000]
+    await db.assist_usage.update_one({'id': usage_id, 'user_id': user['id']}, {'$set': update})
+    # se houver shadow correspondente, marca como comparado
+    shadow = await db.shadow_actions.find_one({'usage_id': usage_id})
+    if shadow:
+        await db.shadow_actions.update_one(
+            {'usage_id': usage_id},
+            {'$set': {'chatter_sent': True, 'chatter_text': update.get('final_text'), 'compared_at': iso()}}
+        )
     return {'ok': True}
 
 @router.get('/extension/assist/prices')
