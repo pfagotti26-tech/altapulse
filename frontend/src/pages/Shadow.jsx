@@ -4,14 +4,21 @@ import { toast } from 'sonner';
 
 export default function Shadow() {
   const [rows, setRows] = useState([]);
+  const [creators, setCreators] = useState({});
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState(3);
+  const [days, setDays] = useState(1);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await api.get(`/assist/shadow?days=${days}`);
-      setRows(r.data.actions || []);
+      const [shadow, cre] = await Promise.all([
+        api.get(`/assist/shadow?days=${days}`),
+        api.get('/creators'),
+      ]);
+      const map = {};
+      (cre.data || []).forEach(c => { map[c.id] = c.name || c.nome_artistico || c.id; });
+      setCreators(map);
+      setRows(shadow.data.actions || []);
     } catch (e) {
       toast.error(errorText(e));
     } finally {
@@ -26,11 +33,12 @@ export default function Shadow() {
       <div className="page-head">
         <h1>Ações de Sombra</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label>Últimos</label>
+          <label>Período</label>
           <select value={days} onChange={e => setDays(Number(e.target.value))}>
-            <option value={1}>1 dia</option>
-            <option value={3}>3 dias</option>
-            <option value={7}>7 dias</option>
+            <option value={1}>Hoje</option>
+            <option value={2}>Últimas 48h</option>
+            <option value={7}>Últimos 7 dias</option>
+            <option value={30}>Últimos 30 dias</option>
           </select>
         </div>
       </div>
@@ -51,7 +59,7 @@ export default function Shadow() {
               {rows.map(r => (
                 <tr key={r.id}>
                   <td>{dateTime(r.at)}</td>
-                  <td>{r.creator_id}</td>
+                  <td>{creators[r.creator_id] || r.creator_id}</td>
                   <td style={{ maxWidth: 320 }}>{r.proposed_text}</td>
                   <td>{r.suggested_delay_ms ? `${(r.suggested_delay_ms/1000).toFixed(1)}s` : '—'}</td>
                   <td>{r.has_media_offer ? 'Sim' : 'Não'}</td>
