@@ -191,6 +191,18 @@ OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
 
+
+@router.get('/assist/shadow')
+async def list_shadow(creator_id: Optional[str] = None, days: int = 7, user=Depends(manager)):
+    """Lista as ações propostas no modo sombra (para o admin avaliar o aprendizado)."""
+    days = max(1, min(days, 30))
+    since = (datetime.now(BR) - timedelta(days=days-1)).strftime('%Y-%m-%d')
+    q = {'day': {'$gte': since}, 'mode': 'sombra'}
+    if creator_id:
+        q['creator_id'] = creator_id
+    rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    return {'actions': rows, 'count': len(rows)}
+
 @router.get('/assist/profiles')
 async def list_profiles(user=Depends(manager)):
     rows = await db.assist_profiles.find({}, {'_id': 0}).to_list(1000)
@@ -472,6 +484,30 @@ def fan_block(card):
     if notes: out.append('anotações da equipe: ' + ' | '.join(notes))
     return '; '.join(out)
 
+
+async def log_shadow(creator_id: str, user: dict, suggestion: dict, body):
+    """Registra a ação que a IA faria no modo sombra (sem enviar)."""
+    doc = {
+        'id': uid(),
+        'creator_id': creator_id,
+        'user_id': user['id'],
+        'user_name': user.get('name'),
+        'at': iso(),
+        'day': today(),
+        'fan_ref': body.fan_ref,
+        'mode': 'sombra',
+        'proposed_text': suggestion.get('text'),
+        'proposed_product': suggestion.get('product'),
+        'proposed_step': suggestion.get('step'),
+        'level': suggestion.get('level'),
+        'style': body.style,
+        'situation': suggestion.get('situation'),
+        'usage_id': suggestion.get('usage_id'),
+        'executed': False,  # nunca envia no sombra
+    }
+    await db.shadow_actions.insert_one(doc)
+    return doc['id']
+
 @router.post('/extension/assist/suggest')
 async def suggest(body: SuggestIn, user=Depends(extension_user)):
     creator = await can_see(user, body.creator_id)
@@ -659,7 +695,8 @@ FIM DA CONVERSA:
     warning = str(out.get('aviso') or '')[:160]
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora antes de o fã pagar.'
-    return {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
+    result = {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20],
+            'objection': str(out.get('objecao') or '')[:80],
             'warning': warning, 'price_fixed': fixed, 'remaining': remaining, 'usage_id': usage_id,
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
@@ -669,6 +706,16 @@ FIM DA CONVERSA:
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
 
+    # Modo sombra: registra a ação proposta, mas não envia nada
+    nprof = PM.normalize(prof)
+    if nprof.get('modo_envio') == 'sombra':
+        shadow_id = await log_shadow(body.creator_id, user, result, body)
+        result['shadow_id'] = shadow_id
+        result['shadow'] = True
+    else:
+        result['shadow'] = False
+
+    return result
 @router.post('/extension/assist/used/{usage_id}')
 async def mark_used(usage_id: str, user=Depends(extension_user)):
     """O chatter colocou a sugestão na caixa (para medir o aproveitamento)."""
