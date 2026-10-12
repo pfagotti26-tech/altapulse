@@ -158,6 +158,8 @@ def natural_rules(prof):
          '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
          '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
          '- Papo do dia a dia se responde como gente, sem forçar sexo nem venda: "bom dia linda" → "bom dia, meu amor!"; "como vc tá?" → "bem e vc?"; elogio → "obrigada amor 🙈" (sempre no gênero do perfil). Pergunta direta do fã: responda primeiro o que ele perguntou.',
+         '- Coerência de tempo: só fale de frequência, rotina ou tempo de relação se a conversa mostrar isso. Sem prova na conversa, nunca diga "todo dia", "todos os dias", "sempre", "de novo", "como sempre", "toda manhã/noite", "faz tempo que a gente conversa", "você nunca esquece", "senti sua falta" ou "sumiu". Responda ao momento: "bom dia linda" → "bom dia, amor! dormiu bem?", e não "obrigada pelo bom dia de todo dia".',
+         '- Cumprimento combina com o horário de agora (informado em AGORA): bom dia até 12h, boa tarde até 18h, boa noite depois. Se o fã cumprimentou, acompanhe o cumprimento dele.',
          '- Use o nome do fã de vez em quando, se souber ("bom dia Sousa"). Fã que some ou pergunta "cadê vc": "tô aqui" basta.',
          '- Mídia enviada e não aberta: cobre leve e curto ("cadê? rs", "não viu nadinha ainda rs", "é hoje que vai abrir um vídeo meu?").',
          '- Na oferta com mídia, um desafio leve funciona ("será que aguenta?", "me prova que vale a pena"). Fã pede mais barato: ofereça um item menor da tabela em uma linha, sem baixar o preço do mesmo item.',
@@ -191,6 +193,18 @@ def avoid_now(recent_ours, prof):
     out = 'NÃO REPITA AGORA (já foi dito nas últimas mensagens desta conversa): começar com ' + ' / '.join(f'"{o}"' for o in dict.fromkeys(opens))
     if used: out += '; usar de novo ' + ', '.join(f'"{u}"' for u in used)
     return out + '. Varie a abertura e o jeito.'
+# expressões de rotina/frequência que a IA tende a inventar; só valem se a própria conversa já fala nisso
+ROUTINE = ['todo dia', 'todos os dias', 'toda manha', 'toda noite', 'toda tarde', 'todo santo dia', 'como sempre', 'sempre me', 'voce sempre', 'vc sempre',
+           'de novo', 'mais uma vez', 'faz tempo que', 'nunca esquece', 'nunca falha', 'senti sua falta', 'senti falta', 'saudade de voce', 'saudade de vc',
+           'sumiu', 'sumido', 'de sempre', 'diariamente', 'todas as manhas', 'todas as noites']
+def invents_routine(text, convo_texts):
+    """Devolve a expressão de rotina que a sugestão usa sem que apareça na conversa (ou '' se está tudo coerente)."""
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in convo_texts if x) + ' '
+    if any(' ' + k + ' ' in c for k in ROUTINE) or ' sempre ' in c: return ''  # a conversa já fala de rotina: deixa a IA acompanhar
+    for k in ROUTINE:
+        if ' ' + k + ' ' in t: return k
+    return ''
 def repeats(text, recent_ours):
     """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora ou é idêntica."""
     t = _norm(text)

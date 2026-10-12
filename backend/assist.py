@@ -571,6 +571,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     elif body.platform == 'fatalfans':
         plat = 'PLATAFORMA: FatalFans (preços em reais, mesma tabela). Nunca cite outra plataforma.'
     task = f"""HOJE: {today()}
+AGORA: {datetime.now(BR).strftime('%H:%M')} (horário de Brasília)
 {plat}
 INTENSIDADE: {LEVEL_TEXT[level]}
 O QUE SE SABE DO FÃ: {fan_block(card)}
@@ -602,9 +603,16 @@ FIM DA CONVERSA:
     data = r.json(); out = parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
     usage = data.get('usage') or {}
     # anti-repetição: começou igual a uma das últimas mensagens da criadora? pede outra uma vez, sem o chatter perceber
-    if out and not out.get('alerta') and PM.repeats(str(out.get('texto') or ''), recent_ours):
+    # coerência de tempo: inventou rotina ("bom dia de todo dia") que a conversa não mostra? também pede outra uma vez
+    txt0 = str((out or {}).get('texto') or '')
+    rep = bool(out and not out.get('alerta') and PM.repeats(txt0, recent_ours))
+    rot = PM.invents_routine(txt0, [m.text for m in msgs[-14:]]) if out and not out.get('alerta') else ''
+    if rep or rot:
+        why = []
+        if rep: why.append('começou igual a uma mensagem recente; use abertura e jeito diferentes')
+        if rot: why.append(f'falou "{rot}", mas a conversa não mostra essa rotina; responda só ao momento, sem citar frequência')
         try:
-            r2 = await call(model, '\n\nATENÇÃO: a versão anterior começou igual a uma mensagem recente. Escreva outra, com abertura e jeito diferentes.')
+            r2 = await call(model, '\n\nATENÇÃO: a versão anterior ' + ' e '.join(why) + '. Escreva outra.')
             if r2.status_code < 400:
                 d2 = r2.json(); o2 = parse_json(((d2.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
                 u2 = d2.get('usage') or {}
