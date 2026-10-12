@@ -28,7 +28,7 @@ VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version'] if (SOUR
 DESKTOP = Path(__file__).parent.parent / 'desktop'
 DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
 DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json', 'iniciar.log'}
-TOKEN_DAYS = 30
+TOKEN_DAYS = 7  # login do app vale 7 dias (antes 30); o app também sai sozinho após 30 min sem uso
 
 class ExtensionLogin(Login):
     device_name: str = Field(default='Chrome', min_length=1, max_length=80)

@@ -4,7 +4,7 @@
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
-const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -1855,7 +1855,7 @@ async function revokeLocal() {
     if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', 'Seu acesso ao Alta Pulse foi desativado. As contas das criadoras foram desconectadas deste computador.');
   } finally { revoking = false; }
 }
-ipcMain.handle('auth:logout', async () => {
+async function doLogout() {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
   const keep = readJson('abas-abertas.json', null);
@@ -1865,7 +1865,22 @@ ipcMain.handle('auth:logout', async () => {
   state = { user: null, creators: [], sla_minutes: 5, version: null };
   pushState();
   return publicState();
-});
+}
+ipcMain.handle('auth:logout', () => doLogout());
+// Segurança: computador parado há 30 min (sem teclado nem mouse) → o app sai sozinho e pede a senha de novo.
+// As abas abertas voltam como estavam ao entrar.
+const IDLE_LOCK_MIN = 30;
+let idleLocking = false;
+setInterval(async () => {
+  if (idleLocking || !token || !state.user) return;
+  let idle = 0; try { idle = powerMonitor.getSystemIdleTime(); } catch { return; }
+  if (idle < IDLE_LOCK_MIN * 60) return;
+  idleLocking = true;
+  try {
+    await doLogout();
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Por segurança, o Alta Pulse saiu depois de ${IDLE_LOCK_MIN} minutos sem uso. Entre de novo para continuar.`);
+  } finally { idleLocking = false; }
+}, 60 * 1000);
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
 // recarrega a página aberta e só responde quando ela termina de carregar (o ↻ da lateral gira até lá; no máximo 15 s)
 ipcMain.handle('profile:reload-active', () => new Promise((resolve) => {
