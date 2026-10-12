@@ -102,17 +102,13 @@ function groupIdFor(name) {
 function groupName(id) { const g = local.groups.find((x) => x.id === id); return g ? g.name : ''; }
 
 // ---------- token ----------
+// Segurança (1.4.37): o login do app vive só na memória. Nada fica gravado no disco: fechou o app, a pessoa
+// entra de novo com e-mail e senha. Um token.bin de versões antigas é apagado na primeira abertura.
 function readToken() {
-  try {
-    const raw = fs.readFileSync(filePath('token.bin'));
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-  } catch { return null; }
+  try { fs.unlinkSync(filePath('token.bin')); } catch {}
+  return null;
 }
-function writeToken(token) {
-  fs.mkdirSync(dataDir(), { recursive: true });
-  if (!token) { try { fs.unlinkSync(filePath('token.bin')); } catch {} return; }
-  fs.writeFileSync(filePath('token.bin'), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : Buffer.from(token, 'utf8'));
-}
+function writeToken() { try { fs.unlinkSync(filePath('token.bin')); } catch {} }
 
 // segredo local para os hashes de referência (nunca sai do computador)
 // chave compartilhada (servidor) para as referências de fã/venda; sem ela, cai na chave local deste computador
@@ -177,10 +173,13 @@ async function refreshState() {
     const data = await api('GET', '/extension/state');
     if (data.user && data.user.id) { const me = readJson('ultimo-usuario.json', null); if (!me || me.id !== data.user.id) writeJson('ultimo-usuario.json', { id: data.user.id }); }
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
-    try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
-    try { contentCfg = await api('GET', '/extension/content/config'); for (const cid of views.keys()) { const c = capture.get(cid); if (c && c.attach) c.attach(); } } catch { /* painel sem o módulo Conteúdo */ }
-    if (!hashKey) await syncHashKey();
-    await loadTasks();
+    // as leituras seguintes não dependem uma da outra: rodam juntas (o app abre mais rápido)
+    await Promise.all([
+      (async () => { try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ } })(),
+      (async () => { try { contentCfg = await api('GET', '/extension/content/config'); for (const cid of views.keys()) { const c = capture.get(cid); if (c && c.attach) c.attach(); } } catch { /* painel sem o módulo Conteúdo */ } })(),
+      (async () => { if (!hashKey) await syncHashKey(); })(),
+      loadTasks().catch(() => {}),
+    ]);
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
     for (const c of data.creators) {
@@ -650,12 +649,20 @@ function restoreOpenTabs() {
   if (restored || !state.user) return; restored = true;
   const saved = readJson('abas-abertas.json', null); if (!saved || !saved.tabs) return;
   const known = new Set((state.creators || []).map((c) => c.id));
-  for (const [id, platforms] of Object.entries(saved.tabs)) {
-    if (!known.has(id)) continue;
-    for (const platform of platforms) openProfile(id, platform, { quiet: true });
-    if (saved.activeTab && saved.activeTab[id]) activeTab.set(id, saved.activeTab[id]);
+  // abre escalonado: a aba que estava ativa primeiro, as outras uma a cada 1,5 s (abrir todas de uma vez
+  // carregava vários Chromes ao mesmo tempo e travava o computador na entrada)
+  const order = Object.entries(saved.tabs).filter(([id]) => known.has(id));
+  order.sort(([a], [b]) => (a === saved.active ? -1 : b === saved.active ? 1 : 0));
+  let delay = 0;
+  for (const [id, platforms] of order) {
+    const plats = [...platforms]; const pref = saved.activeTab && saved.activeTab[id];
+    if (pref && plats.includes(pref)) plats.sort((x) => (x === pref ? -1 : 1));
+    for (const platform of plats) {
+      const open = () => { if (!state.user) return; openProfile(id, platform, { quiet: true }); if (pref) activeTab.set(id, pref); if (saved.active && tabs.has(saved.active)) activeId = saved.active; layout(); pushState(); }; // volta o foco para a aba que estava ativa
+      if (delay === 0) open(); else setTimeout(open, delay);
+      delay += 1500;
+    }
   }
-  activeId = saved.active && tabs.has(saved.active) ? saved.active : null;
   layout(); pushState();
 }
 
@@ -2121,6 +2128,18 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
+// Ao fechar, avisa o servidor para invalidar o login deste app (melhor esforço, no máximo 1,5 s). Como o token
+// não fica em disco, a próxima abertura pede e-mail e senha de qualquer jeito.
+let quitting = false;
+app.on('before-quit', (e) => {
+  if (quitting || !token) return;
+  quitting = true; e.preventDefault();
+  const t = token; token = null;
+  const done = () => app.quit();
+  const timer = setTimeout(done, 1500);
+  fetch(`${config.origin}/api/extension/logout`, { method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' } })
+    .catch(() => {}).finally(() => { clearTimeout(timer); done(); });
+});
 // clique em qualquer outra área (aba da plataforma, cartão do fã): fecha os menus abertos na lateral
 // fecha os menus da lateral quando a pessoa CLICA numa página; o evento 'focus' não serve porque uma página
 // carregando rouba o foco sozinha e fechava o menu logo depois de abrir
