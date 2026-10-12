@@ -485,8 +485,20 @@ def fan_block(card):
     return '; '.join(out)
 
 
-async def log_shadow(creator_id: str, user: dict, suggestion: dict, body):
+async def log_shadow(creator_id: str, user: dict, suggestion: dict, body, prof=None):
     """Registra a ação que a IA faria no modo sombra (sem enviar)."""
+    nprof = PM.normalize(prof or {})
+    ac = nprof.get('auto_config') or {}
+    # delay sugerido (humano) baseado na config
+    import random
+    base = random.randint(int(ac.get('delay_min_ms', 4500)), int(ac.get('delay_max_ms', 16000)))
+    extra = 0
+    if random.random() < float(ac.get('prob_pausa_extra', 0.18)):
+        extra = random.randint(int(ac.get('pausa_extra_min_ms', 3000)), int(ac.get('pausa_extra_max_ms', 9000)))
+    text = suggestion.get('text') or ''
+    char_delay = int(ac.get('delay_por_caractere_ms', 25)) * len(text)
+    suggested_delay_ms = base + extra + char_delay
+
     doc = {
         'id': uid(),
         'creator_id': creator_id,
@@ -496,14 +508,17 @@ async def log_shadow(creator_id: str, user: dict, suggestion: dict, body):
         'day': today(),
         'fan_ref': body.fan_ref,
         'mode': 'sombra',
-        'proposed_text': suggestion.get('text'),
+        'proposed_text': text,
         'proposed_product': suggestion.get('product'),
         'proposed_step': suggestion.get('step'),
         'level': suggestion.get('level'),
         'style': body.style,
         'situation': suggestion.get('situation'),
         'usage_id': suggestion.get('usage_id'),
-        'executed': False,  # nunca envia no sombra
+        'suggested_delay_ms': suggested_delay_ms,
+        'has_media_offer': bool(suggestion.get('product')),
+        'last_fan_message': (body.messages[-1].text if body.messages else '')[:300],
+        'executed': False,
     }
     await db.shadow_actions.insert_one(doc)
     return doc['id']
@@ -709,7 +724,7 @@ FIM DA CONVERSA:
     # Modo sombra: registra a ação proposta, mas não envia nada
     nprof = PM.normalize(prof)
     if nprof.get('modo_envio') == 'sombra':
-        shadow_id = await log_shadow(body.creator_id, user, result, body)
+        shadow_id = await log_shadow(body.creator_id, user, result, body, prof)
         result['shadow_id'] = shadow_id
         result['shadow'] = True
     else:
