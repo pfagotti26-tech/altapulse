@@ -1697,6 +1697,17 @@ ipcMain.handle('assist:prices', async () => {
   return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));
 });
 ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
+ipcMain.handle('assist:mediaSent', async (_e, payload) => {
+  if (!payload || !payload.creator_id) return false;
+  try {
+    await api('POST', '/extension/assist/media-sent', payload);
+    return true;
+  } catch (e) {
+    console.error('media-sent failed', e);
+    return false;
+  }
+});
+
 ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
   const tg = chatTarget(); if (!tg) throw new Error('Abra a conversa do fã (Privacy, FatalFans ou OnlyFans).');
