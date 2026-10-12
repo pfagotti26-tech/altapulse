@@ -71,7 +71,7 @@ export default function Shadow() {
                 <th>Texto proposto</th>
                 <th>Delay</th>
                 <th>Mídia</th>
-                <th>Última do fã</th>
+                <th>Última do fã</th><th>Enviado pelo chatter</th>
               </tr>
             </thead>
             <tbody>
@@ -82,10 +82,10 @@ export default function Shadow() {
                   <td style={{ maxWidth: 320 }}>{r.proposed_text}</td>
                   <td>{r.suggested_delay_ms ? `${(r.suggested_delay_ms/1000).toFixed(1)}s` : '—'}</td>
                   <td>{r.has_media_offer ? 'Sim' : 'Não'}</td>
-                  <td style={{ maxWidth: 240 }}>{r.last_fan_message || '—'}</td>
+                  <td style={{ maxWidth: 240 }}>{r.last_fan_message || '—'}</td><td style={{ maxWidth: 240 }}>{r.chatter_text || (r.chatter_sent ? ' (marcado)' : '—')}</td>
                 </tr>
               ))}
-              {!rows.length && <tr><td colSpan={6}>Nenhuma ação de sombra com esses filtros.</td></tr>}
+              {!rows.length && <tr><td colSpan={7}>Nenhuma ação de sombra com esses filtros.</td></tr>}
             </tbody>
           </table>
         </div>
