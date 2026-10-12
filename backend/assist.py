@@ -193,14 +193,27 @@ def clean_persona(d):
 
 
 @router.get('/assist/shadow')
-async def list_shadow(creator_id: Optional[str] = None, days: int = 7, user=Depends(manager)):
+async def list_shadow(
+    creator_id: Optional[str] = None,
+    days: int = 7,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user=Depends(manager),
+):
     """Lista as ações propostas no modo sombra (para o admin avaliar o aprendizado)."""
-    days = max(1, min(days, 30))
-    since = (datetime.now(BR) - timedelta(days=days-1)).strftime('%Y-%m-%d')
-    q = {'day': {'$gte': since}, 'mode': 'sombra'}
+    q = {'mode': 'sombra'}
+    if date_from or date_to:
+        day_q = {}
+        if date_from: day_q['$gte'] = date_from[:10]
+        if date_to: day_q['$lte'] = date_to[:10]
+        q['day'] = day_q
+    else:
+        days = max(1, min(days, 90))
+        since = (datetime.now(BR) - timedelta(days=days-1)).strftime('%Y-%m-%d')
+        q['day'] = {'$gte': since}
     if creator_id:
         q['creator_id'] = creator_id
-    rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(1000)
     return {'actions': rows, 'count': len(rows)}
 
 @router.get('/assist/profiles')
