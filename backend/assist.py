@@ -763,6 +763,55 @@ async def mark_used(usage_id: str, body: UsedIn = None, user=Depends(extension_u
         )
     return {'ok': True}
 
+class MediaSentIn(BaseModel):
+    creator_id: str
+    fan_ref: Optional[str] = None
+    media_type: Literal['foto', 'video', 'audio', 'gif', 'outro'] = 'foto'
+    source: Literal['acervo', 'dispositivo', 'outro'] = 'acervo'
+    price_cents: int = 0
+    price_category: Optional[str] = None
+    description: Optional[str] = None
+    usage_id: Optional[str] = None  # se veio de uma sugestão
+
+@router.post('/extension/assist/media-sent')
+async def media_sent(body: MediaSentIn, user=Depends(extension_user)):
+    """Registra envio de mídia feito pelo chatter (modo sombra / aprendizado)."""
+    await can_see(user, body.creator_id)
+    doc = {
+        'id': uid(),
+        'creator_id': body.creator_id,
+        'user_id': user['id'],
+        'user_name': user.get('name'),
+        'fan_ref': body.fan_ref,
+        'at': iso(),
+        'day': today(),
+        'media_type': body.media_type,
+        'source': body.source,
+        'price_cents': max(0, body.price_cents),
+        'price_category': body.price_category,
+        'description': (body.description or '')[:300],
+        'usage_id': body.usage_id,
+        'mode': 'sombra',
+    }
+    await db.media_actions.insert_one(doc)
+    # se houver shadow ligada, marca que teve mídia
+    if body.usage_id:
+        await db.shadow_actions.update_one(
+            {'usage_id': body.usage_id},
+            {'$set': {'media_sent': True, 'media_price_cents': doc['price_cents'], 'media_type': body.media_type}}
+        )
+    return {'ok': True, 'id': doc['id']}
+
+@router.get('/assist/media-actions')
+async def list_media_actions(creator_id: Optional[str] = None, days: int = 7, user=Depends(manager)):
+    days = max(1, min(days, 90))
+    since = (datetime.now(BR) - timedelta(days=days-1)).strftime('%Y-%m-%d')
+    q = {'day': {'$gte': since}}
+    if creator_id:
+        q['creator_id'] = creator_id
+    rows = await db.media_actions.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    return {'actions': rows, 'count': len(rows)}
+
 @router.get('/extension/assist/prices')
 async def app_prices(creator_id: str, user=Depends(extension_user)):
     """Tabela de preços da criadora para o cartão do fã (sem a persona)."""
