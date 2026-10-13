@@ -715,13 +715,15 @@ async def shadow_report(days: int = 7, creator_id: str = '', user=Depends(manage
     """Painel Sombra (gestor): o que a IA sugeriu x o que o chatter enviou, por criadora e por chatter."""
     days = max(1, min(days, 90))
     since = (datetime.now(BR) - timedelta(days=days - 1)).strftime('%Y-%m-%d')
-    q = {'day': {'$gte': since}}
+    q = {'day': {'$gte': since}, 'status': {'$exists': True}}  # ignora registros de um teste antigo com outro formato
     if creator_id: q['creator_id'] = creator_id
     rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(2000)
     # pendente há mais de 2 h = o chatter não respondeu depois da sugestão (ou fechou a conversa)
     cut = (now() - timedelta(hours=2)).isoformat()
     for r in rows:
-        if r['status'] == 'pendente' and r['at'] < cut: r['status'] = 'sem_resposta'
+        r.pop('expires_at', None)
+        if r.get('status') == 'pendente' and str(r.get('at') or '') < cut: r['status'] = 'sem_resposta'
+        r['status'] = r.get('status') or 'pendente'
     def group(key):
         out = {}
         for r in rows:
