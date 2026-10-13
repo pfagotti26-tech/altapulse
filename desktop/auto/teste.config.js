@@ -1,5 +1,3 @@
-// Configuração do app de teste (Alta Pulse Teste)
-// Usada apenas pelo build:teste. Não afeta o app oficial.
 module.exports = {
   productName: "Alta Pulse Teste",
   appId: "br.com.altapulse.teste",

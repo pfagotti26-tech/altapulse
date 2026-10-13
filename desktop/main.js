@@ -5,15 +5,14 @@
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
 const { app, BaseWindow, WebContentsView, webContents, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
-// AUTO (Grok) — app de teste
-try {
-  const teste = require('./auto/is-teste.json');
-  if (teste && teste.userDataFolder) {
-    const path = require('path');
-    const base = app.getPath('appData');
-    app.setPath('userData', path.join(base, teste.userDataFolder));
-  }
-} catch {}
+// AUTO (Grok) — app de teste (só existe no build de teste)
+let ALTA_TESTE = null;
+try { ALTA_TESTE = require('./package.json').altaTeste || null; } catch {}
+if (ALTA_TESTE && ALTA_TESTE.userDataFolder) {
+  const path = require('path');
+  const base = app.getPath('appData');
+  app.setPath('userData', path.join(base, ALTA_TESTE.userDataFolder));
+}
 
 const path = require('path');
 const fs = require('fs');
@@ -48,10 +47,7 @@ try { app.commandLine.appendSwitch('lang', 'pt-BR'); } catch {}
 app.userAgentFallback = UA;
 
 // ---------- configuração ----------
-const DEFAULT_ORIGIN = (() => {
-  try { const t = require('./auto/is-teste.json'); if (t && t.origin) return t.origin; } catch {}
-  return 'https://altapulse.com.br';
-})(); // AUTO (Grok)
+const DEFAULT_ORIGIN = (ALTA_TESTE && ALTA_TESTE.origin) || 'https://altapulse.com.br'; // AUTO (Grok)
 const PRIVACY_HOME = 'https://privacy.com.br/';
 const SIDEBAR_WIDTH = 300;
 const HEARTBEAT_MS = 15000;
@@ -2199,7 +2195,7 @@ app.whenReady().then(async () => {
   token = readToken();
   await refreshState();
   restoreOpenTabs(); startVigia();
-  setupAutoUpdate();
+  if (!ALTA_TESTE) setupAutoUpdate(); // AUTO (Grok) — teste não atualiza
   setInterval(refreshState, STATE_REFRESH_MS);
   setInterval(checkShiftClock, 15000); setTimeout(checkShiftClock, 5000);
   setInterval(() => { if (activeId && ['onlyfans', 'fatalfans'].includes(activeTab.get(activeId))) quickFanOF(activeId).catch(() => {}); }, 60000);

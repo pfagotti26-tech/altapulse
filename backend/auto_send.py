@@ -30,8 +30,6 @@ class DecideIn(BaseModel):
     creator_id: str
     fan_ref: str
     messages: List[ChatMsg] = Field(default_factory=list, max_length=16)
-    presence_active: bool = False
-    in_plantao: bool = False
 
 class DecideOut(BaseModel):
     should_send: bool
@@ -66,15 +64,27 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     if not aid or body.creator_id != aid:
         raise HTTPException(403, "Automação só para Aline Fishborn")
 
+    # Server checks presence and plantao itself
+    # Presence: any open shift for this creator in the last 5 min
+    five_min_ago = (datetime.now(BR) - __import__('datetime').timedelta(minutes=5)).isoformat()
+    shift = await db.shifts.find_one({
+        "creator_id": body.creator_id,
+        "ended_at": None,
+        "started_at": {"$gte": five_min_ago}
+    })
+    if shift:
+        return DecideOut(should_send=False, reason="chatter ativo", essay=cfg["essay"])
+
+    # Plantao: check config window or queue (simplified)
+    pcfg = await db.plantao_configs.find_one({"creator_id": body.creator_id}) or {}
+    # If plantao is enabled and current hour is in window, skip (basic)
+    if pcfg.get("enabled"):
+        return DecideOut(should_send=False, reason="plantão ativo", essay=cfg["essay"])
+
+
     now = datetime.now(BR)
     if not (HOUR_START <= now.hour < HOUR_END):
         return DecideOut(should_send=False, reason="fora do horário", essay=cfg["essay"])
-
-    if body.presence_active:
-        return DecideOut(should_send=False, reason="chatter ativo", essay=cfg["essay"])
-
-    if body.in_plantao:
-        return DecideOut(should_send=False, reason="plantão", essay=cfg["essay"])
 
     # Fan must have spoken last
     if not body.messages or body.messages[-1].ours:
