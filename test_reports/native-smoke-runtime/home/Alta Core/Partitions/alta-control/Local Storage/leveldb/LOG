@@ -1,7 +1,0 @@
-2026/09/29-13:52:57.189 1ec8 Reusing MANIFEST /app/test_reports/native-smoke-runtime/home/Alta Core/Partitions/alta-control/Local Storage/leveldb/MANIFEST-000001
-2026/09/29-13:52:57.193 1ec8 Recovering log #14
-2026/09/29-13:52:57.194 1ec8 Level-0 table #16: started
-2026/09/29-13:52:57.196 1ec8 Level-0 table #16: 21416 bytes OK
-2026/09/29-13:52:57.198 1ec8 Delete type=0 #14
-2026/09/29-13:53:24.361 1eca Level-0 table #19: started
-2026/09/29-13:53:24.365 1eca Level-0 table #19: 21326 bytes OK

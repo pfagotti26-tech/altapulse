@@ -10,7 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import Field
-from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN, is_staff
+from core import db, now, iso, uid, digest, lock, settings, audit, ORIGIN, is_staff, current_user
 from schemas import Strict, Login, ShiftStart, ShiftAction, Observation, CreatorMeta, AvatarIn
 from performance import SnapshotIn
 from quality_ai import SampleIn
@@ -22,11 +22,13 @@ from stations import ingest
 
 router = APIRouter()
 SOURCE = Path(__file__).parent.parent / 'extension'
-VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version']
+# a versão da extensão não pode derrubar o backend no import: sem a pasta (imagem sem 'extension/'),
+# o processo morria ao subir e o Cloudflare devolvia 520 em vez de servir o painel
+VERSION = json.loads((SOURCE / 'manifest.json').read_text())['version'] if (SOURCE / 'manifest.json').exists() else '0.0.0'
 DESKTOP = Path(__file__).parent.parent / 'desktop'
 DESKTOP_VERSION = json.loads((DESKTOP / 'package.json').read_text())['version'] if (DESKTOP / 'package.json').exists() else None
 DESKTOP_SKIP = {'node_modules', 'calibracoes', 'package-lock.json', 'iniciar.log'}
-TOKEN_DAYS = 30
+TOKEN_DAYS = 7  # login do app vale 7 dias (antes 30); o app também sai sozinho após 30 min sem uso
 
 class ExtensionLogin(Login):
     device_name: str = Field(default='Chrome', min_length=1, max_length=80)
@@ -59,7 +61,9 @@ async def extension_user(request: Request):
     authorization = request.headers.get('authorization', '')
     if not authorization.startswith('Bearer '): raise HTTPException(401, 'Entre na extensão com seu acesso Alta Pulse.')
     token = await db.extension_tokens.find_one({'token_hash': digest(authorization[7:]), 'expires_at': {'$gt': now()}}, {'_id': 0})
-    if not token: raise HTTPException(401, 'A sessão da extensão expirou. Entre novamente.')
+    if not token:
+        if await db.revoked_tokens.find_one({'token_hash': digest(authorization[7:])}, {'_id': 1}): raise HTTPException(401, 'Este acesso foi desativado.')
+        raise HTTPException(401, 'A sessão da extensão expirou. Entre novamente.')
     user = await db.users.find_one({'id': token['user_id'], 'active': True}, {'_id': 0, 'password_hash': 0})
     if not user: raise HTTPException(401, 'Este acesso foi desativado.')
     if token.get('auth_version', 0) != user.get('auth_version', 0): raise HTTPException(401, 'Sua senha foi alterada. Entre novamente na extensão.')
@@ -67,6 +71,14 @@ async def extension_user(request: Request):
     await db.extension_tokens.update_one({'token_hash': token['token_hash']}, {'$set': {'last_seen': iso()}})
     request.state.extension_token_hash = token['token_hash']
     return user
+
+class RevokedIn(Strict):
+    user_id: str = Field(min_length=6, max_length=40, pattern=r'^[a-f0-9]+$')
+@router.post('/extension/revoked-check')
+async def revoked_check(body: RevokedIn):
+    """O app desktop pergunta se a pessoa que estava logada nele foi desativada ou excluída (sem token válido)."""
+    u = await db.users.find_one({'id': body.user_id}, {'_id': 0, 'active': 1})
+    return {'revoked': (not u) or (not u.get('active'))}
 
 @router.post('/extension/login', response_model=TokenOut)
 async def login(body: ExtensionLogin, request: Request):
@@ -184,6 +196,21 @@ async def creator_meta(creator_id: str, body: CreatorMeta, user=Depends(extensio
 # causa do limite do GitHub; o servidor concatena). Serve também latest.yml/blockmap para o
 # electron-updater (provider "generic" em https://altapulse.com.br/api/desktop/updates).
 DIST = Path(__file__).parent / 'desktop_dist'
+
+# downloads do app só para quem tem login: sessão do painel (cookie) ou o próprio app logado (Bearer)
+async def download_user(request: Request):
+    if request.headers.get('authorization', '').startswith('Bearer '):
+        return await extension_user(request)
+    try: return await current_user(request)
+    except HTTPException: raise HTTPException(401, 'Entre no painel Alta Pulse com seu usuário para baixar o app.')
+async def update_gate(request: Request):
+    """Arquivos de atualização: app logado ou painel logado. Apps até a 1.4.34 não mandam o login; enquanto
+    app_flags.lock_updates não for ligado, eles ainda conseguem se atualizar (para todos chegarem na versão que manda)."""
+    try: return await download_user(request)
+    except HTTPException:
+        flags = await db.app_flags.find_one({'id': 'downloads'}, {'_id': 0}) or {}
+        if flags.get('lock_updates'): raise HTTPException(401, 'Entre no Alta Pulse para atualizar.')
+        return None
 def installer_info():
     """Lê latest.yml de desktop_dist; None se não houver instalador publicado."""
     meta = DIST / 'latest.yml'
@@ -213,7 +240,8 @@ def asar_info():
     return {'version': inst['version'], 'size': asar.stat().st_size, 'sha512': data.get('sha512'), 'electron': data.get('electron'), 'url': f'{ORIGIN}/api/desktop/asar'}
 
 @router.get('/desktop/asar')
-async def desktop_asar():
+async def desktop_asar(request: Request):
+    await update_gate(request)
     from fastapi.responses import FileResponse
     info = asar_info()
     if not info: raise HTTPException(404, 'Atualização rápida indisponível.')
@@ -227,7 +255,7 @@ async def desktop_release():
         'zip_version': DESKTOP_VERSION, 'zip_filename': f'Alta-Pulse-Desktop-{DESKTOP_VERSION}.zip'}
 
 @router.get('/desktop/installer')
-async def desktop_installer():
+async def desktop_installer(user=Depends(download_user)):
     """Instalador .exe mais recente (download direto)."""
     from fastapi.responses import StreamingResponse
     installer = installer_info()
@@ -246,7 +274,7 @@ def portable_info():
     return {'version': inst['version'], 'filename': name, 'size': size, 'url': f'{ORIGIN}/api/desktop/portable'}
 
 @router.get('/desktop/portable')
-async def desktop_portable():
+async def desktop_portable(user=Depends(download_user)):
     from fastapi.responses import StreamingResponse
     info = portable_info()
     if not info: raise HTTPException(404, 'Versão sem instalador ainda não publicada.')
@@ -254,7 +282,7 @@ async def desktop_portable():
         headers={'Content-Disposition': f'attachment; filename="{info["filename"]}"', 'Content-Length': str(info['size'])})
 
 @router.get('/desktop/updates/{name}')
-async def desktop_updates(name: str):
+async def desktop_updates(name: str, request: Request):
     """Arquivos do electron-updater: latest.yml, .exe e .blockmap."""
     from fastapi.responses import StreamingResponse, FileResponse
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or name.startswith('.'): raise HTTPException(404)
@@ -263,11 +291,12 @@ async def desktop_updates(name: str):
         if not file.exists(): raise HTTPException(404)
         return FileResponse(file, media_type='text/yaml' if name.endswith('.yml') else 'application/octet-stream')
     if not name.endswith('.exe') or not (list(DIST.glob(name + '.part*')) or (DIST / name).exists()): raise HTTPException(404)
+    await update_gate(request)
     size = sum(f.stat().st_size for f in DIST.glob(name + '.part*')) or (DIST / name).stat().st_size
     return StreamingResponse(installer_stream(name), media_type='application/octet-stream', headers={'Content-Length': str(size), 'Content-Disposition': f'attachment; filename="{name}"'})
 
 @router.get('/desktop/download')
-async def desktop_download():
+async def desktop_download(user=Depends(download_user)):
     """Pacote do app desktop (fontes + Iniciar.bat). Sem segredos; o Electron é baixado pelo npm na primeira execução."""
     if not DESKTOP_VERSION: raise HTTPException(404, 'App desktop indisponível nesta versão.')
     output = io.BytesIO()
@@ -401,7 +430,7 @@ async def calibration(body: CalibrationIn, user=Depends(extension_user)):
     return {'ok': True}
 
 @router.get('/extension/download')
-async def download():
+async def download(user=Depends(download_user)):
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
         for file in SOURCE.rglob('*'):

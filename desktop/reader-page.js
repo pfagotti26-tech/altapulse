@@ -23,16 +23,36 @@ module.exports = String.raw`(() => {
     const v = parseFloat(n);
     return isNaN(v) ? null : { cents: Math.round(v * 100), approx: false };
   };
+  // online agora: a bolinha verde no avatar da conversa. Primeiro por classe; se a Privacy não usar classe com
+  // "online", procura um ponto pequeno, redondo e verde dentro do avatar (só olha elementos pequenos).
+  const isGreen = (c) => { const m = String(c).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/); return !!m && +m[2] > 150 && +m[2] > +m[1] + 40 && +m[2] > +m[3] + 20; };
+  const online = (r) => {
+    if (r.querySelector('.vac-state-online, [class*="online" i]')) return true;
+    for (const el of r.querySelectorAll('.vac-avatar *, .vac-room-avatar *, [class*="avatar" i] *, [class*="status" i]')) {
+      const b = el.getBoundingClientRect(); if (!b.width || b.width > 16 || b.height > 16) continue;
+      const s = getComputedStyle(el); if (isGreen(s.backgroundColor) && parseFloat(s.borderRadius) >= b.width / 3) return true;
+    }
+    return false;
+  };
+  // reação (curtida) não é mensagem: "Você reagiu com ❤ a: …" ou o fã reagindo a uma mensagem nossa.
+  // Nos dois casos a última mensagem de verdade é nossa, então a conversa não conta como "esperando".
+  const REACTION = /\breagiu com\b|\bcurtiu\b|\breacted\b|\bliked\b/i;
+  const lastText = (r) => txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last'));
+  const isOurs = (r) => !!r.querySelector('.message-last .vac-icon-check') || REACTION.test(lastText(r));
+  const VERIFIED = '[class*="verified" i], [class*="verificad" i], svg[data-icon*="badge-check"], svg[data-icon="circle-check"]:not(.vac-icon-check), img[alt*="verific" i]';
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
+    online: online(r),
     spent: money(txt(r.querySelector('.spent, .never-spent'))),
-    ours: !!r.querySelector('.message-last .vac-icon-check'),
+    ours: isOurs(r),
     unread: parseInt(txt(r.querySelector('.cn-unread-number')), 10) || 0,
     when: txt(r.querySelector('.vac-text-date')),
     // radar: id da conversa (abre direto com ?cid=) e se a última mensagem do fã tem cara de pedido de compra.
     // A frase é avaliada aqui e descartada: só o sim/não sai da página.
     rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
-    intent: !r.querySelector('.message-last .vac-icon-check') && INTENT.test(txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last')).toLowerCase()),
+    intent: !isOurs(r) && INTENT.test(lastText(r).toLowerCase()),
+    // selo de conta verificada ao lado do nome = outra criadora (divulgação, venda de mídia): não é fã esperando
+    verified: !!r.querySelector(VERIFIED),
   })).filter((r) => r.name);
   // conversa aberta: o id vem do endereço (?cid= ou /chat/<id>); no layout estreito da Privacy ele pode
   // não aparecer, então cai no nome do cabeçalho (estável para a mesma conversa)
@@ -71,7 +91,10 @@ module.exports = String.raw`(() => {
       const day = /^\d{1,2}:\d{2}$/.test(w) ? 'Hoje' : w;
       if (day) for (const m of undated) msgs.push({ ...m, date: day });
     }
-    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub };
+    // do outro lado é uma criadora se ela tem selo de verificada no cabeçalho ou se ELA mandou mídia paga para nós
+    const headerVerified = !!(qs('.vac-room-header') && qs('.vac-room-header').querySelector(VERIFIED));
+    const otherCreator = headerVerified || [...msgs, ...undated].some((m) => !m.ours && m.offer);
+    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub, otherCreator };
   }
   return { page: location.pathname.startsWith('/chat') ? 'chat' : 'other', rooms, open, loading: !!qs('.skeleton-messages'), roots: roots.length };
 })()`;

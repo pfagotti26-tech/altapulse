@@ -110,6 +110,7 @@ async def update_user(user_id: str, body: OperatorUpdate, user=Depends(staff)):
         # o nome aparece em turnos, vendas e análises: atualiza onde está guardado por nome
         for col, field in [('shifts', 'operator_name'), ('browsers', 'operator_name'), ('presence', 'name')]: await db[col].update_many({'operator_id' if field == 'operator_name' else 'user_id': user_id}, {'$set': {field: patch['name']}})
     if kick:
+        if not body.active: await revoke_tokens(user_id, 'desativado')
         await db.sessions.delete_many({'user_id': user_id})
         await db.extension_tokens.delete_many({'user_id': user_id})
     await audit(user, 'Integrante atualizado', target['name'], {k: v for k, v in patch.items() if k not in ['password_hash']} | ({'senha': 'redefinida'} if body.new_password else {}))
@@ -130,6 +131,15 @@ async def resend_invite(user_id: str, user=Depends(staff)):
     if not await send_invite_if_possible(target, user['name']): raise HTTPException(502, 'Não consegui enviar o e-mail agora. Tente de novo em instantes.')
     await audit(user, 'Convite por e-mail reenviado', target['name'])
     return {'ok': True}
+async def revoke_tokens(user_id, reason):
+    """Guarda os tokens do app desktop de quem saiu: o app daquela pessoa recebe "acesso desativado" e
+    desconecta as contas das criadoras daquele computador (em vez de só "sessão expirou")."""
+    from datetime import timedelta
+    from core import now
+    rows = await db.extension_tokens.find({'user_id': user_id}, {'_id': 0, 'token_hash': 1}).to_list(1000)
+    for r in rows:
+        await db.revoked_tokens.update_one({'token_hash': r['token_hash']}, {'$set': {'token_hash': r['token_hash'], 'user_id': user_id, 'reason': reason, 'at': iso(), 'expires_at': now() + timedelta(days=120)}}, upsert=True)
+
 @router.delete('/users/{user_id}')
 async def delete_user(user_id: str, body: Reason, user=Depends(staff)):
     """Exclui o integrante. Turnos, vendas e análises ficam no histórico com o nome dele."""
@@ -140,6 +150,7 @@ async def delete_user(user_id: str, body: Reason, user=Depends(staff)):
     if user_id == user['id']: raise HTTPException(409, 'Você não pode excluir seu próprio acesso.')
     if await db.shifts.find_one({'operator_id': user_id, 'active': True}): raise HTTPException(409, 'Encerre os turnos deste integrante primeiro.')
     if target.get('role') == 'manager' and await db.users.count_documents({'role': 'manager', 'active': True, 'id': {'$ne': user_id}}) == 0: raise HTTPException(409, 'Precisa sobrar pelo menos um gestor ativo.')
+    await revoke_tokens(user_id, 'excluido')
     await db.users.delete_one({'id': user_id})
     for col in ['sessions', 'extension_tokens', 'presence', 'app_status']: await db[col].delete_many({'user_id': user_id})
     await db.fan_tasks.update_many({'assigned_to': user_id, 'status': 'open'}, {'$set': {'status': 'cancelled'}})

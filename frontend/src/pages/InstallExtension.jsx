@@ -28,7 +28,9 @@ export default function InstallExtension() {
         <h1 data-testid="ext-title">Toda a operação<br/><span>em uma janela só.</span></h1>
         <p data-testid="ext-subtitle">A central de operação da agência: cada criadora num perfil isolado, troca com um clique, e tudo o que acontece no atendimento vira número para o gestor. Turno, fila de fãs, tempo de resposta, ofertas, vendas, nota de qualidade por chatter e a Alta Ajuda com IA para escrever melhor.</p>
         <div className="ext-cta">
-          {installer
+          {!user
+            ? <Link className="ext-download-btn" data-testid="download-login" to="/"><Download size={17}/>Entre com seu usuário para baixar</Link>
+            : installer
             ? <button className="ext-download-btn" data-testid="download-installer" onClick={getInstaller}><Download size={17}/>Baixar o Alta Pulse{installer.version ? ` · v${installer.version}` : ''}{mb}</button>
             : <button className="ext-download-btn" data-testid="download-installer" disabled><Download size={17}/>Instalador em preparação</button>}
           <span className="ext-trust" data-testid="ext-trust"><ShieldCheck size={14}/>Perfis isolados · Senhas só com o gestor · Atualiza sozinho</span>
@@ -42,7 +44,7 @@ export default function InstallExtension() {
         <div><span className="ext-step-num">04</span><PlayCircle size={20}/><h2>Entre e inicie o turno</h2><p>Use o mesmo e-mail e senha do painel. Clique na criadora, entre com o acesso salvo pelo gestor e inicie o turno.</p></div>
       </section>
 
-      {portable && <section className="ext-alt" data-testid="ext-portable">
+      {user && portable && <section className="ext-alt" data-testid="ext-portable">
         <FolderArchive size={22}/>
         <div><h2>O antivírus bloqueou o instalador?</h2><p>Alguns antivírus (como o McAfee) barram instaladores novos. Use a versão sem instalador: baixe o .zip, clique com o botão direito e escolha <strong>Extrair tudo</strong>, e abra o <strong>Alta Pulse</strong> de dentro da pasta. O app avisa quando sair versão nova.</p></div>
         <button className="ext-alt-btn" data-testid="download-portable" onClick={getPortable}><Download size={15}/>Baixar sem instalador{pmb}</button>
@@ -63,7 +65,7 @@ export default function InstallExtension() {
         <p className="ext-feat-note"><ShieldCheck size={14}/>O app é um navegador comum com um perfil separado por criadora, instalado só para o seu usuário do Windows. Não usa proxy, não altera a identificação do navegador e não usa API de nenhuma plataforma: as métricas vêm do que aparece na tela durante o atendimento.</p>
       </section>
 
-      <p className="ext-feat-note ext-legacy" data-testid="ext-legacy"><Chrome size={14}/>Ainda usa a extensão antiga para o Chrome? <button className="shift-link" data-testid="download-extension" onClick={getExtension}>Baixar a extensão (.zip)</button> · ela registra só presença e turno.</p>
+      <p className="ext-feat-note ext-legacy" data-testid="ext-legacy"><Chrome size={14}/>Ainda usa a extensão antiga para o Chrome? {user ? <button className="shift-link" data-testid="download-extension" onClick={getExtension}>Baixar a extensão (.zip)</button> : <span>entre no painel para baixar</span>} · ela registra só presença e turno.</p>
     </main>
     <footer className="ext-footer"><span>Alta Pulse · Um produto Alta Agency.</span><span>Seu acesso ao painel permanece o mesmo.</span></footer>
   </div>;

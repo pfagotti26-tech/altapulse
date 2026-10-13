@@ -40,7 +40,7 @@ class OperatorUpdate(Strict):
     name: Optional[str] = Field(default=None, min_length=2, max_length=70)
     email: Optional[EmailStr] = None
     role: Optional[Literal['manager', 'supervisor', 'chatter']] = None
-    perms: Optional[list[Literal['plantao']]] = None  # permissões especiais: só o dono da conta altera
+    perms: Optional[list[Literal['plantao', 'conteudo_app', 'conteudo_planejar', 'conteudo_proprio', 'conteudo_relatorio', 'conteudo_atribuir']]] = None  # permissões especiais: só o dono da conta altera
     new_password: Optional[str] = Field(default=None, min_length=8, max_length=128)  # nova senha inicial (obriga a trocar no 1º acesso)
 class Creator(Strict):
     name: str = Field(min_length=2, max_length=70)

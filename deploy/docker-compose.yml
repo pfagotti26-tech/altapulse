@@ -1,0 +1,51 @@
+# Alta Pulse no servidor próprio: banco (MongoDB), API (FastAPI) e site com HTTPS automático (Caddy).
+# Tudo sobe com:  cd /opt/altapulse/deploy && docker compose up -d --build
+# Configuração em deploy/.env (criado pelo install.sh; nunca vai para o GitHub).
+name: altapulse
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+      - ./backups:/backups
+    # sem "ports": o banco só é acessível de dentro do servidor, nunca da internet
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:
+  caddy-data:
+  caddy-config:

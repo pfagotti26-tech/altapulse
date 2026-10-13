@@ -1,0 +1,95 @@
+name: Publicar app desktop
+
+# Gera o instalador do Alta Pulse e publica os artefatos em backend/desktop_dist, de onde o painel
+# serve o download e a atualização rápida (app-<versão>.asar).
+#
+# Roda em windows-latest: o NSIS do electron-builder roda nativo, sem Wine e sem apt. O Wine do
+# ubuntu-24.04 não serve porque não tem mais suporte a 32 bits (syswow64\rundll32.exe, c0000135).
+#
+# Só manual: Actions -> "Publicar app desktop" -> Run workflow -> informe a versão (ex.: 1.4.20).
+# Nada roda a cada push, porque cada versão acrescenta uns 260 MB ao repositório.
+# Depois do push, peça o deploy no Emergent para o painel passar a servir a versão nova.
+#
+# Ferramentas usadas pelo release.sh no Git Bash do runner: node (setup-node), 7z (vem no runner),
+# split e ls (coreutils do Git for Windows). O sha512 do asar é calculado pelo node, então o script
+# não depende de openssl nem de "base64 -w0".
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do app (só números e pontos, ex.: 1.4.20)'
+        required: true
+      branch:
+        description: 'Branch de destino'
+        required: true
+        default: main
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  empacotar:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      # caminhos longos: sobras de teste do Electron (Code Cache) passavam de 260 caracteres
+      # e o checkout no Windows falhava com "Filename too long"
+      - name: Permitir caminhos longos
+        run: |
+          git config --system core.longpaths true || git config --global core.longpaths true
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      # só o que o empacotamento usa: desktop/ (código e release.sh) e backend/desktop_dist (saída).
+      # No modo cone o checkout também traz os arquivos da raiz, então .gitignore vem junto.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 1
+          sparse-checkout: |
+            desktop
+            backend/desktop_dist
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Conferir ferramentas no Git Bash
+        run: |
+          echo "bash:  $BASH_VERSION"
+          echo "node:  $(node -v)"
+          echo "7z:    $(command -v 7z || echo 'FALTANDO')"
+          echo "split: $(command -v split || echo 'FALTANDO')"
+          command -v 7z >/dev/null || { echo '7z não encontrado no runner' >&2; exit 1; }
+          command -v split >/dev/null || { echo 'split não encontrado no Git Bash' >&2; exit 1; }
+          echo 'sparse-checkout:'; git sparse-checkout list
+          [ -f desktop/release.sh ] || { echo 'desktop/release.sh não veio no sparse-checkout' >&2; exit 1; }
+
+      - name: Empacotar e publicar em backend/desktop_dist
+        run: bash desktop/release.sh "${{ inputs.version }}"
+
+      - name: Commit e push na ${{ inputs.branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A backend/desktop_dist desktop/package.json
+          if git diff --cached --quiet; then echo 'Nada mudou: nenhum commit.'; exit 0; fi
+          git commit -m "App desktop ${{ inputs.version }}: instalador, asar e zip sem instalador publicados"
+          # confere que o sparse-checkout não apagou nada de fora do cone antes de empurrar
+          FORA=$(git diff --name-only HEAD~1 HEAD -- . ':(exclude)backend/desktop_dist' ':(exclude)desktop' | head -20)
+          if [ -n "$FORA" ]; then echo "commit mexeu em arquivos fora do cone, abortando:"; echo "$FORA"; exit 1; fi
+          git push origin HEAD:${{ inputs.branch }}
+
+      - name: Resumo
+        run: |
+          echo "### App desktop ${{ inputs.version }} publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Arquivos em `backend/desktop_dist`:' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -la backend/desktop_dist >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Agora peça o deploy no Emergent para o painel servir esta versão.' >> "$GITHUB_STEP_SUMMARY"

@@ -5,6 +5,7 @@ não vê configuração, relatório nem o que foi enviado; a tentativa de acesso
 O agente nunca responde ao fã: só manda a abertura. Quando o fã responde, a conversa vai para as Oportunidades do
 chatter (quem não tem a permissão vê a etiqueta neutra "Voltou a falar").
 """
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,6 +32,8 @@ class Filters(BaseModel):
     never_spent: bool = False                               # incluir quem nunca gastou (se False e min_spent None, ambos entram)
     skip_dismissed: bool = True                             # pula "dispensar" das Oportunidades
     skip_with_notes: bool = True                            # pula quem tem anotação da equipe
+    prioritize_online: bool = True                          # quem está online agora vem primeiro na fila (app lê a bolinha verde)
+    only_online: bool = False                               # só quem está online agora
 
 class ConfigIn(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
@@ -43,9 +46,6 @@ class ConfigIn(BaseModel):
     gap_min: int = Field(default=2, ge=1, le=30)   # minutos
     gap_max: int = Field(default=6, ge=1, le=60)
     cooldown_days: int = Field(default=7, ge=1, le=90)  # 1 abordagem por fã a cada Z dias
-    mode: Literal['list', 'ai'] = 'list'           # 'list' = só as aberturas aprovadas; 'ai' = gera na persona (módulo autônomo)
-    after_reply: Literal['handoff', 'hold'] = 'handoff'  # handoff = entrega ao chatter; hold = módulo autônomo segura a conversa até hold_max respostas
-    hold_max: int = Field(default=2, ge=1, le=5)
     openers: list[str] = Field(default_factory=lambda: list(DEFAULT_OPENERS), max_length=40)
     filters: Filters = Field(default_factory=Filters)
     @field_validator('days')
@@ -120,7 +120,7 @@ async def put_config(creator_id: str, body: ConfigIn, user=Depends(plantao_user)
     creator = await db.creators.find_one({'id': creator_id, 'deleted_at': None}, {'_id': 0, 'name': 1})
     if not creator: raise HTTPException(404, 'Criadora não encontrada.')
     if body.gap_min > body.gap_max: raise HTTPException(422, 'O intervalo mínimo não pode ser maior que o máximo.')
-    if body.mode == 'list' and not body.openers: raise HTTPException(422, 'Cadastre pelo menos uma abertura ou mude para geração pela persona.')
+    if body.enabled and not body.openers: raise HTTPException(422, 'Cadastre pelo menos uma abertura aprovada antes de ligar o plantão.')
     old = await db.plantao_configs.find_one({'creator_id': creator_id}, {'_id': 0}) or {}
     doc = {**body.model_dump(), 'creator_id': creator_id, 'updated_at': iso(), 'updated_by': user['id'], 'paused_day': old.get('paused_day')}
     await db.plantao_configs.update_one({'creator_id': creator_id}, {'$set': doc}, upsert=True)
@@ -269,25 +269,6 @@ async def mark_opportunity(creator_id, fan_ref, fan_name, platform, hot):
     await db.opportunities.update_one({'creator_id': creator_id, 'fan_ref': fan_ref, 'ref': f'plantao:{fan_ref}'},
         {'$set': doc, '$setOnInsert': {'id': uid(), 'creator_id': creator_id, 'fan_ref': fan_ref, 'ref': f'plantao:{fan_ref}', 'value_cents': 0, 'source_at': iso(), 'created_at': iso()}}, upsert=True)
 
-# ---- contrato do módulo autônomo (// ALTA AUTO: implementado no Emergent) ----
-class Msg(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    ours: bool
-    text: str = Field(max_length=400)
-class ReplyIn(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    creator_id: str
-    fan_ref: str = Field(max_length=120)
-    fan_name: Optional[str] = Field(default=None, max_length=80)
-    msgs: list[Msg] = Field(max_length=8)   # últimas mensagens, já mascaradas pelo app (sem e-mail/telefone/@/links)
-    hold_count: int = Field(default=0, ge=0, le=10)
-
-@router.post('/extension/plantao/reply')
-async def app_reply(body: ReplyIn, user=Depends(app_user)):
-    """Modo 'segurar a conversa'. Contrato: devolve {'stop': True, 'reason': str} para entregar ao chatter ou
-    {'stop': False, 'text': str} com a próxima mensagem. Enquanto o módulo autônomo não está instalado, sempre entrega."""
-    await mark_opportunity(body.creator_id, body.fan_ref, body.fan_name, 'privacy', hot=False)
-    return {'stop': True, 'reason': 'módulo autônomo não instalado'}
 
 @router.post('/extension/plantao/run')
 async def app_run(body: RunIn, user=Depends(app_user)):

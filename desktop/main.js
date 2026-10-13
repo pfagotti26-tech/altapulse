@@ -4,7 +4,7 @@
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
-const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification } = require('electron');
+const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -14,6 +14,7 @@ const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
 const SNAPSHOT = require('./snapshot-page.js');
 const SUBS = require('./subscribers-page.js');
+const CONTENT = require('./content-page.js');
 const { ExtratoReader } = require('./extrato.js');
 const FF = require('./fatalfans-page.js');
 const { FatalFansReader, SalesReader } = require('./fatalfans.js');
@@ -47,6 +48,8 @@ const EXTRATO_MS = 10 * 60 * 1000;      // leitura do extrato (aba oculta) a cad
 const EXTRATO_FIRST_MS = 30 * 1000;     // primeira leitura 30 s depois de abrir a criadora
 const SNAPSHOT_MS = 60 * 60 * 1000;     // retrato da criadora (Visão geral) a cada hora
 const SUBS_MS = 6 * 60 * 60 * 1000;
+const CONTENT_MS = 3 * 60 * 60 * 1000;   // Conteúdo: resultado dos posts e calendário a cada 3 h
+const CONTENT_GOAL_MS = 60 * 60 * 1000;  // criadora com meta de posts: a cada 1 h (o alerta precisa de dado fresco)
 const FF_URL = 'https://fatalfans.com/creator/dashboard'; // FatalFans → Minhas vendas
 const CF_URL = 'https://close.fans/sales-report';       // CloseFans → Vendas
 const OF_URL = 'https://onlyfans.com/my/statements/earnings'; // OnlyFans → Extratos → Renda (US$)     // bloco D: lista de assinantes a cada 6 h
@@ -99,17 +102,13 @@ function groupIdFor(name) {
 function groupName(id) { const g = local.groups.find((x) => x.id === id); return g ? g.name : ''; }
 
 // ---------- token ----------
+// Segurança (1.4.37): o login do app vive só na memória. Nada fica gravado no disco: fechou o app, a pessoa
+// entra de novo com e-mail e senha. Um token.bin de versões antigas é apagado na primeira abertura.
 function readToken() {
-  try {
-    const raw = fs.readFileSync(filePath('token.bin'));
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-  } catch { return null; }
+  try { fs.unlinkSync(filePath('token.bin')); } catch {}
+  return null;
 }
-function writeToken(token) {
-  fs.mkdirSync(dataDir(), { recursive: true });
-  if (!token) { try { fs.unlinkSync(filePath('token.bin')); } catch {} return; }
-  fs.writeFileSync(filePath('token.bin'), safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : Buffer.from(token, 'utf8'));
-}
+function writeToken() { try { fs.unlinkSync(filePath('token.bin')); } catch {} }
 
 // segredo local para os hashes de referência (nunca sai do computador)
 // chave compartilhada (servidor) para as referências de fã/venda; sem ela, cai na chave local deste computador
@@ -142,6 +141,8 @@ function localSecret() {
 // ---------- API do painel (chamada só pelo processo principal, nunca pela página da Privacy) ----------
 let token = null; // lido só depois do app ficar pronto (safeStorage depende disso no Windows)
 let state = { user: null, creators: [], sla_minutes: 5, version: null, storage_allowed: false };
+let contentCfg = { perms: {}, creators: {} }; // Conteúdo e disparos: chaves do admin por criadora
+const contentOn = (id, key) => !!(contentCfg.creators && contentCfg.creators[id] && contentCfg.creators[id][key]);
 let credentials = []; // acessos salvos (sem senha) das criadoras do usuário
 const loginPages = new Map(); // creatorId -> plataforma cuja tela de login está aberta
 const probeInfo = new Map(); // diagnóstico da sonda de login
@@ -158,7 +159,7 @@ async function api(method, route, body) {
   let data = null;
   try { data = await response.json(); } catch {}
   if (!response.ok) {
-    if (response.status === 401) { token = null; writeToken(null); state = { ...state, user: null, creators: [] }; }
+    if (response.status === 401) { const had = !!token; token = null; writeToken(null); state = { ...state, user: null, creators: [] }; if (/desativad/i.test((data && data.detail) || '')) revokeLocal().catch(() => {}); else if (had) checkRevoked().catch(() => {}); }
     let detail = data && data.detail;
     if (Array.isArray(detail)) detail = detail.map((d) => (d && d.msg ? `${(d.loc || []).slice(-1)[0] || ''}: ${d.msg}` : JSON.stringify(d))).join('; ').slice(0, 300);
     throw new Error(detail || `Erro ${response.status} no painel.`);
@@ -170,10 +171,15 @@ async function refreshState() {
   if (!token) return state;
   try {
     const data = await api('GET', '/extension/state');
+    if (data.user && data.user.id) { const me = readJson('ultimo-usuario.json', null); if (!me || me.id !== data.user.id) writeJson('ultimo-usuario.json', { id: data.user.id }); }
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
-    try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ }
-    if (!hashKey) await syncHashKey();
-    await loadTasks();
+    // as leituras seguintes não dependem uma da outra: rodam juntas (o app abre mais rápido)
+    await Promise.all([
+      (async () => { try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ } })(),
+      (async () => { try { contentCfg = await api('GET', '/extension/content/config'); for (const cid of views.keys()) { const c = capture.get(cid); if (c && c.attach) c.attach(); } } catch { /* painel sem o módulo Conteúdo */ } })(),
+      (async () => { if (!hashKey) await syncHashKey(); })(),
+      loadTasks().catch(() => {}),
+    ]);
     // grupo/etiqueta/anotações: o servidor é a fonte quando o painel já tem esses campos
     let changed = false;
     for (const c of data.creators) {
@@ -273,6 +279,7 @@ function publicState() {
   return {
     ...state,
     origin: config.origin,
+    urlbar: !!urlbarPref.show,
     local,
     open: [...tabs.keys()].filter((id) => tabs.get(id).size),
     active: activeId,
@@ -349,6 +356,35 @@ function zoomKeys(view, platform) {
   // Ctrl + rodinha do mouse (e pinça no touchpad)
   view.webContents.on('zoom-changed', (_e, direction) => changeZoom(platform, direction === 'in' ? 'in' : 'out'));
 }
+// modo Conteúdo do painel da direita: em que tela da Privacy a pessoa está (feed/postar/calendário = conteúdo)
+let contentCtx = { page: 'other', mass: false, price_cents: null };
+function contentPageOf(url) {
+  let p = ''; try { const u = new URL(url); if (!/privacy\.com\.br$/i.test(u.host)) return 'other'; p = u.pathname; } catch { return 'other'; }
+  if (/^\/chat/i.test(p)) return 'chat';
+  if (p === '/' || /^\/(publisher|calendar|myprivacystats|topcreators|feed|profile)/i.test(p)) return 'content';
+  return 'other';
+}
+async function pollContentCtx() {
+  if (!(contentCfg.perms && contentCfg.perms.conteudo_app) || !activeId || activeTab.get(activeId) !== 'privacy') return;
+  const view = views.get(activeId); if (!view || view.webContents.isDestroyed()) return;
+  const page = contentPageOf(view.webContents.getURL());
+  let mass = false, price = null;
+  if (page === 'chat') { const c = await runJs(view, CONTENT.CTX, 1500).catch(() => null); if (c && c.kind === 'mass') { mass = true; price = c.price_cents; } }
+  const next = { page: mass ? 'mass' : page, mass, price_cents: price };
+  if (JSON.stringify(next) !== JSON.stringify(contentCtx)) { contentCtx = next; pushFan(); }
+}
+setInterval(() => { pollContentCtx().catch(() => {}); }, 2500);
+// metas de posts: alertas das 14h e 19h (o painel decide para quem); aparece como notificação do Windows
+async function pollContentAlerts() {
+  if (!state.user) return;
+  const r = await api('GET', '/extension/content/alerts').catch(() => null);
+  for (const a of (r && r.alerts) || []) {
+    try { new Notification({ title: a.level === 'cobranca' ? 'Meta de posts em risco' : 'Meta de posts', body: a.text.slice(0, 250) }).show(); } catch {}
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `📣 ${a.text}`);
+  }
+}
+setInterval(() => { pollContentAlerts().catch(() => {}); }, 5 * 60 * 1000);
+setTimeout(() => { pollContentAlerts().catch(() => {}); }, 60 * 1000);
 let fan = { creatorId: null, fanRef: null, name: null, cid: null, card: null, loading: false, error: null, fetchedAt: 0 };
 let myTasks = [];
 let fanCids = readJson('fa-conversas.json', {}); // creatorId -> { fanRef: cid } (só neste computador, para abrir a conversa pela lista)
@@ -359,7 +395,10 @@ function fanPanelWidth() {
 function pushFan() {
   if (!fanView || fanView.webContents.isDestroyed()) return;
   const creator = (state.creators || []).find((c) => c.id === fan.creatorId);
-  fanView.webContents.send('fan', { ...fan, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
+  const cc = (state.creators || []).find((c) => c.id === activeId);
+  const xr = activeId && extratos.get(activeId);
+  const content = { allowed: !!(contentCfg.perms && contentCfg.perms.conteudo_app), ...contentCtx, creatorId: activeId, creatorName: cc ? cc.name : '', reading: !!(xr && xr.contentBusy), read: (xr && xr.content) || null };
+  fanView.webContents.send('fan', { ...fan, content, creatorName: creator ? creator.name : '', collapsed: fanCollapsed(), important: fanImportant(), active: fan.creatorId === activeId, sla: state.sla_minutes || 5, user: state.user ? { id: state.user.id, role: state.user.role } : null });
 }
 async function loadFanCard(force = false) {
   if (!fan.creatorId || !fan.fanRef) return;
@@ -385,7 +424,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
   const subAtiva = platform !== 'privacy' || open.skeleton || !(open.msgs || []).length ? null : !open.notSub;
   // esperando resposta: da primeira mensagem do fã depois da nossa última até agora
   let waitSince = null;
-  { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
+  if (!open.otherCreator) { const ms = open.msgs || []; let i = ms.length - 1; while (i >= 0 && !ms[i].ours) i -= 1;
     const first = ms[i + 1]; if (first && !first.ours && first.date) { const t = msgAt(first.date, first.time, new Date()); if (t) waitSince = t.toISOString(); } }
   if (fan.creatorId !== id || fan.fanRef !== ref) { fan = { creatorId: id, fanRef: ref, name: open.name, cid: open.cid, chatting, subAtiva, waitSince, card: null, loading: false, error: null, fetchedAt: 0 }; loadFanCard(true); }
   else {
@@ -537,20 +576,59 @@ async function handleDeepLink(url) {
 }
 let pendingLink = process.argv.find((a) => /^altapulse:\/\//i.test(a)) || null;
 ipcMain.handle('opp:open', (_e, id) => openOpportunity(id));
+// "N esperando" no card: abre a conversa de quem está esperando (mesmo que esteja lá no fim da lista da Privacy)
+ipcMain.handle('wait:open', (_e, w) => {
+  if (!w || !w.creator_id || !w.name || !(state.creators || []).some((c) => c.id === w.creator_id)) throw new Error('Conversa não encontrada.');
+  return openConversation(w.creator_id, 'privacy', w.rid || null, String(w.name).slice(0, 120), readerFor(w.creator_id).reader.roomKey(w.name));
+});
 ipcMain.handle('opp:action', async (_e, { id, action, reason }) => { await api('POST', `/extension/opportunities/${encodeURIComponent(id)}/action`, { action, reason: reason || '' }); await loadOpportunities(); return publicState(); });
 ipcMain.handle('opp:reload', async () => { await loadOpportunities(); return publicState(); });
 async function loadTasks() {
   try { myTasks = await api('GET', '/extension/fan-tasks'); } catch { myTasks = []; }
 }
 
+// ---------- barra de endereço (como no Lauth): link da página aberta, Copiar e colar um link para abrir ----------
+const URLBAR_H = 32;
+let urlbarPref = readJson('barra-endereco.json', { show: true });
+let urlView = null;
+const activeView = () => { const t = activeId && tabs.get(activeId); const p = activeId && activeTab.get(activeId); return t && p ? t.get(p) || null : null; };
+const urlbarOn = () => !!(urlbarPref.show && urlView && activeView());
+function pushUrl() {
+  if (!urlView || urlView.webContents.isDestroyed()) return;
+  const v = activeView(); let url = '';
+  try { url = v && !v.webContents.isDestroyed() ? v.webContents.getURL() : ''; } catch {}
+  const p = activeId && activeTab.get(activeId); const c = (state.creators || []).find((x) => x.id === activeId);
+  urlView.webContents.send('url', { url, label: [c && c.name, p && PLATFORMS[p] ? PLATFORMS[p].label : p].filter(Boolean).join(' · ') });
+}
+ipcMain.handle('url:copy', () => { const v = activeView(); const url = v && !v.webContents.isDestroyed() ? v.webContents.getURL() : ''; if (!/^https:\/\//i.test(url)) return false; clipboard.writeText(url); return true; });
+// colar um link e Enter: abre no perfil da criadora que está na tela (a conversa é da conta dela).
+// Link de outra plataforma abre na aba daquela plataforma da mesma criadora; link do app (altapulse://) usa a criadora do link.
+ipcMain.handle('url:go', async (_e, text) => {
+  let s = String(text || '').trim().slice(0, 2000);
+  if (/^altapulse:\/\//i.test(s)) { await handleDeepLink(s); return { ok: true }; }
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  let u; try { u = new URL(s); } catch { return { ok: false, reason: 'Endereço inválido.' }; }
+  if (u.protocol !== 'https:' || !allowedUrl(u.href)) return { ok: false, reason: 'Só abre links das plataformas do app (Privacy, OnlyFans, FatalFans…).' };
+  if (!activeId) return { ok: false, reason: 'Abra primeiro a criadora dona da conversa.' };
+  const platform = platformOf(u.href) || activeTab.get(activeId) || 'privacy';
+  if (!tabsOf(activeId).has(platform)) openProfile(activeId, platform);
+  else { activeTab.set(activeId, platform); layout(); pushState(); }
+  const v = tabsOf(activeId).get(platform); if (!v || v.webContents.isDestroyed()) return { ok: false, reason: 'A aba não abriu.' };
+  await v.webContents.loadURL(u.href).catch(() => {}); pushUrl();
+  return { ok: true };
+});
+ipcMain.handle('urlbar:show', (_e, show) => { urlbarPref = { show: !!show }; writeJson('barra-endereco.json', urlbarPref); layout(); pushState(); return urlbarPref.show; });
+
 function layout() {
   if (!win) return;
   const [w, h] = win.getContentSize();
   const pw = fanPanelWidth();
   sidebar.setBounds({ x: 0, y: 0, width: SIDEBAR_WIDTH, height: h });
+  const bar = urlbarOn() ? URLBAR_H : 0; const vwAll = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
+  if (urlView) { urlView.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vwAll, height: URLBAR_H }); urlView.setVisible(bar > 0); if (bar) pushUrl(); }
   for (const [id, t] of tabs) for (const [platform, v] of t) {
-    const vw = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
-    v.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vw, height: h });
+    const vw = vwAll;
+    v.setBounds({ x: SIDEBAR_WIDTH, y: bar, width: vw, height: h - bar });
     v.setVisible(id === activeId && platform === activeTab.get(id));
     applyZoom(v, vw, platform);
   }
@@ -571,12 +649,20 @@ function restoreOpenTabs() {
   if (restored || !state.user) return; restored = true;
   const saved = readJson('abas-abertas.json', null); if (!saved || !saved.tabs) return;
   const known = new Set((state.creators || []).map((c) => c.id));
-  for (const [id, platforms] of Object.entries(saved.tabs)) {
-    if (!known.has(id)) continue;
-    for (const platform of platforms) openProfile(id, platform, { quiet: true });
-    if (saved.activeTab && saved.activeTab[id]) activeTab.set(id, saved.activeTab[id]);
+  // abre escalonado: a aba que estava ativa primeiro, as outras uma a cada 1,5 s (abrir todas de uma vez
+  // carregava vários Chromes ao mesmo tempo e travava o computador na entrada)
+  const order = Object.entries(saved.tabs).filter(([id]) => known.has(id));
+  order.sort(([a], [b]) => (a === saved.active ? -1 : b === saved.active ? 1 : 0));
+  let delay = 0;
+  for (const [id, platforms] of order) {
+    const plats = [...platforms]; const pref = saved.activeTab && saved.activeTab[id];
+    if (pref && plats.includes(pref)) plats.sort((x) => (x === pref ? -1 : 1));
+    for (const platform of plats) {
+      const open = () => { if (!state.user) return; openProfile(id, platform, { quiet: true }); if (pref) activeTab.set(id, pref); if (saved.active && tabs.has(saved.active)) activeId = saved.active; layout(); pushState(); }; // volta o foco para a aba que estava ativa
+      if (delay === 0) open(); else setTimeout(open, delay);
+      delay += 1500;
+    }
   }
-  activeId = saved.active && tabs.has(saved.active) ? saved.active : null;
   layout(); pushState();
 }
 
@@ -598,7 +684,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-  view.webContents.on('did-navigate', () => pushState());
+  view.webContents.on('did-navigate', () => { pushState(); if (view === activeView()) pushUrl(); });
   view.webContents.on('did-finish-load', () => probeSoon(creatorId, platform, view));
   if (platform === 'privacy') {
     view.webContents.on('did-finish-load', () => layout());
@@ -606,13 +692,14 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   zoomKeys(view, platform);
   // o Chromium guarda zoom por site; aqui quem manda é a escolha por plataforma
   view.webContents.on('did-finish-load', () => { const z = zoomFor(platform, view.getBounds().width); if (Math.abs(view.webContents.getZoomFactor() - z) > 0.01) view.webContents.setZoomFactor(z); });
-  view.webContents.on('did-navigate-in-page', () => { pushState(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
+  view.webContents.on('did-navigate-in-page', () => { pushState(); if (view === activeView()) pushUrl(); probeSoon(creatorId, platform, view); if (['privacy', 'onlyfans', 'fatalfans'].includes(platform)) setTimeout(() => quickFan(creatorId), 1200); });
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
   win.contentView.addChildView(view);
   t.set(platform, view);
   if (platform === 'privacy') views.set(creatorId, view);
+  if (platform === 'privacy') attachContentCapture(creatorId, view);
   activeId = creatorId; activeTab.set(creatorId, platform);
   layout();
   view.webContents.loadURL(PLATFORMS[platform].home, { userAgent: UA });
@@ -937,6 +1024,11 @@ async function readExtratoNow(id, opts = {}) {
         } else x.summary.subsError = 'sem aba Assinantes';
       } catch (error) { x.summary.subsError = error.message.slice(0, 120); x.reader.s.subsAt = Date.now() - SUBS_MS + 30 * 60 * 1000; } // falhou: tenta de novo em 30 min
     }
+    // bloco E/F: Conteúdo — resultado de cada post (Engajamento) e calendário (posts e mensagens em massa)
+    if (state.storage_allowed && contentOn(id, 'read') && (!x.reader.s.contentAt || Date.now() - x.reader.s.contentAt > (contentOn(id, 'goal') ? CONTENT_GOAL_MS : CONTENT_MS))) {
+      try { await readContent(id, view, x); x.reader.s.contentAt = Date.now(); }
+      catch (error) { x.summary.contentError = error.message.slice(0, 120); x.content = { ...(x.content || {}), error: error.message.slice(0, 120), errorAt: Date.now() }; x.reader.s.contentAt = Date.now() - CONTENT_MS + 30 * 60 * 1000; }
+    }
     writeJson(`extrato-${id}.json`, x.reader.s);
   } catch (error) {
     const old = /Extra inputs are not permitted/.test(error.message);
@@ -946,6 +1038,145 @@ async function readExtratoNow(id, opts = {}) {
     if (views.has(id)) scheduleExtrato(id, EXTRATO_MS);
     else if (!x.shown) closeStatsView(id); // leitura de fundo: libera a memória até a próxima rodada
   }
+}
+// ---------- Conteúdo e disparos ----------
+// Leitura (aba oculta do extrato): Meu Privacy → Engajamento e Calendário em lista. Só lê; abrir o cartão do
+// calendário apenas mostra o texto (nunca toca em "Cancelar envio").
+async function readContent(id, view, x) {
+  const runE = (a) => runJs(view, CONTENT.eng(a), 15000);
+  if (!/myprivacystats/i.test(view.webContents.getURL())) await loadStats(view);
+  let t = await runE('tab');
+  for (let i = 0; i < 8 && t.hadTab && !t.active; i++) { await sleep(2000); t = await runE('tab'); }
+  if (t.active) {
+    await sleep(3500); await runE('wake');
+    let d = await runE('read');
+    for (let i = 0; i < 10 && !d.rows.length; i++) { await sleep(2000); if (i % 2 === 0) await runE('wake'); d = await runE('read'); }
+    let prev = d.rows.length;
+    for (let i = 0; i < 15 && d.hasMore; i++) { await runE('more'); await sleep(1800); d = await runE('read'); if (d.rows.length <= prev) break; prev = d.rows.length; }
+    if (d.rows.length) {
+      const out = await api('POST', '/extension/content/posts', { creator_id: id, rows: d.rows.slice(0, 500).map(({ thumb, ...r }) => r) }); x.summary.contentPosts = out.saved; x.content = { ...(x.content || {}), posts: out.saved, postsAt: Date.now(), error: '' };
+      // miniatura (capa como a Privacy mostra no Engajamento), pequena, só dos posts que o painel ainda não tem
+      const need = new Set((out.need_thumbs || []).map((a) => Math.round(Date.parse(a) / 60000)));
+      const items = [];
+      for (const r of d.rows) {
+        if (!r.thumb || !need.has(Math.round(Date.parse(r.posted_at) / 60000)) || items.length >= 20) continue;
+        try {
+          const res = await session.fromPartition(partitionFor(id)).fetch(r.thumb, { headers: { 'User-Agent': UA, Accept: 'image/jpeg,image/png;q=0.9,*/*;q=0.5' } });
+          if (!res.ok) continue;
+          let img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())); if (img.isEmpty()) continue;
+          const sz = img.getSize(); if (sz.width > 240) img = img.resize({ width: 240, quality: 'good' });
+          const jpg = img.toJPEG(60); if (jpg.length > 85000) continue;
+          items.push({ posted_at: r.posted_at, caption: r.caption, jpeg_b64: jpg.toString('base64') });
+        } catch { /* sem miniatura deste post */ }
+      }
+      if (items.length) { const t = await api('POST', '/extension/content/thumbs', { creator_id: id, items }).catch(() => null); if (t) x.summary.contentThumbs = t.saved; }
+    }
+    else { x.summary.contentError = 'Engajamento sem posts'; x.content = { ...(x.content || {}), error: 'Engajamento não carregou os posts', errorAt: Date.now() }; }
+  } else { x.summary.contentError = 'sem aba Engajamento'; x.content = { ...(x.content || {}), error: 'não abriu a aba Engajamento', errorAt: Date.now() }; }
+  // calendário: mês atual e o anterior
+  await new Promise((resolve) => { const done = () => { clearTimeout(tm); resolve(); }; const tm = setTimeout(done, 25000); view.webContents.once('did-finish-load', done); view.webContents.loadURL('https://privacy.com.br/calendar', { userAgent: UA }); });
+  await sleep(4000);
+  const runC = (a) => runJs(view, CONTENT.cal(a), 15000);
+  let l = await runC('list');
+  for (let i = 0; i < 8 && !l.ok; i++) { await sleep(2000); l = await runC('list'); }
+  if (!l.ok) { x.summary.contentError = 'calendário não abriu'; x.content = { ...(x.content || {}), error: 'calendário não abriu', errorAt: Date.now() }; return; }
+  if (!l.list) { await sleep(2500); l = await runC('list'); }
+  const rows = [];
+  for (const step of ['cur', 'prev']) {
+    if (step === 'prev') { await runC('prev'); await sleep(3000); }
+    await runC('expand'); await sleep(2500);
+    const d = await runC('read'); if (d.rows) rows.push(...d.rows);
+  }
+  if (rows.length) { const out = await api('POST', '/extension/content/calendar', { creator_id: id, rows: rows.slice(0, 600) }); x.summary.contentCalendar = out.saved; x.content = { ...(x.content || {}), calendar: out.saved, calendarAt: Date.now() }; }
+}
+
+// Registro de autoria: quando ALGUÉM NESTE APP envia uma mensagem em massa ou publica/agenda um post, o app
+// guarda quem foi (o usuário logado aqui). Acompanha só as chamadas de envio da própria página (protocolo de
+// depuração do Chromium, que lê o pedido e a resposta). Chat individual é ignorado. Nada é enviado pelo app.
+const capture = new Map(); // creatorId -> { pending: Map, recent: [], net: [] }
+const ckey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9à-ÿ]+/g, '').slice(0, 60);
+function maskPath(u) { try { const x = new URL(u); return (x.host + x.pathname).replace(/\/[0-9a-f-]{8,}|\/\d+/gi, '/:id').slice(0, 200); } catch { return ''; } }
+function keysOf(obj, pre = '', out = [], depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 3 || out.length > 55) return out;
+  for (const k of Object.keys(obj).slice(0, 40)) { out.push(pre + k); if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) keysOf(obj[k], pre + k + '.', out, depth + 1); }
+  return out;
+}
+function findVal(obj, re, type, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 4) return undefined;
+  for (const [k, v] of Object.entries(obj)) { if (re.test(k) && typeof v === type) return v; }
+  for (const v of Object.values(obj)) { if (v && typeof v === 'object') { const r = findVal(v, re, type, depth + 1); if (r !== undefined) return r; } }
+  return undefined;
+}
+function hasText(obj, text, depth = 0) {
+  if (!text) return false; const k = ckey(text).slice(0, 25); if (k.length < 4) return false;
+  if (typeof obj === 'string') return ckey(obj).includes(k);
+  if (!obj || typeof obj !== 'object' || depth > 5) return false;
+  return Object.values(obj).some((v) => hasText(v, text, depth + 1));
+}
+async function sendAction(id, a) {
+  const c = capture.get(id); const k = `${a.kind}|${ckey(a.text)}`; // o mesmo envio pode chegar pela rede e pela tela
+  if (c.recent.some((r) => r.k === k && Date.now() - r.t < 90000)) return; // mesmo envio já registrado
+  c.recent = [...c.recent.filter((r) => Date.now() - r.t < 120000), { k, t: Date.now() }];
+  const up = c.up && Date.now() - c.up.t < 15 * 60000 ? c.up : { p: 0, v: 0 }; c.up = null;
+  a.media_photos = Math.max(a.media_photos || 0, up.p); a.media_videos = Math.max(a.media_videos || 0, up.v);
+  try { await api('POST', '/extension/content/action', { creator_id: id, ...a }); } catch { /* sem painel: perde só este registro */ }
+}
+function flushNet(id) {
+  const c = capture.get(id); if (!c || !c.net.length) return;
+  const entries = c.net.splice(0, 50);
+  api('POST', '/extension/content/netlog', { creator_id: id, entries }).catch(() => {});
+  if (isPortable()) try { const f = path.join(calibDir(), 'conteudo-rede.json'); fs.mkdirSync(calibDir(), { recursive: true }); let old = []; try { old = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {} fs.writeFileSync(f, JSON.stringify([...old, ...entries.map((e) => ({ ...e, at: new Date().toISOString() }))].slice(-300), null, 1)); } catch {}
+}
+function attachContentCapture(id, view) {
+  const wc = view.webContents; const dbg = wc.debugger;
+  if (!capture.has(id)) capture.set(id, { pending: new Map(), recent: [], net: [] });
+  const c = capture.get(id);
+  const attach = () => {
+    if (!contentOn(id, 'capture') || dbg.isAttached()) return;
+    try { dbg.attach('1.3'); dbg.sendCommand('Network.enable', { maxPostDataSize: 65536 }).catch(() => {}); } catch { /* ferramentas de desenvolvedor abertas: sem registro nesta aba */ }
+  };
+  c.attach = attach; wc.on('did-finish-load', attach); attach();
+  dbg.on('message', async (_e, method, params) => {
+    try {
+      if (method === 'Network.requestWillBeSent') {
+        const rq = params.request; if (!/^(POST|PUT|PATCH|DELETE)$/.test(rq.method) || !contentOn(id, 'capture')) return;
+        // envio de arquivo (pode ir direto para o armazenamento, fora de privacy.com.br): conta foto x vídeo
+        const ctype = String((rq.headers || {})['Content-Type'] || (rq.headers || {})['content-type'] || '');
+        if (/^(image|video)\//i.test(ctype)) { if (!c.up || Date.now() - c.up.t > 15 * 60000) c.up = { p: 0, v: 0, t: Date.now() }; c.up[/^video/i.test(ctype) ? 'v' : 'p'] += 1; c.up.t = Date.now(); return; }
+        if (!/privacy\.com\.br/i.test(rq.url)) return;
+        // registra já (a resposta pode chegar antes de a tela ser lida) e lê o contexto em paralelo
+        let body = null; try { body = rq.postData ? JSON.parse(rq.postData) : null; } catch { body = null; }
+        if (!c.ctx || Date.now() - c.ctx.t > 400) c.ctx = { t: Date.now(), p: runJs(view, CONTENT.CTX, 1500).catch(() => null) }; // várias chamadas seguidas: lê a tela uma vez
+        c.pending.set(params.requestId, { ctxP: c.ctx.p, method: rq.method, url: rq.url, body, raw: rq.postData || '', t: Date.now() });
+        setTimeout(() => c.pending.delete(params.requestId), 60000);
+      } else if (method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+        const p = c.pending.get(params.requestId); if (!p) return; c.pending.delete(params.requestId);
+        p.ctx = await p.ctxP; if (!p.ctx || !p.ctx.kind) return; // chat individual, feed etc.: ignora
+        let res = null, status = 0;
+        if (method === 'Network.loadingFinished') { try { const r = await dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId }); res = JSON.parse(r.base64Encoded ? Buffer.from(r.body, 'base64').toString('utf8') : r.body); status = 200; } catch { res = null; } }
+        c.net.push({ method: p.method, path: maskPath(p.url), status, context: p.ctx.kind, req_keys: keysOf(p.body).slice(0, 60), res_keys: keysOf(res).slice(0, 60) }); setTimeout(() => flushNet(id), 3000);
+        const text = p.ctx.text || '';
+        const isCreate = method === 'Network.loadingFinished' && p.method !== 'DELETE' && !/upload|media|file|image|video|presign|vault|acervo/i.test(p.url) && (hasText(p.body, text) || p.raw.includes(text.slice(0, 20)) && text.length >= 4);
+        if (isCreate) {
+          const ref = res ? (findVal(res, /^(id|uuid|_id|messageId|postId|massMessageId|publicationId)$/i, 'string') ?? String(findVal(res, /^(id|messageId|postId)$/i, 'number') ?? '')) : '';
+          const when = p.body ? findVal(p.body, /schedul|agend|publish(ed)?_?at|send_?at|date/i, 'string') : undefined;
+          const priceB = p.body ? findVal(p.body, /price|valor|amount|value/i, 'number') : undefined;
+          const scheduled = !!(when && Date.parse(when) > Date.now() + 120000);
+          sendAction(id, { kind: p.ctx.kind, action: scheduled ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? (priceB != null ? (priceB > 1000 ? Math.round(priceB) : Math.round(priceB * 100)) : null),
+            scheduled_for: scheduled ? new Date(Date.parse(when)).toISOString() : null, audience: p.ctx.audience || [], media_count: p.ctx.media || 0, media_photos: p.ctx.photos || 0, media_videos: p.ctx.videos || 0, privacy_ref: String(ref || '').slice(0, 120),
+            confidence: ref ? 'confirmed' : 'probable', net_path: maskPath(p.url) });
+          return;
+        }
+        // sem casar o pedido: confere a tela 5 s depois; se a mensagem/legenda sumiu (foi enviada), registra como provável
+        if (text.length >= 4 && method === 'Network.loadingFinished') setTimeout(async () => {
+          const after = await runJs(view, CONTENT.CTX, 1500).catch(() => null);
+          const gone = !after || after.kind !== p.ctx.kind || !after.text; // caixa esvaziou ou a tela fechou = foi enviado
+          if (gone) sendAction(id, { kind: p.ctx.kind, action: /agend/i.test(p.ctx.sched || '') ? 'schedule' : 'send', text, price_cents: p.ctx.price_cents ?? null, scheduled_for: null,
+            audience: p.ctx.audience || [], media_count: p.ctx.media || 0, media_photos: p.ctx.photos || 0, media_videos: p.ctx.videos || 0, privacy_ref: '', confidence: 'probable', net_path: maskPath(p.url) });
+        }, 5000);
+      }
+    } catch { /* nunca atrapalha a página */ }
+  });
 }
 // ---------- foto da criadora: pega a foto de perfil na plataforma (aba oculta já logada) ----------
 // Só quando a criadora ainda não tem foto no painel. Se não deu (página ainda carregando, aba escondida,
@@ -1327,10 +1558,179 @@ const FILL_SCRIPT = (text) => `(() => {
 })()`;
 ipcMain.handle('assist:use', async (_e, text) => {
   const t = String(text || '').slice(0, 2000); clipboard.writeText(t);
-  const view = fan.creatorId && views.get(fan.creatorId);
+  const tg = chatTarget();
   let filled = false;
-  if (view && !view.webContents.isDestroyed()) { try { filled = !!(await runJs(view, FILL_SCRIPT(t), 4000)); if (filled) view.webContents.focus(); } catch {} }
+  if (tg) { try { const r = await runJs(tg.view, tg.fill(t), 4000); if (r === 'paste') { tg.view.webContents.focus(); tg.view.webContents.paste(); filled = true; } else filled = !!r; if (filled) tg.view.webContents.focus(); } catch {} }
   return { filled };
+});
+// ---------- Sugerir resposta (só nas criadoras com a chave ligada na ficha) ----------
+// Lê o texto das últimas mensagens da conversa ABERTA, só quando o chatter está nela e o fã falou por último.
+// O painel mascara de novo e chama a xAI; a sugestão volta para o cartão do fã. O envio é sempre do chatter.
+const READ_MSGS_SCRIPT = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+  const qs = (sel) => { for (const r of roots) { const e = r.querySelector(sel); if (e) return e; } return null; };
+  const name = txt(qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name'));
+  const cont = qs('.vac-messages-container'); if (!cont) return { name, msgs: [] };
+  const msgs = [];
+  for (const el of cont.querySelectorAll('.vac-message-wrapper-msg')) {
+    const parts = [...el.querySelectorAll('.vac-format-message-wrapper')].filter((x) => !x.closest('.vac-reply-message'));
+    let t = parts.map(txt).join(' ').trim();
+    const np = el.querySelector('.vac-text-not-paid');
+    if (np) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(np) + ']';
+    else if (!t && el.querySelector('.vac-message-files-container, .vac-message-image, video, img')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours: el.classList.contains('vac-offset-current'), text: t.slice(0, 1200) });
+  }
+  return { name, msgs: msgs.slice(-14) };
+})()`;
+// FatalFans e OnlyFans: mesmo formato do leitor da Privacy ({ name, msgs: [{ ours, text }] }), só da conversa aberta.
+// Estruturas das calibrações: FatalFans [data-message-id] (texto em p.whitespace-pre-wrap, nossa = .justify-end);
+// OnlyFans .b-chat__message (m-from-me = nossa, texto em .b-chat__message__text-holder, pagamento em __payment-state).
+const READ_FF_MSGS = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const pen = document.querySelector('.iconify.i-lucide\\:square-pen');
+  const h2 = pen && pen.closest('button') && pen.closest('button').parentElement.querySelector('h2');
+  const msgs = [];
+  for (const el of document.querySelectorAll('[data-message-id]')) {
+    const row = el.querySelector(':scope > .relative'); const ours = !!(row && row.classList.contains('justify-end'));
+    let t = [...el.querySelectorAll('p.whitespace-pre-wrap')].map(txt).join(' ').trim();
+    const price = [...el.querySelectorAll('*')].find((x) => !x.children.length && /R\$\s*[\d.,]+/.test(x.textContent));
+    if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
+    else if (!t && el.querySelector('img, video')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours, text: t.slice(0, 1200) });
+  }
+  return { name: txt(h2), msgs: msgs.slice(-14) };
+})()`;
+const READ_OF_MSGS = String.raw`(() => {
+  const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');
+  const head = document.querySelector('.b-chat__header.b-header-conversation') || document.querySelector('.b-header-conversation');
+  const name = txt(head && (head.querySelector('.g-user-name .g-user-name') || head.querySelector('.g-user-name')));
+  const box = document.querySelector('.b-chats__conversations-content') || document;
+  const msgs = [];
+  for (const el of box.querySelectorAll('.b-chat__message')) {
+    if (el.classList.contains('b-chat__message__system')) continue;
+    let t = [...el.querySelectorAll('.b-chat__message__text-holder')].map(txt).join(' ').trim();
+    const pay = el.querySelector('.b-chat__message__payment-state');
+    if (pay) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(pay) + ']';
+    else if (!t && el.querySelector('.b-chat__message__media, img, video')) t = '[mídia]';
+    if (!t) continue;
+    msgs.push({ ours: el.classList.contains('m-from-me'), text: t.slice(0, 1200) });
+  }
+  return { name, msgs: msgs.slice(-14) };
+})()`;
+const FILL_FF = (text) => `(() => {
+  const ta = [...document.querySelectorAll('textarea')].find((x) => x.getBoundingClientRect().width > 0); if (!ta) return false;
+  const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  set.call(ta, ${JSON.stringify(text)}); ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); return true;
+})()`;
+const FILL_OF = (text) => `(() => {
+  const ed = document.querySelector('.b-chat__footer .ProseMirror[role="textbox"], .ProseMirror[role="textbox"]'); if (!ed) return false;
+  ed.focus(); const sel = window.getSelection(); const r = document.createRange(); r.selectNodeContents(ed); sel.removeAllRanges(); sel.addRange(r);
+  try { document.execCommand('insertText', false, ${JSON.stringify(text)}); } catch {}
+  return ed.textContent.includes(${JSON.stringify(text.slice(0, 20))}) ? true : 'paste'; // editor que não aceita: cola do clipboard
+})()`;
+// conversa aberta agora: a aba ativa da criadora do cartão (Privacy, FatalFans ou OnlyFans)
+function chatTarget() {
+  const id = fan.creatorId; if (!id) return null;
+  const platform = activeTab.get(id) || 'privacy';
+  const view = (tabs.get(id) || new Map()).get(platform);
+  if (!view || view.webContents.isDestroyed() || !['privacy', 'fatalfans', 'onlyfans'].includes(platform)) return null;
+  const read = platform === 'fatalfans' ? READ_FF_MSGS : platform === 'onlyfans' ? READ_OF_MSGS : READ_MSGS_SCRIPT;
+  const fill = platform === 'fatalfans' ? FILL_FF : platform === 'onlyfans' ? FILL_OF : FILL_SCRIPT;
+  return { id, platform, view, read, fill };
+}
+// ---------- Termômetro de venda: lê as últimas mensagens da conversa aberta e dá uma nota (0–100) ----------
+// Roda só no computador do chatter: o texto é avaliado aqui e descartado; nada é gravado nem enviado.
+// faixas (no cartão): < 20 frio · < 45 morno · < 65 quente · 65+ hora de vender. Um pedido claro do fã já põe em "hora de vender".
+const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const HEAT = [
+  { k: 'preco', w: 70, why: 'perguntou preço', cat: null, rx: /\b(quanto|valor|preco|pix|custa|como (compro|faco pra (ver|comprar|ter))|ta quanto|qto)\b/ },
+  { k: 'nude', w: 65, why: 'pediu pra ver ela pelada', cat: 'foto', rx: /(pelad|\bnua\b|nuazinha|nudes?\b|peitos?\b|seios|bunda|buceta|xota|xereca|tira (a|essa) roupa|sem roupa|mostra (tudo|mais|ai|os|a)|quero (te )?ver (vc|voce|tu|mais|tudo))/ },
+  { k: 'acao', w: 65, why: 'quer ver ela em ação', cat: 'video', rx: /(gozando|gozar|se tocando|te tocando|masturb|siririca|squirt|\bvideos?\b|grava(r|ndo|ou)?\b|filma)/ },
+  { k: 'dele', w: 65, why: 'quer mostrar o dele', cat: 'avaliacao', rx: /(meu (pau|pinto|cacete|caralho|pirocao|pau duro)|minha (rola|pica|piroca)|ver o meu|avalia(r|cao)?)/ },
+  { k: 'custom', w: 65, why: 'pediu algo sob medida', cat: 'personalizado', rx: /(personaliz|com meu nome|fala meu nome|so pra mim|exclusiv|sob medida|do jeito que eu (quero|pedir))/ },
+  { k: 'chamada', w: 50, why: 'falou em chamada', cat: 'chamada', rx: /(chamada|ao vivo|\bcam\b|\bcall\b|facetime|video ?chamada)/ },
+  { k: 'tesao', w: 20, why: 'está excitado', cat: null, rx: /(\bduro\b|tesao|gostosa|safada|delicia|molhad|excitad|punheta|batendo uma|me deixa (louco|doido))/ },
+  { k: 'obedece', w: 15, why: 'se ofereceu pra obedecer', cat: null, rx: /(obedec|faco (o que|tudo que) (vc|voce|tu) (mandar|quiser)|sou (seu|teu)\b|minha (deusa|dona|rainha|mestra)|sim senhora)/ },
+];
+const COLD = [
+  { why: 'achou caro', rx: /(\bcaro\b|muito caro|salgado|nao (tenho|to com) (grana|dinheiro)|sem (grana|dinheiro)|ta puxado)/ },
+  { why: 'deixou pra depois', rx: /(\bdepois\b|outro dia|amanha eu|mais tarde|vou ver|vou pensar)/ },
+  { why: 'está saindo', rx: /(\btchau\b|vou dormir|boa noite|preciso ir|to indo|falou)/ },
+];
+function thermoScore(msgs, extra) {
+  const extraRx = (extra || []).map((t) => fold(t).trim()).filter((t) => t.length > 1);
+  let i = msgs.length - 1; let streak = 0; while (i >= 0 && !msgs[i].ours) { streak += 1; i -= 1; }
+  const fanMsgs = msgs.map((m, idx) => ({ ...m, idx })).filter((m) => !m.ours).slice(-8);
+  const lastIdx = msgs.length - 1;
+  let score = 0; const why = []; const hits = {}; let cat = null; let cold = null;
+  for (const m of fanMsgs) {
+    const t = fold(m.text); const recent = lastIdx - m.idx <= 3 ? 1 : 0.5;
+    for (const h of HEAT) if (h.rx.test(t) && !hits[h.k]) { hits[h.k] = 1; score += h.w * recent; if (!why.includes(h.why)) why.push(h.why); if (h.cat && (!cat || recent === 1)) cat = h.cat; }
+    if (extraRx.some((x) => t.includes(x)) && !hits.extra) { hits.extra = 1; score += 20 * recent; why.push('usou um termo da ficha'); }
+    if (lastIdx - m.idx <= 2) for (const c of COLD) if (c.rx.test(t) && cold !== 'achou caro') cold = c.why;
+  }
+  if (streak >= 2) { score += Math.min(15, (streak - 1) * 5); why.push(`${streak} mensagens seguidas`); }
+  return { score: Math.round(score), why, cat, cold, hits: Object.keys(hits) };
+}
+ipcMain.handle('thermo:read', async (_e, { extra } = {}) => {
+  const id = fan.creatorId; if (!id || !fan.fanRef) return null;
+  const tg = chatTarget(); if (!tg) return null;
+  const fanAt = fan.fanRef;
+  const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
+  if (!read || !read.msgs || fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) return null;
+  return { ...thermoScore(read.msgs, extra), fanRef: fanAt, n: read.msgs.length, lastOurs: !!(read.msgs.length && read.msgs[read.msgs.length - 1].ours) };
+});
+// memória do fã: fatos confirmados pelo chatter (pet, gostos, viagem…) e fase de conexão
+ipcMain.handle('fanmem:get', async () => {
+  if (!fan.creatorId || !fan.fanRef) return { facts: [], fanRef: null };
+  const r = await api('GET', `/extension/fan/memory?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${encodeURIComponent(fan.fanRef)}`).catch(() => ({ facts: [] }));
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanmem:add', async (_e, items) => {
+  if (!fan.creatorId || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const r = await api('POST', '/extension/fan/memory', { creator_id: fan.creatorId, fan_ref: fan.fanRef, items: (items || []).slice(0, 10) });
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanmem:del', async (_e, id) => { await api('DELETE', `/extension/fan/memory/${encodeURIComponent(id)}`); return true; });
+ipcMain.handle('fanconn:skip', async (_e, skip) => {
+  if (!fan.creatorId || !fan.fanRef) return false;
+  await api('PUT', '/extension/fan/connection', { creator_id: fan.creatorId, fan_ref: fan.fanRef, skip: skip !== false }); return true;
+});
+ipcMain.handle('assist:prices', async () => {
+  if (!fan.creatorId) return { prices: [] };
+  return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));
+});
+ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
+ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp } = {}) => {
+  const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const tg = chatTarget(); if (!tg) throw new Error('Abra a conversa do fã (Privacy, FatalFans ou OnlyFans).');
+  const fanAt = fan.fanRef;
+  const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
+  const m = mode === 'followup' ? 'followup' : 'reply';
+  if (!read || !read.msgs || (m === 'reply' && !read.msgs.length)) throw new Error('Não consegui ler a conversa. Tente de novo em alguns segundos.');
+  if (fan.fanRef !== fanAt || (fan.name && read.name && read.name !== fan.name)) throw new Error('A conversa mudou.');
+  if (m === 'reply' && read.msgs[read.msgs.length - 1].ours) return { skip: true };
+  const body = { creator_id: id, fan_ref: fanAt, messages: read.msgs, style: style === 'vendedora' ? 'vendedora' : 'normal', mode: m, platform: tg.platform };
+  if (['leve', 'picante', 'explicito'].includes(level)) body.level = level;
+  if (product) body.product = String(product).slice(0, 80);
+  if (Number.isFinite(temp)) body.temp = Math.max(0, Math.min(100, Math.round(temp)));
+  const out = await api('POST', '/extension/assist/suggest', body);
+  const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
+  return { ...out, fanRef: fanAt };
+});
+// perfil do fã (Servo, Cuck, Baunilha…): o chatter classifica; vale para a equipe toda e orienta o Sugerir resposta
+ipcMain.handle('fanseg:get', async () => {
+  if (!fan.creatorId || !fan.fanRef) return { segment: '', fanRef: null };
+  const r = await api('GET', `/extension/fan/segment?creator_id=${encodeURIComponent(fan.creatorId)}&fan_ref=${encodeURIComponent(fan.fanRef)}`).catch(() => ({ segment: '' }));
+  return { ...r, fanRef: fan.fanRef };
+});
+ipcMain.handle('fanseg:set', async (_e, segment) => {
+  if (!fan.creatorId || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');
+  const r = await api('PUT', '/extension/fan/segment', { creator_id: fan.creatorId, fan_ref: fan.fanRef, segment: String(segment || '') });
+  return { ...r, fanRef: fan.fanRef };
 });
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
@@ -1347,6 +1747,7 @@ ipcMain.handle('plantao:prepare', async (_e, { creator_id, fan_ref, name, rid, t
   return { ok: filled, reason: filled ? null : 'caixa de mensagem não encontrada' };
 });
 ipcMain.handle('plantao:cancel', (_e, { creator_id, fan_ref }) => { plantao.cancel(creator_id, fan_ref); return plantao.queue(); });
+// (módulo autônomo removido — o plantão funciona só como copiloto: a pessoa é quem envia)
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
@@ -1370,6 +1771,13 @@ ipcMain.handle('task:open', async (_e, taskId) => {
   if (view) view.webContents.loadURL(cid ? `https://privacy.com.br/chat?cid=${encodeURIComponent(cid)}` : 'https://privacy.com.br/chat', { userAgent: UA });
   return { found: !!cid, name: t.fan_name };
 });
+ipcMain.handle('content:readNow', async () => {
+  const id = activeId; if (!id) return { ok: false };
+  const x = extratoFor(id); x.reader.s.contentAt = 0; x.contentBusy = true; pushFan();
+  try { await readExtrato(id, { background: true }); } finally { x.contentBusy = false; pushFan(); }
+  return { ok: true, read: x.content || null };
+});
+ipcMain.handle('content:panel', async () => { if (!activeId) return null; return api('GET', `/extension/content/panel?creator_id=${encodeURIComponent(activeId)}`); });
 ipcMain.handle('extrato:read', async (_e, id) => { await readExtrato(id, { background: true }); if (ffTabOpen(id) || await hasFFSession(id)) await readFF(id, { background: true }); if (cfTabOpen(id) || await hasCFSession(id)) await readCF(id, { background: true }); if (ofTabOpen(id) || await hasOFSession(id)) await readOF(id, { background: true }); return publicState(); });
 // diagnóstico (gestor): esqueleto mascarado de uma aba do Meu Privacy (ex.: Assinantes) na aba oculta
 ipcMain.handle('extrato:calibrate', async (_e, id, tour) => {
@@ -1426,7 +1834,35 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   restoreOpenTabs(); startVigia();
   return publicState();
 });
-ipcMain.handle('auth:logout', async () => {
+// Acesso desativado ou excluído pelo admin: fecha todas as abas e desconecta as contas das criadoras DESTE
+// computador (apaga cookies e dados salvos de cada perfil), para quem saiu não continuar usando a Privacy aqui.
+// sessão "expirada": confere se a pessoa que usava este app foi desativada/excluída (quem saiu antes desta versão)
+async function checkRevoked() {
+  const me = readJson('ultimo-usuario.json', null);
+  // primeira vez nesta versão e o login salvo já não vale: só acontece com quem foi excluído antes desta versão
+  // (quem está ativo grava o arquivo no primeiro acesso válido). Limpa uma vez e marca para não repetir.
+  if (!me || !me.id) { if (!readJson('limpeza-revogado.json', null)) { writeJson('limpeza-revogado.json', { at: new Date().toISOString() }); await revokeLocal(); } return; }
+  try {
+    const r = await fetch(`${config.origin}/api/extension/revoked-check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: me.id }) });
+    const d = await r.json(); if (d && d.revoked) await revokeLocal();
+  } catch {}
+}
+let revoking = false;
+async function revokeLocal() {
+  if (revoking) return; revoking = true;
+  try {
+    stopVigia();
+    const ids = new Set([...tabs.keys(), ...Object.keys(local.creators || {}), ...Object.keys(fanCids || {}), ...extratos.keys()]);
+    const saved = readJson('abas-abertas.json', null); if (saved && saved.tabs) for (const k of Object.keys(saved.tabs)) ids.add(k);
+    for (const id of [...tabs.keys()]) closeProfile(id);
+    for (const id of [...extratos.keys()]) closeStatsView(id);
+    for (const id of ids) { try { const ses = session.fromPartition(partitionFor(id)); await ses.clearStorageData(); await ses.clearCache(); } catch {} }
+    writeJson('abas-abertas.json', null); credentials = [];
+    state = { user: null, creators: [], sla_minutes: 5, version: null }; pushState();
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', 'Seu acesso ao Alta Pulse foi desativado. As contas das criadoras foram desconectadas deste computador.');
+  } finally { revoking = false; }
+}
+async function doLogout() {
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
   const keep = readJson('abas-abertas.json', null);
@@ -1436,7 +1872,22 @@ ipcMain.handle('auth:logout', async () => {
   state = { user: null, creators: [], sla_minutes: 5, version: null };
   pushState();
   return publicState();
-});
+}
+ipcMain.handle('auth:logout', () => doLogout());
+// Segurança: computador parado há 30 min (sem teclado nem mouse) → o app sai sozinho e pede a senha de novo.
+// As abas abertas voltam como estavam ao entrar.
+const IDLE_LOCK_MIN = 30;
+let idleLocking = false;
+setInterval(async () => {
+  if (idleLocking || !token || !state.user) return;
+  let idle = 0; try { idle = powerMonitor.getSystemIdleTime(); } catch { return; }
+  if (idle < IDLE_LOCK_MIN * 60) return;
+  idleLocking = true;
+  try {
+    await doLogout();
+    if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Por segurança, o Alta Pulse saiu depois de ${IDLE_LOCK_MIN} minutos sem uso. Entre de novo para continuar.`);
+  } finally { idleLocking = false; }
+}, 60 * 1000);
 ipcMain.handle('state:get', async () => { await refreshState(); return publicState(); });
 // recarrega a página aberta e só responde quando ela termina de carregar (o ↻ da lateral gira até lá; no máximo 15 s)
 ipcMain.handle('profile:reload-active', () => new Promise((resolve) => {
@@ -1646,6 +2097,11 @@ app.whenReady().then(async () => {
   win.contentView.addChildView(fanView);
   fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
   fanView.webContents.on('did-finish-load', pushFan);
+  urlView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  win.contentView.addChildView(urlView);
+  urlView.webContents.loadFile(path.join(__dirname, 'ui', 'urlbar.html'));
+  urlView.webContents.on('did-finish-load', pushUrl);
+  urlView.setVisible(false);
   // Ctrl +/−/0 com o foco na lateral ou no cartão do fã: ajusta a página aberta (a lateral não muda de tamanho)
   for (const ui of [sidebar, fanView]) ui.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
@@ -1672,6 +2128,18 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
+// Ao fechar, avisa o servidor para invalidar o login deste app (melhor esforço, no máximo 1,5 s). Como o token
+// não fica em disco, a próxima abertura pede e-mail e senha de qualquer jeito.
+let quitting = false;
+app.on('before-quit', (e) => {
+  if (quitting || !token) return;
+  quitting = true; e.preventDefault();
+  const t = token; token = null;
+  const done = () => app.quit();
+  const timer = setTimeout(done, 1500);
+  fetch(`${config.origin}/api/extension/logout`, { method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' } })
+    .catch(() => {}).finally(() => { clearTimeout(timer); done(); });
+});
 // clique em qualquer outra área (aba da plataforma, cartão do fã): fecha os menus abertos na lateral
 // fecha os menus da lateral quando a pessoa CLICA numa página; o evento 'focus' não serve porque uma página
 // carregando rouba o foco sozinha e fechava o menu logo depois de abrir
@@ -1683,34 +2151,33 @@ app.on('web-contents-created', (_e, wc) => { wc.on('before-mouse-event', (_ev, m
 // Versão sem instalador (.zip): não tem como se atualizar sozinha; avisa na lateral quando sair versão nova.
 const isPortable = () => app.isPackaged && !fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Alta Pulse.exe'));
 const newer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
-function setupPortableNotice() {
-  const check = async () => {
-    try {
-      const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-      // atualização rápida: mesma versão do Electron → só troca o app.asar (2-3 MB) e reinicia
-      const quick = !!(d && d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
-      if (d && d.version && newer(d.version, app.getVersion()) && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick });
-    } catch {}
-  };
-  setTimeout(check, 15000); setInterval(check, 3 * 60 * 60 * 1000);
-}
 
-// troca o app.asar da versão sem instalador e reinicia (o original-fs não trata .asar como pasta)
+// atualização rápida (sem instalador): baixa só o app.asar novo do painel para um arquivo NOVO e aponta o carregador
+// para ele. Não roda nenhum .exe novo, então o Windows/antivírus não bloqueia e ninguém precisa reinstalar.
+let quickBusy = null;
+async function downloadQuick() {
+  if (quickBusy) return quickBusy;
+  quickBusy = (async () => {
+    const ofs = require('original-fs'); const crypto = require('crypto');
+    const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+    if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
+    const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
+    try { const cur = JSON.parse(ofs.readFileSync(path.join(process.resourcesPath, 'alta-atual.json'), 'utf8')); if (cur.file === name && ofs.existsSync(path.join(process.resourcesPath, name))) return { version: d.asar.version, ready: true }; } catch {}
+    // a partir da 1.4.35 o download da atualização vai com o login do app (o painel só entrega para quem tem acesso)
+    const res = await fetch(`${config.origin}/api/desktop/asar`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
+    ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
+    try { ofs.unlinkSync(path.join(process.resourcesPath, name)); } catch {}
+    ofs.renameSync(path.join(process.resourcesPath, name + '.tmp'), path.join(process.resourcesPath, name));
+    ofs.writeFileSync(path.join(process.resourcesPath, 'alta-atual.json'), JSON.stringify({ file: name, at: new Date().toISOString() }));
+    try { fs.appendFileSync(path.join(dataDir(), 'atualizacao.log'), `${new Date().toISOString()} baixada ${d.asar.version} em ${name}\n`); } catch {}
+    return { version: d.asar.version, ready: true };
+  })().finally(() => { quickBusy = null; });
+  return quickBusy;
+}
 ipcMain.handle('portable:update', async () => {
-  const ofs = require('original-fs'); const crypto = require('crypto');
-  const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
-  if (!d.asar || d.asar.electron !== process.versions.electron) throw new Error('Esta atualização precisa do pacote completo. Use o download.');
-  const res = await fetch(`${config.origin}/api/desktop/asar`); if (!res.ok) throw new Error(`Painel respondeu ${res.status}.`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (d.asar.sha512 && crypto.createHash('sha512').update(buf).digest('base64') !== d.asar.sha512) throw new Error('O arquivo baixado veio corrompido. Tente de novo.');
-  const log = (m) => { try { fs.appendFileSync(path.join(dataDir(), 'atualizacao.log'), `${new Date().toISOString()} ${m}\n`); } catch {} };
-  // grava a versão nova num arquivo novo (nada em uso é tocado) e aponta o carregador para ela
-  const name = `app-${String(d.asar.version).replace(/[^\d.]/g, '')}.asar`;
-  ofs.writeFileSync(path.join(process.resourcesPath, name + '.tmp'), buf);
-  try { ofs.unlinkSync(path.join(process.resourcesPath, name)); } catch {}
-  ofs.renameSync(path.join(process.resourcesPath, name + '.tmp'), path.join(process.resourcesPath, name));
-  ofs.writeFileSync(path.join(process.resourcesPath, 'alta-atual.json'), JSON.stringify({ file: name, at: new Date().toISOString() }));
-  log(`baixada ${d.asar.version} em ${name}; reiniciando`);
+  await downloadQuick();
   setTimeout(() => { app.relaunch(); app.exit(0); }, 500);
   return true;
 });
@@ -1733,12 +2200,31 @@ function cleanOldUpdates() {
 
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
-  if (isPortable()) { setTimeout(cleanOldUpdates, 30000); setupPortableNotice(); return; }
-  let autoUpdater;
-  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
-  autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
-  autoUpdater.on('error', () => {});
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 20000); setInterval(check, 6 * 60 * 60 * 1000);
+  setTimeout(cleanOldUpdates, 30000);
+  // 1º caminho (todos, com ou sem instalador): atualização rápida em segundo plano, sem .exe novo.
+  // Fica pronta e vale na próxima vez que abrir; a lateral oferece "Reiniciar agora".
+  let electronUpdater = null;
+  const check = async () => {
+    try {
+      const r = await fetch(`${config.origin}/api/desktop/release`); const d = await r.json();
+      if (!d || !d.version || !newer(d.version, app.getVersion())) return;
+      const quick = !!(d.asar && d.asar.version === d.version && d.asar.electron && d.asar.electron === process.versions.electron);
+      if (quick) {
+        const q = await downloadQuick().catch(() => null);
+        if (q && sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick: true, ready: true });
+        return;
+      }
+      // mudou a versão do Electron (raro): precisa do pacote completo
+      if (isPortable()) { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('portable-update', { version: d.version, url: `${config.origin}/instalar`, quick: false }); return; }
+      if (!electronUpdater) {
+        try { ({ autoUpdater: electronUpdater } = require('electron-updater')); } catch { return; }
+        electronUpdater.autoDownload = true; electronUpdater.autoInstallOnAppQuit = true;
+        if (token) electronUpdater.requestHeaders = { Authorization: `Bearer ${token}` };
+        electronUpdater.on('update-downloaded', (info) => { if (sidebar && !sidebar.webContents.isDestroyed()) sidebar.webContents.send('toast', `Atualização ${info.version} pronta: será instalada quando você fechar o Alta Pulse.`); });
+        electronUpdater.on('error', () => {});
+      }
+      electronUpdater.checkForUpdates().catch(() => {});
+    } catch {}
+  };
+  setTimeout(check, 15000); setInterval(check, 60 * 60 * 1000);
 }

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Barra de endereço</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #16161c; font: 12px system-ui, "Segoe UI", sans-serif; color: #d6d6e2; overflow: hidden; }
+  form { display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 8px; box-sizing: border-box; border-bottom: 1px solid #2a2a36; }
+  .plat { flex: none; color: #9a9ab0; font-size: 11px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  input { flex: 1; min-width: 0; height: 22px; padding: 0 8px; border: 1px solid #2f2f3d; border-radius: 6px; background: #0f0f14; color: #e8e8f2; font: inherit; }
+  input:focus { outline: none; border-color: #7c5cff; }
+  button { flex: none; height: 22px; padding: 0 10px; border: 1px solid #2f2f3d; border-radius: 6px; background: #22222c; color: #e8e8f2; font: inherit; cursor: pointer; }
+  button:hover { border-color: #7c5cff; }
+  button.x { padding: 0 7px; color: #9a9ab0; }
+  .ok { color: #4ade80 !important; border-color: #2f7a4d !important; }
+</style>
+</head>
+<body>
+  <form id="f" autocomplete="off">
+    <span class="plat" id="plat"></span>
+    <input id="u" spellcheck="false" title="Endereço da página aberta. Cole o link de uma conversa e aperte Enter para abrir.">
+    <button type="button" id="copy" title="Copiar o link desta conversa">Copiar</button>
+    <button type="button" class="x" id="hide" title="Esconder a barra (volta pelo menu ⋮ → Barra de endereço)">×</button>
+  </form>
+  <script src="urlbar.js"></script>
+</body>
+</html>
