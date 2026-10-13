@@ -4,7 +4,7 @@
 // (cookies, login e cache separados). Fala com o painel altapulse.com.br pela mesma API da
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
-const { app, BaseWindow, WebContentsView, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
+const { app, BaseWindow, WebContentsView, webContents, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -607,9 +607,16 @@ function giveFocusBack() {
 }
 function hiddenGuard(view, isShown) {
   if (!view) return view;
-  const back = () => { if (!(isShown && isShown())) giveFocusBack(); }; // extrato aberto pela pessoa ("Ver extrato") pode ter o foco
-  view.webContents.on('focus', back);
-  for (const ev of ['did-start-loading', 'did-finish-load', 'did-navigate', 'did-navigate-in-page', 'dom-ready']) view.webContents.on(ev, () => setTimeout(back, 0));
+  // só age quando a aba oculta está de fato com o foco do teclado; fora disso não mexe em nada (não atrapalha quem digita)
+  const back = () => {
+    try {
+      if (isShown && isShown()) return; // extrato aberto pela pessoa ("Ver extrato") pode ter o foco
+      const f = webContents.getFocusedWebContents();
+      if (f && !view.webContents.isDestroyed() && f.id === view.webContents.id) giveFocusBack();
+    } catch {}
+  };
+  view.webContents.on('focus', () => setTimeout(back, 0));
+  for (const ev of ['did-finish-load', 'did-navigate']) view.webContents.on(ev, () => setTimeout(back, 50));
   return view;
 }
 function pushUrl() {
@@ -646,6 +653,7 @@ function layout() {
   const bar = urlbarOn() ? URLBAR_H : 0; const vwAll = Math.max(w - SIDEBAR_WIDTH - PEEK - pw, 200);
   if (urlView) { urlView.setBounds({ x: SIDEBAR_WIDTH, y: 0, width: vwAll, height: URLBAR_H }); urlView.setVisible(bar > 0); if (bar) pushUrl(); }
   for (const [id, t] of tabs) for (const [platform, v] of t) {
+    if (!v || v.webContents.isDestroyed()) continue;
     const vw = vwAll;
     v.setBounds({ x: SIDEBAR_WIDTH, y: bar, width: vw, height: h - bar });
     v.setVisible(id === activeId && platform === activeTab.get(id));
@@ -664,8 +672,10 @@ function saveOpenTabs() {
   writeJson('abas-abertas.json', { tabs: Object.fromEntries([...tabs].map(([id, t]) => [id, [...t.keys()]])), activeTab: Object.fromEntries(activeTab), active: activeId });
 }
 let restored = false;
+const restoreTimers = []; // abas ainda por abrir na carga escalonada; canceladas ao sair ou fechar
+function cancelRestore() { while (restoreTimers.length) clearTimeout(restoreTimers.pop()); }
 function restoreOpenTabs() {
-  if (restored || !state.user) return; restored = true;
+  if (restored || !state.user) return; restored = true; cancelRestore();
   const saved = readJson('abas-abertas.json', null); if (!saved || !saved.tabs) return;
   const known = new Set((state.creators || []).map((c) => c.id));
   // abre escalonado: a aba que estava ativa primeiro, as outras uma a cada 1,5 s (abrir todas de uma vez
@@ -689,7 +699,8 @@ function restoreOpenTabs() {
         layout(); pushState();
       };
       const delayed = delay > 0;
-      if (delay === 0) open(); else setTimeout(open, delay);
+      const safeOpen = () => { try { if (!win || win.isDestroyed() || !state.user) return; open(); } catch (e) { appLog('restoreOpenTabs', e); } };
+      if (delay === 0) safeOpen(); else restoreTimers.push(setTimeout(safeOpen, delay));
       delay += 1500;
     }
   }
@@ -699,6 +710,7 @@ function restoreOpenTabs() {
 function openProfile(creatorId, platform = 'privacy', opts = {}) {
   if (!PLATFORMS[platform]) platform = 'privacy';
   const t = tabsOf(creatorId);
+  if (t.has(platform) && t.get(platform).webContents.isDestroyed()) t.delete(platform); // sobrou do fechamento: recria
   if (t.has(platform)) { activeId = creatorId; activeTab.set(creatorId, platform); layout(); pushState(); return; }
   const ses = session.fromPartition(partitionFor(creatorId));
   ses.setUserAgent(UA, LANG);
@@ -1920,6 +1932,7 @@ async function revokeLocal() {
   } finally { revoking = false; }
 }
 async function doLogout() {
+  cancelRestore();
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
   const keep = readJson('abas-abertas.json', null);
@@ -2185,11 +2198,17 @@ app.whenReady().then(async () => {
   setTimeout(() => plantao.fetchConfigs().catch(() => {}), 12000); setInterval(() => plantao.fetchConfigs().catch(() => {}), 5 * 60000);
 });
 
+// Erro inesperado no processo principal: registra em erros-app.log e segue, em vez de abrir a janela
+// "A JavaScript error occurred in the main process" e travar o chatter (ex.: timer tocando numa aba já fechada).
+function appLog(where, e) { try { fs.appendFileSync(path.join(dataDir(), 'erros-app.log'), `${new Date().toISOString()} ${where}: ${e && e.stack || e}\n`); } catch {} }
+process.on('uncaughtException', (e) => appLog('uncaught', e));
+process.on('unhandledRejection', (e) => appLog('unhandled', e));
 app.on('window-all-closed', () => app.quit());
 // Ao fechar, avisa o servidor para invalidar o login deste app (melhor esforço, no máximo 1,5 s). Como o token
 // não fica em disco, a próxima abertura pede e-mail e senha de qualquer jeito.
 let quitting = false;
 app.on('before-quit', (e) => {
+  cancelRestore();
   if (quitting || !token) return;
   quitting = true; e.preventDefault();
   const t = token; token = null;
