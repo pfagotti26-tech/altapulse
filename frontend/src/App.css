@@ -62,3 +62,15 @@
 .sp-preview { margin-top: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .sp-preview span { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-text); }
 .sp-preview pre { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; margin: 6px 0 0; }
+
+/* Sombra: sugestão da IA x enviado pelo chatter */
+.shadow-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.shadow-tag.ok { background: #dcfce7; color: #166534; }
+.shadow-tag.warn { background: #fef3c7; color: #92400e; }
+.shadow-tag.bad { background: #fee2e2; color: #991b1b; }
+.shadow-tag.info { background: #dbeafe; color: #1e40af; }
+.shadow-tag.muted { background: #f1f5f9; color: #475569; }
+.shadow-table td { vertical-align: top; }
+.shadow-txt { max-width: 280px; white-space: pre-wrap; font-size: 13px; line-height: 1.35; }
+.shadow-txt.muted { color: #64748b; max-width: 200px; }
+.shadow-table tr.st-diferente td { background: #fff7f7; }

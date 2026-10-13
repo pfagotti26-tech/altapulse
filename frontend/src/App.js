@@ -19,6 +19,7 @@ import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import Plantao, { canPlantao } from './pages/Plantao';
 import InstallExtension from './pages/InstallExtension';
+import Shadow from './pages/Shadow';
 import Account, { PasswordSetup } from './pages/Account';
 import './App.css';
 import './AltaTheme.css';
@@ -64,6 +65,7 @@ export default function App() {
       <Route path="/relatorios" element={staff ? <Reports/> : <Navigate to="/"/>}/>
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
+      <Route path="/sombra" element={user.role === 'manager' ? <Shadow/> : <Navigate to="/"/>}/>
       <Route path="/conteudo" element={canContent(user) ? <Content user={user}/> : <Navigate to="/"/>}/>
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/minha-conta" element={<Account/>}/>

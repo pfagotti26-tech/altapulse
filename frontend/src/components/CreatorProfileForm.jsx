@@ -35,7 +35,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, content_thumbs: true, ...(p.features || {}) },
         content_goals: { posts_day: 0, paid_day: 0, mass_day: 0, videos_week: 0, responsible_id: '', ...(p.content_goals || {}) },
         connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
-        gender: p.gender || 'f', audience: p.audience || 'homens',
+        gender: p.gender || 'f', audience: p.audience || 'homens', shadow: !!p.shadow,
       });
     }).catch(e => toast.error(errorText(e)));
   }, [creatorId, meta]);
@@ -56,7 +56,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens' };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens', shadow: !!form.shadow };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -188,6 +188,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
     {tab === 'ia' && <section className="profile-sec"><h3>✨ Alta Ajuda</h3><div className="profile-grid">
       <Field id="pf-level" label="Intensidade máxima"><Select id="pf-level" value={form.max_level} onChange={e => up({ max_level: e.target.value })}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>
       <div>{chk(form.suggest_auto, v => up({ suggest_auto: v }), 'Sugestão automática ao abrir a conversa (fã falou por último). Desligado: o chatter clica em Sugerir resposta. Precisa de preços e limites.')}</div>
+      <div>{chk(form.shadow, v => up({ shadow: v }), 'Modo sombra: guarda cada sugestão e o que o chatter enviou de verdade, para medir a Alta Ajuda na página Sombra. O chatter não vê diferença e nada é enviado pelo sistema.')}</div>
     </div><p className="body-muted" style={{ fontSize: 12 }}>As mensagens vão mascaradas (sem telefone, e-mail ou links) com a ficha para a xAI. Nada é enviado ao fã sozinho.</p></section>}
 
     <div className="form-actions"><Button data-testid="profile-save" disabled={busy} onClick={save}>Salvar ficha</Button></div>

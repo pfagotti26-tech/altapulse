@@ -308,6 +308,7 @@ def normalize(prof):
     p['content_goals'] = {'posts_day': 0, 'paid_day': 0, 'mass_day': 0, 'videos_week': 0, 'responsible_id': '', **(p.get('content_goals') or {})}
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('gender', 'f'); p.setdefault('audience', 'homens')
+    p['shadow'] = bool(p.get('shadow'))  # modo sombra: registra sugestão x enviado para medir a Alta Ajuda (nunca envia)
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 

@@ -172,6 +172,7 @@ class ProfileIn(Strict):
     content_goals: PM.ContentGoals = Field(default_factory=PM.ContentGoals)
     gender: Literal['f', 'm', 'o'] = 'f'  # gênero da persona (concordância da IA); ficha antiga = feminino
     audience: Literal['homens', 'mulheres', 'gays', 'misto'] = 'homens'  # público principal dos fãs
+    shadow: bool = False  # modo sombra: grava a sugestão e o que o chatter enviou de verdade, para comparar (nada é enviado pelo sistema)
 OPENER_KEYS = {'novo', 'cliente', 'sumido', 'voltando'}
 def clean_persona(d):
     return {k: str(v).strip()[:6000] for k, v in (d or {}).items() if k in PERSONA_KEYS and str(v or '').strip()}
@@ -647,7 +648,7 @@ FIM DA CONVERSA:
     warning = str(out.get('aviso') or '')[:160]
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora antes de o fã pagar.'
-    return {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
+    result = {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
             'warning': warning, 'price_fixed': fixed, 'remaining': remaining, 'usage_id': usage_id,
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
@@ -656,12 +657,82 @@ FIM DA CONVERSA:
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
+    # Modo sombra (ficha da criadora): guarda a sugestão para comparar com o que o chatter enviar de verdade.
+    # Só medição: nada muda no que o chatter vê, e nada é enviado pelo sistema.
+    if PM.normalize(prof).get('shadow') and text.strip():
+        last_fan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
+        sid = uid()
+        await db.shadow_actions.insert_one({'id': sid, 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
+            'at': iso(), 'day': today(), 'fan_ref': body.fan_ref, 'usage_id': usage_id, 'platform': body.platform, 'mode': body.mode, 'style': body.style,
+            'level': level, 'step': result['step'], 'situation': situation, 'product': prod['item'] if prod else '', 'proposed': text[:1200], 'last_fan': last_fan[:300],
+            'status': 'pendente', 'sent': None, 'sent_at': None, 'similarity': None, 'media_cents': None, 'expires_at': now() + timedelta(days=120)})
+        result['shadow_id'] = sid
+    return result
 
 @router.post('/extension/assist/used/{usage_id}')
 async def mark_used(usage_id: str, user=Depends(extension_user)):
     """O chatter colocou a sugestão na caixa (para medir o aproveitamento)."""
     await db.assist_usage.update_one({'id': usage_id, 'user_id': user['id']}, {'$set': {'used': True}})
     return {'ok': True}
+
+# ---------- Modo sombra: sugestão x enviado ----------
+# O app, depois de uma sugestão, observa a conversa aberta; quando a criadora manda a próxima mensagem, informa aqui o
+# texto real. O servidor compara com a sugestão: igual (>= 90%), editado (>= 40%) ou diferente. Mídia paga vira "midia".
+import difflib
+def shadow_similarity(a, b):
+    x, y = ' '.join(PM._norm(a)), ' '.join(PM._norm(b))
+    if not x or not y: return 0.0
+    return round(difflib.SequenceMatcher(None, x, y).ratio(), 3)
+def shadow_status(sim, sent):
+    if re.search(r'\[m[ií]dia paga enviada', sent or '', re.I): return 'midia'
+    return 'igual' if sim >= 0.9 else 'editado' if sim >= 0.4 else 'diferente'
+class ShadowSentIn(Strict):
+    text: str = Field(default='', max_length=1200)
+@router.post('/extension/assist/shadow/{shadow_id}/sent')
+async def shadow_sent(shadow_id: str, body: ShadowSentIn, user=Depends(extension_user)):
+    row = await db.shadow_actions.find_one({'id': shadow_id, 'user_id': user['id']}, {'_id': 0})
+    if not row: raise HTTPException(404, 'Registro de sombra não encontrado.')
+    if row.get('status') != 'pendente': return {'ok': True, 'status': row['status']}
+    sent = scrub(body.text.strip())
+    sim = shadow_similarity(row.get('proposed') or '', sent)
+    m = re.search(r'\[m[ií]dia paga enviada:\s*R\$\s*([\d.]+),?(\d{0,2})', sent, re.I)
+    cents = (int(m.group(1).replace('.', '')) * 100 + int((m.group(2) or '0').ljust(2, '0'))) if m else None
+    st = shadow_status(sim, sent)
+    await db.shadow_actions.update_one({'id': shadow_id}, {'$set': {'sent': sent[:1200], 'sent_at': iso(), 'similarity': sim, 'status': st, 'media_cents': cents}})
+    return {'ok': True, 'status': st, 'similarity': sim}
+
+@router.get('/assist/shadow')
+async def shadow_report(days: int = 7, creator_id: str = '', user=Depends(manager)):
+    """Painel Sombra (gestor): o que a IA sugeriu x o que o chatter enviou, por criadora e por chatter."""
+    days = max(1, min(days, 90))
+    since = (datetime.now(BR) - timedelta(days=days - 1)).strftime('%Y-%m-%d')
+    q = {'day': {'$gte': since}}
+    if creator_id: q['creator_id'] = creator_id
+    rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(2000)
+    # pendente há mais de 2 h = o chatter não respondeu depois da sugestão (ou fechou a conversa)
+    cut = (now() - timedelta(hours=2)).isoformat()
+    for r in rows:
+        if r['status'] == 'pendente' and r['at'] < cut: r['status'] = 'sem_resposta'
+    def group(key):
+        out = {}
+        for r in rows:
+            k = r.get(key) or ''; g = out.setdefault(k, {'id': k, 'name': r.get('creator_name') if key == 'creator_id' else r.get('user_name'), 'n': 0, 'igual': 0, 'editado': 0, 'diferente': 0, 'midia': 0, 'sem_resposta': 0, 'pendente': 0, 'sim_sum': 0.0, 'sim_n': 0})
+            g['n'] += 1; g[r['status']] = g.get(r['status'], 0) + 1
+            if r.get('similarity') is not None and r['status'] in ('igual', 'editado', 'diferente'): g['sim_sum'] += r['similarity']; g['sim_n'] += 1
+        res = []
+        for g in out.values():
+            done = g['igual'] + g['editado'] + g['diferente']
+            g['aproveitamento'] = round(100 * (g['igual'] + g['editado']) / done) if done else None
+            g['similaridade'] = round(100 * g['sim_sum'] / g['sim_n']) if g['sim_n'] else None
+            g.pop('sim_sum'); g.pop('sim_n'); res.append(g)
+        return sorted(res, key=lambda x: -x['n'])
+    total = {'n': len(rows)}
+    for st in ('igual', 'editado', 'diferente', 'midia', 'sem_resposta', 'pendente'): total[st] = sum(1 for r in rows if r['status'] == st)
+    done = total['igual'] + total['editado'] + total['diferente']
+    total['aproveitamento'] = round(100 * (total['igual'] + total['editado']) / done) if done else None
+    creators = [{'id': c['id'], 'name': c.get('name')} for c in await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(500)]
+    enabled = [r['creator_id'] for r in await db.assist_profiles.find({'shadow': True}, {'_id': 0, 'creator_id': 1}).to_list(500)]
+    return {'days': days, 'total': total, 'by_creator': group('creator_id'), 'by_user': group('user_id'), 'rows': rows[:400], 'creators': creators, 'enabled': enabled}
 
 @router.get('/extension/assist/prices')
 async def app_prices(creator_id: str, user=Depends(extension_user)):

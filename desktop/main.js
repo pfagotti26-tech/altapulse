@@ -1719,8 +1719,27 @@ ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp 
   if (Number.isFinite(temp)) body.temp = Math.max(0, Math.min(100, Math.round(temp)));
   const out = await api('POST', '/extension/assist/suggest', body);
   const c = assistCache.get(id); if (c && out && out.remaining != null) c.data = { ...c.data, remaining: out.remaining };
+  if (out && out.shadow_id) shadowWatch(out.shadow_id, id, fanAt, read.msgs);
   return { ...out, fanRef: fanAt };
 });
+// Modo sombra (ficha da criadora): depois de uma sugestão, observa a conversa aberta e, quando a criadora manda a
+// próxima mensagem, informa ao painel o texto real para comparar com o sugerido. Só leitura: nada é enviado por aqui.
+let shadow = null;
+function shadowWatch(id, creatorId, fanRef, msgs) {
+  const lastOurs = [...msgs].reverse().find((m) => m.ours);
+  shadow = { id, creatorId, fanRef, lastOurs: lastOurs ? lastOurs.text : '', count: msgs.filter((m) => m.ours).length, until: Date.now() + 30 * 60000 };
+}
+setInterval(async () => {
+  if (!shadow || !token) return;
+  if (Date.now() > shadow.until || fan.creatorId !== shadow.creatorId || fan.fanRef !== shadow.fanRef) { shadow = null; return; } // conversa mudou: fica "sem resposta"
+  const tg = chatTarget(); if (!tg || tg.id !== shadow.creatorId) return;
+  const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
+  if (!read || !read.msgs || !read.msgs.length) return;
+  const last = read.msgs[read.msgs.length - 1];
+  if (!last.ours || last.text === shadow.lastOurs) return;
+  const w = shadow; shadow = null;
+  await api('POST', `/extension/assist/shadow/${encodeURIComponent(w.id)}/sent`, { text: String(last.text || '').slice(0, 1200) }).catch(() => {});
+}, 5000);
 // perfil do fã (Servo, Cuck, Baunilha…): o chatter classifica; vale para a equipe toda e orienta o Sugerir resposta
 ipcMain.handle('fanseg:get', async () => {
   if (!fan.creatorId || !fan.fanRef) return { segment: '', fanRef: null };
