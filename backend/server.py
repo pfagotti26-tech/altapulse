@@ -103,7 +103,7 @@ async def origin_guard(request: Request, call_next):
 
 for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content]:
     app.include_router(router, prefix='/api')
-    app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
+app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 
 @app.get('/api/health')
 async def health():
