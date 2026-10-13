@@ -18,6 +18,7 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
+const ENSAIO_UI = require('./auto/ensaio-ui.js'); // AUTO (Grok)
 const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
@@ -444,11 +445,39 @@ function setFanFromChat(id, open, platform = 'privacy') {
     if (ch) pushFan(); loadFanCard();
   }
 }
+
+// AUTO (Grok) — chama /auto/decide uma vez por mensagem nova do fã na Aline (só app de teste)
+let lastAutoKey = '';
+async function tryAutoDecide(view, creatorId) {
+  if (!ALTA_TESTE) return;
+  try {
+    const data = await view.webContents.executeJavaScript(READER_SCRIPT, true);
+    if (!data || data.page !== 'chat' || !data.open) return;
+    const msgs = data.open.messages || [];
+    if (!msgs.length || msgs[msgs.length - 1].ours) return;
+    const key = creatorId + ':' + msgs.length + ':' + (msgs[msgs.length - 1].text || '').slice(0, 40);
+    if (key === lastAutoKey) return;
+    lastAutoKey = key;
+    const payload = {
+      creator_id: creatorId,
+      fan_ref: data.open.fan_ref || '',
+      messages: msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
+    };
+    const r = await api('POST', '/auto/decide', payload);
+    if (r && (r.suggested_text || r.reason)) {
+      await view.webContents.executeJavaScript(
+        `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify(r.reason || '')})`,
+        true
+      );
+    }
+  } catch (e) { /* silencioso */ }
+}
+
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
 async function quickFan(id) {
   if (id === activeId && (activeTab.get(id) === 'onlyfans' || activeTab.get(id) === 'fatalfans')) return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
-  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
+  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); if (ALTA_TESTE) { try { view.webContents.executeJavaScript(ENSAIO_UI, true); } catch {} tryAutoDecide(view, id).catch(()=>{}); } } catch {}
 }
 // Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
 async function quickFanOF(id) {
