@@ -658,7 +658,18 @@ function restoreOpenTabs() {
     const plats = [...platforms]; const pref = saved.activeTab && saved.activeTab[id];
     if (pref && plats.includes(pref)) plats.sort((x) => (x === pref ? -1 : 1));
     for (const platform of plats) {
-      const open = () => { if (!state.user) return; openProfile(id, platform, { quiet: true }); if (pref) activeTab.set(id, pref); if (saved.active && tabs.has(saved.active)) activeId = saved.active; layout(); pushState(); }; // volta o foco para a aba que estava ativa
+      // aba restaurada em segundo plano não rouba o foco: mantém a criadora que a pessoa está vendo AGORA
+      // (antes, cada aba devolvia o foco para a que estava ativa ao fechar o app, e o clique do chatter era desfeito)
+      const open = () => {
+        if (!state.user) return;
+        const cur = activeId, curTab = cur ? activeTab.get(cur) : null;
+        openProfile(id, platform, { quiet: true });
+        if (pref) activeTab.set(id, pref);
+        if (delayed && cur && tabs.has(cur)) { activeId = cur; if (curTab) activeTab.set(cur, curTab); }
+        else if (!delayed && saved.active && tabs.has(saved.active)) activeId = saved.active;
+        layout(); pushState();
+      };
+      const delayed = delay > 0;
       if (delay === 0) open(); else setTimeout(open, delay);
       delay += 1500;
     }
