@@ -309,6 +309,8 @@ def normalize(prof):
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('gender', 'f'); p.setdefault('audience', 'homens')
     p['shadow'] = bool(p.get('shadow'))  # modo sombra: registra sugestão x enviado para medir a Alta Ajuda (nunca envia)
+    p['auto_enabled'] = bool(p.get('auto_enabled'))  # base para envio automático (desligado por padrão)
+    p.setdefault('auto_config', {'min_delay_ms': 8000, 'max_delay_ms': 25000, 'require_approval': True})
     p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 

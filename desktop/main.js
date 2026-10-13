@@ -9,6 +9,8 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
+const MEDIA_OBSERVER = require('./media-observer.js');
+function injectMediaObserver(view) { try { if (view && !view.webContents.isDestroyed()) view.webContents.executeJavaScript(MEDIA_OBSERVER, true).catch(()=>{}); } catch {} }
 const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
@@ -439,7 +441,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
 async function quickFan(id) {
   if (id === activeId && (activeTab.get(id) === 'onlyfans' || activeTab.get(id) === 'fatalfans')) return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
-  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
+  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); injectMediaObserver(view); } catch {}
 }
 // Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
 async function quickFanOF(id) {
@@ -1709,6 +1711,12 @@ ipcMain.handle('assist:prices', async () => {
   if (!fan.creatorId) return { prices: [] };
   return api('GET', `/extension/assist/prices?creator_id=${encodeURIComponent(fan.creatorId)}`).catch(() => ({ prices: [] }));
 });
+
+ipcMain.handle('assist:mediaSent', async (_e, payload) => {
+  if (!payload || !payload.creator_id) return false;
+  try { await api('POST', '/extension/assist/media-sent', payload); return true; } catch (e) { return false; }
+});
+
 ipcMain.handle('assist:used', async (_e, usageId) => { if (usageId) await api('POST', `/extension/assist/used/${encodeURIComponent(usageId)}`, {}).catch(() => {}); return true; });
 ipcMain.handle('assist:suggest', async (_e, { style, level, mode, product, temp } = {}) => {
   const id = fan.creatorId; if (!id || !fan.fanRef) throw new Error('Abra a conversa de um fã primeiro.');

@@ -710,6 +710,53 @@ async def shadow_sent(shadow_id: str, body: ShadowSentIn, user=Depends(extension
         'media_cents': mi['cents'] if mi else None, 'media_kind': mi['kind'] if mi else None, 'media_free': bool(mi and mi['free'])}})
     return {'ok': True, 'status': st, 'similarity': sim}
 
+
+class MediaSentIn(Strict):
+    creator_id: str
+    fan_ref: Optional[str] = None
+    media_type: Literal['foto', 'video', 'audio', 'gif', 'outro'] = 'foto'
+    source: Literal['acervo', 'dispositivo', 'outro'] = 'acervo'
+    price_cents: int = 0
+    description: Optional[str] = None
+    shadow_id: Optional[str] = None
+
+@router.post('/extension/assist/media-sent')
+async def media_sent(body: MediaSentIn, user=Depends(extension_user)):
+    """Registra mídia enviada pelo chatter (aprendizado no modo sombra). Nada é enviado pelo sistema."""
+    await can_see(user, body.creator_id)
+    doc = {
+        'id': uid(),
+        'creator_id': body.creator_id,
+        'user_id': user['id'],
+        'user_name': user.get('name'),
+        'fan_ref': body.fan_ref,
+        'at': iso(),
+        'day': today(),
+        'media_type': body.media_type,
+        'source': body.source,
+        'price_cents': max(0, body.price_cents),
+        'description': (body.description or '')[:300],
+        'shadow_id': body.shadow_id,
+        'mode': 'sombra',
+    }
+    await db.media_actions.insert_one(doc)
+    if body.shadow_id:
+        await db.shadow_actions.update_one(
+            {'id': body.shadow_id},
+            {'$set': {'media_sent': True, 'media_price_cents': doc['price_cents'], 'media_type': body.media_type}}
+        )
+    return {'ok': True, 'id': doc['id']}
+
+@router.get('/assist/media-actions')
+async def list_media_actions(creator_id: Optional[str] = None, days: int = 7, user=Depends(manager)):
+    days = max(1, min(days, 90))
+    since = (datetime.now(BR) - timedelta(days=days-1)).strftime('%Y-%m-%d')
+    q = {'day': {'$gte': since}}
+    if creator_id:
+        q['creator_id'] = creator_id
+    rows = await db.media_actions.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    return {'actions': rows, 'count': len(rows)}
+
 @router.get('/assist/shadow')
 async def shadow_report(days: int = 7, creator_id: str = '', user=Depends(manager)):
     """Painel Sombra (gestor): o que a IA sugeriu x o que o chatter enviou, por criadora e por chatter."""
