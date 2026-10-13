@@ -1,0 +1,59 @@
+{
+  "summary": "Scoped verification completed for logo swap + Windows installer diagnostics. Alta Pulse logos are live on login/download/authenticated sidebar, installer helper works as read-only local integrity checker, and public installer binary (0.2.1) is byte/hash consistent with release manifest and local artifact. Reported Windows launch-permission error is NOT reproduced in this Linux environment and therefore NOT confirmed fixed.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "Windows client launch (pre-install, user machine)",
+        "issue": "User-reported message 'O Windows não pode acessar o dispositivo, caminho ou arquivo especificado' could not be reproduced/validated without Windows host policy and Protection History evidence.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Public pages initial load",
+        "issue": "Console shows repeated 401 resource errors for /api/auth/me during unauthenticated state (noise observed during automation logs).",
+        "affected_selectors": [
+          "N/A (network log)",
+          "[data-testid='auth-email']",
+          "[data-testid='download-title']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_windows_installer_integrity.py",
+    "/app/test_reports/pytest/pytest_results_iteration9.xml",
+    "/app/test_reports/windows-installer-archive-check.log"
+  ],
+  "action_items": [
+    "Treat Windows launch-permission bug as unresolved until user-side Windows evidence is collected (Security > Protection History details/time-matched event).",
+    "Keep installer unchanged for now; integrity/corruption checks passed and archive is valid NSIS package.",
+    "Optional hardening: prevent unauthenticated /api/auth/me polling from surfacing as console resource errors on public pages."
+  ],
+  "critical_code_review_comments": [
+    "Brand component points to /brand/alta-pulse-* assets with alt='Alta Pulse' as requested; legacy product text 'Alta Core' remains unchanged in UI copy.",
+    "installer.nsi uses per-user install scope (RequestExecutionLevel user, $LOCALAPPDATA target), consistent with non-admin installation intent.",
+    "build.mjs/installer flow contains no code-signing step; unsigned state is explicit in /api/desktop/release (signed=false) and must not be presented as proven root cause for this specific Windows message.",
+    "Public download evidence: manifest size/hash == streamed download == local release file (0.2.1, 114965344 bytes, sha256 71f3612df4fae7f0d08805e5805948369792cb4ca5c7bb50eb90e172f64c487a).",
+    "Archive integrity evidence: 7z test returned 'Everything is Ok'; extracted payload contains AltaCore.exe (PE32+ x86-64) and expected app resources."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_windows_installer_integrity.py",
+    "/app/test_reports/windows-installer-archive-check.log",
+    "/app/test_reports/iteration_9.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "92%"
+  },
+  "seed_data_creation": "No backend seed data created. Local temporary files only for UI checksum probe: /tmp/iter9-truncated.exe and /tmp/iter9-mutated-same-size.exe.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Scoped checks executed only for branding + installer diagnostics. Screenshots: /app/test_reports/screenshots_iter9/iter9_login_brand.jpeg, iter9_download_page.jpeg, iter9_installer_help_results.jpeg, iter9_authenticated_sidebar.jpeg. Windows execution-policy/device-access behavior still requires real Windows confirmation.",
+  "rca of the issue": "RCA status: download artifact corruption/truncation not supported by evidence. Reproduction on Linux cannot emulate Windows launch policy that raises this exact message before install execution. Verified binary is intact and matches published manifest/hash; NSIS archive is extractable and payload architecture is correct (x64 app inside NSIS PE32 bootstrap). Most probable classes remain Windows-side path/access/security policy controls, but no definitive root cause can be claimed without user machine event evidence."
+}

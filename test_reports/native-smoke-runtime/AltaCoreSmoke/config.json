@@ -1,0 +1,8 @@
+{
+  "version": "0.2.0",
+  "app_url": "https://privacy-agent-hub.preview.emergentagent.com",
+  "privacy_url": "https://privacy-agent-hub.preview.emergentagent.com/api/health",
+  "privacy_origins": [
+    "https://privacy-agent-hub.preview.emergentagent.com"
+  ]
+}

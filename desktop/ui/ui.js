@@ -117,7 +117,6 @@ function showWelcome() {
 function apply(state) {
   S = state;
   const logged = !!(S && S.user);
-  if ($('menu-urlbar')) $('menu-urlbar').textContent = `${S && S.urlbar ? '✓ ' : ''}Barra de endereço`;
   $('login').classList.toggle('hidden', logged);
   $('main').classList.toggle('hidden', !logged);
   $('origin').value = S.origin || '';
@@ -185,7 +184,7 @@ function card(c, groupItems) {
   const rd = S.readers && S.readers[c.id];
   let queue = '';
   if (rd && rd.page === 'chat') {
-    if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue wait-link ${late ? 'late' : ''}" title="Ver quem está esperando e abrir a conversa">${rd.waiting} esperando${wt} ›</div>`; }
+    if (rd.waiting > 0) { const late = rd.oldestWaitMin != null && rd.oldestWaitMin > (S.sla_minutes || 5); const w = rd.oldestWaitMin; const wt = w == null ? '' : w < 60 ? ` · ${w} min` : ` · ${Math.floor(w / 60)} h${w % 60 ? ` ${w % 60} min` : ''}`; queue = `<div class="queue ${late ? 'late' : ''}">${rd.waiting} esperando${wt}</div>`; }
     else queue = '<div class="queue ok">fila zerada</div>';
   }
   const ex = S.extratos && S.extratos[c.id];
@@ -250,7 +249,6 @@ function card(c, groupItems) {
     openCreator(c).then(() => { if (S.open.includes(c.id)) enterPlatform(c, (S.activeTab && S.activeTab[c.id]) || 'privacy', true); });
   });
   el.querySelectorAll('.shift-btn').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); shiftClick(c, b.dataset.shift); }));
-  el.querySelectorAll('.wait-link').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); waitingDialog(c); }));
   el.querySelectorAll('.chip').forEach((ch) => ch.addEventListener('click', (e) => {
     e.stopPropagation();
     const x = e.target.closest('.chip-x'); if (x) return run(() => window.pulse.closeTab(c.id, x.dataset.close));
@@ -707,27 +705,6 @@ $('only-open').addEventListener('change', () => { renderList(); applyPanel(); })
 $('btn-search').onclick = () => { setBlk('search', 'open'); setTimeout(() => $('search').focus(), 50); };
 $('btn-filter').onclick = () => { $('only-open').checked = !$('only-open').checked; $('only-open').dispatchEvent(new Event('change')); };
 $('btn-opps').onclick = () => oppDialog();
-// ---------- "N esperando": quem está esperando resposta nesta criadora, da espera mais antiga para a mais nova ----------
-// A lista vem da leitura da lista de conversas da Privacy (fica só no app). "Abrir conversa" abre direto a conversa,
-// mesmo que ela esteja lá no fim da lista; respondendo, a espera zera sozinha na próxima leitura.
-function waitingDialog(c) {
-  const rd = S.readers && S.readers[c.id]; const list = (rd && rd.waitingList) || [];
-  const ago = (m) => m == null ? 'há um tempo' : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `há ${Math.floor(m / 1440)} dia${m >= 2880 ? 's' : ''}`;
-  const sla = S.sla_minutes || 5;
-  const rows = list.map((w, i) => `<div class="pl-item${w.waitMin != null && w.waitMin > sla ? ' late' : ''}" data-i="${i}"><div class="who"><b>${esc(w.name)}</b><small>esperando ${esc(ago(w.waitMin))} · ${w.spent_cents ? esc(fmtBRL(w.spent_cents)) : 'nunca gastou'}</small></div><button class="primary" data-open="1">Abrir conversa</button></div>`).join('');
-  const body = `<p style="margin:0 0 6px;font-size:12px;color:#9a9ab0">Quem mandou a última mensagem e ainda não teve resposta, da espera mais antiga para a mais nova. Abra, responda e a espera zera sozinha.</p>
-    ${rows || '<small style="color:#9a9ab0">Ninguém esperando agora (a lista atualiza a cada 10 s com o Chat da criadora aberto).</small>'}
-    ${list.length && rd.waiting > list.length ? `<small style="color:#9a9ab0">Mostrando as ${list.length} mais antigas de ${rd.waiting}.</small>` : ''}`;
-  const p = dialog({ title: `${c.name} · esperando resposta`, body, hideOk: true });
-  $('dialog-body').querySelectorAll('[data-open]').forEach((btn) => btn.onclick = async () => {
-    const w = list[Number(btn.closest('.pl-item').dataset.i)]; if (!w) return;
-    btn.disabled = true; btn.textContent = 'Abrindo…';
-    try { await window.pulse.waitOpen({ creator_id: c.id, name: w.name, rid: w.rid }); $('dialog-cancel').onclick(); }
-    catch (e) { toast(`Não consegui abrir: ${e.message || e}`); btn.disabled = false; btn.textContent = 'Abrir conversa'; }
-  });
-  return p;
-}
-
 // ---------- Plantão (copiloto): fila de abordagens; "Abrir e preencher" deixa o texto na caixa, o envio é da pessoa ----------
 const plHasPerm = () => !!(S && S.user && (S.user.owner || (S.user.perms || []).includes('plantao')));
 let plQ = null;
@@ -736,20 +713,16 @@ function renderPlantao() {
   if (!plHasPerm()) { b.classList.add('hidden'); return; }
   b.classList.remove('hidden');
   const on = plQ ? plQ.creators.length : 0; const n = plQ ? plQ.creators.reduce((a, c) => a + c.items.length, 0) : 0; const pend = plQ ? plQ.pending.length : 0;
-  const onl = plQ ? plQ.creators.reduce((a, c) => a + (c.online || 0), 0) : 0;
-  b.innerHTML = `🌙 <b>Plantão</b> · ${on ? `${on} criadora${on > 1 ? 's' : ''} ligada${on > 1 ? 's' : ''} · ${n} na fila` : 'nenhuma criadora ligada'}${onl ? ` · <span class="pl-on">● ${onl} online</span>` : ''}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
+  b.innerHTML = `🌙 <b>Plantão</b> · ${on ? `${on} criadora${on > 1 ? 's' : ''} ligada${on > 1 ? 's' : ''} · ${n} na fila` : 'nenhuma criadora ligada'}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
 }
 async function plLoad(refresh) { try { plQ = refresh ? await window.pulse.plantaoRefresh() : await window.pulse.plantaoQueue(); } catch (e) { plQ = null; } renderPlantao(); return plQ; }
 async function plantaoDialog() {
   const q = await plLoad(true); if (!q) return toast('Não consegui carregar o plantão.');
   const money = (c) => c ? fmtBRL(c) : 'nunca gastou';
   const groups = q.creators.map((c) => {
-    // copiloto: quem envia é a pessoa. Com chatter em turno é até melhor — quem responder cai direto na fila dele.
-    const st = !c.open ? 'abra o Chat desta criadora no app para montar a fila' : c.in_shift ? 'chatter em turno · bom momento: quem responder cai para ele' : 'sem chatter em turno · quem responder fica nas Oportunidades';
-    const onl = c.online ? ` · <span class="pl-on">● ${c.online} online agora</span>` : '';
-    const empty = `<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora${c.inactive_days ? ` (parados há ${c.inactive_days}+ dias)` : ''}. Veja o motivo no painel → Plantão noturno → Fila agora.</small>`;
-    const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item${it.online ? ' online' : ''}" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${it.online ? '<span class="pl-on" title="online agora">●</span> ' : ''}${esc(it.name)}</b><small>${it.online ? 'online agora · ' : ''}${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : empty;
-    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}${onl}</span></div>${items}`;
+    const st = !c.open ? 'sem histórico ainda: abra a Privacy desta criadora no app' : c.in_shift && c.only_without_shift ? 'chatter em turno · fila pausada' : c.in_window ? 'dentro da janela' : `fora da janela (${c.window})`;
+    const items = !c.open ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b>${esc(it.name)}</b><small>${it.days} dia${it.days === 1 ? '' : 's'} sem conversar · ${esc(money(it.spent_cents))}${it.ghosted ? ' · sumiu depois da resposta' : ''}</small><span class="txt" title="${esc(it.text)}">${esc(it.text || '(sem abertura cadastrada)')}</span></div><button class="primary" data-prep="1" ${it.text ? '' : 'disabled'}>Abrir e preencher</button></div>`).join('') : '<small style="color:#9a9ab0">ninguém se encaixa nos filtros agora</small>';
+    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}</span></div>${items}`;
   }).join('');
   const pend = q.pending.map((p) => `<div class="pl-item pend" data-c="${esc(p.key.split('|')[0])}" data-f="${esc(p.key.split('|')[1])}"><div class="who"><b>${esc(p.name)}</b><small>texto na caixa, aguardando você enviar</small><span class="txt">${esc(p.text)}</span></div><button class="ghost" data-cancel="1">Desfazer</button></div>`).join('');
   const sent = q.sent.slice(-20).reverse().map((p) => `<div class="pl-item sent"><div class="who"><b>${esc(p.name)}</b><small>${p.replied ? '✅ respondeu — está nas Oportunidades' : 'enviada · aguardando resposta'}</small><span class="txt">${esc(p.text)}</span></div></div>`).join('');
@@ -802,7 +775,6 @@ $('app-menu').addEventListener('click', async (e) => {
   if (act === 'panel') window.pulse.openExternal(`${S.origin}/criadoras`);
   if (act === 'tags') tagsDialog();
   if (act === 'hide') run(() => window.pulse.hideAll());
-  if (act === 'urlbar') window.pulse.urlbarShow(!S.urlbar).then((on) => toast(on ? 'Barra de endereço visível (Copiar ou colar um link e Enter).' : 'Barra de endereço escondida. Volta pelo menu ⋮.', 2500));
   if (act === 'panel-cfg') panelDialog();
   if (act === 'focus') toggleFocus();
   if (act === 'turn-start') turnAction('start');
@@ -812,10 +784,10 @@ $('app-menu').addEventListener('click', async (e) => {
 
 window.pulse.onState(apply);
 window.pulse.onToast(toast);
-if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url, quick, ready }) => {
+if (window.pulse.onPortableUpdate) window.pulse.onPortableUpdate(({ version, url, quick }) => {
   let bar = document.getElementById('portable-update');
   if (!bar) { bar = document.createElement('div'); bar.id = 'portable-update'; bar.className = 'portable-update'; document.body.prepend(bar); }
-  bar.innerHTML = ready ? `<span>Versão ${esc(version)} já baixada: vale quando reabrir o Alta Pulse</span><button>Reiniciar agora</button>` : `<span>Nova versão ${esc(version)} disponível</span><button>${quick ? 'Atualizar' : 'Baixar'}</button>`;
+  bar.innerHTML = `<span>Nova versão ${esc(version)} disponível</span><button>${quick ? 'Atualizar' : 'Baixar'}</button>`;
   const btn = bar.querySelector('button');
   btn.onclick = async () => {
     if (!quick || !window.pulse.portableUpdate) return window.pulse.openExternal(url);

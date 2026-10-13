@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 14 backend + frontend testing for Alta Pulse Chrome extension migration. 23/23 backend pytest cases pass covering /api/extension/login (success/401/429), /state (with Bearer + chrome-extension:// Origin), /heartbeat (authorized + unauthorized creator), /shifts (start + duplicate 409 + pause/resume/end), /observations (storage disabled vs enabled), /logout (token invalidation), /release, /download (401 unauth, 200 zip w/ manifest.json), removal of /api/desktop/* (all 404), and web regression (/auth/me, /creators, /metrics, /settings PATCH, /shifts). Frontend: /instalar renders, /baixar redirects to /instalar, sidebar shows Extensão Chrome links, Settings extension card works while authenticated. One UX bug found on public /instalar page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "InstallExtension (/instalar public page)",
+        "issue": "The 'Baixar a extensão (.zip)' button calls GET /api/extension/download which requires a web session cookie (Depends(current_user)). Unauthenticated visitors hitting /instalar get a 401 on the network request and the download never starts. Confirmed via curl: /api/extension/download returns 401 without session. The public page presents a download CTA that only works for already-logged-in users.",
+        "selector": "[data-testid=\"download-extension\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14_extension.py",
+    "/app/test_reports/pytest/iteration14.xml"
+  ],
+  "action_items": [
+    "Fix /instalar download UX: either (a) make /api/extension/download public (no auth) since it only serves the extension .zip which will also be linked from chrome-extension:// context and contains no secrets, or (b) require login on /instalar page and redirect to /auth before showing the download button, or (c) proxy the download through a public /api/extension/download-public route. Currently public visitors get a silent 401.",
+    "Optional: Rate limit on /api/extension/login fires but takes ~15-25 attempts to trigger because request.client.host varies across ingress proxy hops (each unique host+email creates its own counter). Consider keying by email only, or by X-Forwarded-For, to make the 10-attempt/15-min threshold predictable."
+  ],
+  "critical_code_review_comments": [
+    "extension_routes.py logout deletes only extension tokens for source='extension' browsers but not for any observation events; acceptable.",
+    "extension_routes.py observations loop appends a dict with .get() but immediately returns sum(r['ok'] for r in results) — if a validation error path forgets to set 'ok', KeyError. Currently all paths set ok=False; guarded.",
+    "stations.ingest returns HTTPException raise directly on creator not found/paused. In /api/extension/observations these are caught and reported per-event which is good.",
+    "Rate limit key includes request.client.host — with k8s ingress this may vary; consider stripping to a single hop or using email only.",
+    "/api/extension/download requires manager (via current_user which is any authenticated user, actually). But the public /instalar page CTA has no auth guard — see UX bug above."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14_extension.py",
+    "/app/test_reports/iteration_14.json"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23)",
+    "frontend": "Login, sidebar, /instalar rendering, /baixar redirect, Settings download all pass. Public /instalar download CTA fails silently for unauthenticated visitors (401)."
+  },
+  "test_credentials": "teste@altaagency.com.br / AltaCore!7mK9q2R5 (from /root/alta-core-test.env, preserved).",
+  "seed_data_creation": "None. Toggled storage_allowed temporarily for one observations test and reverted immediately.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Full extension backend contract validated including CORS/origin_guard for chrome-extension:// Origin, token issuance/expiry, heartbeat, shift lifecycle (including duplicate 409), observations respecting storage_allowed, logout token invalidation, release/download endpoints and desktop route removal. All 23 pytest cases pass in test_iteration14_extension.py. Rate limit test needed 30 attempts because ingress varies request.client.host across pods/hops. Real creator 'Mel Martins' (id e004895129b339393d0da552) was used only for reads and one heartbeat/shift lifecycle test which properly ended its own shift. Contas pfagotti26/fernanda.fagotti1 were NOT touched. The main frontend regression is the public /instalar page: its download button hits an auth-gated endpoint (401 for anonymous visitors) — main agent should decide between making /api/extension/download public or gating the /instalar CTA behind login.",
+  "rca of the issue": "InstallExtension.jsx calls api.get('/extension/release') (public - works) then download('/extension/download', filename). The /extension/download route uses Depends(current_user) which requires the vertice_session cookie. Anonymous visitors landing on /instalar to install the Chrome extension will see the CTA but the download silently fails with a 401 (visible in browser console). Either drop the auth requirement on /api/extension/download (the extension .zip has no secrets — api_origin is placed via string replace at packaging time and is already public) or redirect anonymous /instalar visitors to /auth before rendering the download button."
+}

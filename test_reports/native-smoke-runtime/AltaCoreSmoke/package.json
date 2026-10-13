@@ -1,0 +1,9 @@
+{
+  "name": "alta-core-smoke",
+  "productName": "AltaCoreSmoke",
+  "version": "0.2.0",
+  "main": "main.cjs",
+  "author": "Alta Agency",
+  "license": "UNLICENSED",
+  "description": "Alta Core — navegador de perfis locais autorizados"
+}

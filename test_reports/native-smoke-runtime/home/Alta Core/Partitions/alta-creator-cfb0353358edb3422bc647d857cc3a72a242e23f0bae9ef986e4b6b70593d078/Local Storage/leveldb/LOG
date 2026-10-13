@@ -1,0 +1,2 @@
+2026/09/29-13:53:16.147 1eca Creating DB /app/test_reports/native-smoke-runtime/home/Alta Core/Partitions/alta-creator-cfb0353358edb3422bc647d857cc3a72a242e23f0bae9ef986e4b6b70593d078/Local Storage/leveldb since it was missing.
+2026/09/29-13:53:16.153 1eca Reusing MANIFEST /app/test_reports/native-smoke-runtime/home/Alta Core/Partitions/alta-creator-cfb0353358edb3422bc647d857cc3a72a242e23f0bae9ef986e4b6b70593d078/Local Storage/leveldb/MANIFEST-000001

@@ -1,0 +1,47 @@
+{
+  "summary": "Completed scoped regression for no-support-report behavior removal, synthetic navigation HTTP-status watcher contracts, and public release state. All scoped tests passed locally. Original Privacy/WAF acceptance on real Windows remains unresolved and was not re-validated against Privacy network by design.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "Desktop integrated Privacy acceptance on real Windows",
+        "issue": "Still unverified/unresolved in this environment; no claim that WAF/403 behavior is fixed.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11_privacy_no_report_and_navigation.py",
+    "/app/backend/tests/js_navigation_contract_check.cjs",
+    "/app/test_reports/pytest/pytest_results_iteration11.xml"
+  ],
+  "action_items": [
+    "Do not present 0.2.3 source changes as published fix; public release remains 0.2.2.",
+    "If bug closure is needed, validate on authorized real Windows host with explicit user consent, still without Privacy support/report workflow.",
+    "Keep communication explicit that current evidence is local/synthetic for watcher logic, not proof of real Privacy acceptance."
+  ],
+  "critical_code_review_comments": [
+    "Confirmed external support/report surface removed from production code paths under test scope (external-actions module absent; forbidden IPC/support tokens absent in main/preload/BrowserAccessNotice).",
+    "navigation.cjs preserves blocked state after did-stop-loading and classifies 403/429/5xx/2xx/unknown as expected in synthetic EventEmitter tests.",
+    "browser.cjs correctly blocks reload/home when state is blocked; no user-agent override/proxy/TLS bypass logic observed in reviewed files."
+  ],
+  "updated_files": [
+    "/app/backend/tests/js_navigation_contract_check.cjs",
+    "/app/backend/tests/test_iteration11_privacy_no_report_and_navigation.py",
+    "/app/test_reports/iteration_11.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Executed only safe/local checks per restriction: no Privacy navigation/contact/report, no credential login/reset. Pytest: 7/7 passed (iteration11 XML). UI smoke on public /baixar passed and still shows 0.2.2 release text; no 0.2.3 publication claim detected.",
+  "rca of the issue": "RCA remains open for original user complaint (why external browser can pass while integrated browser is blocked). Reproduction/mitigation in this run was intentionally limited to source-level and synthetic navigation-state verification without real Privacy network interaction. Therefore no causal proof and no closure claim for WAF behavior."
+}

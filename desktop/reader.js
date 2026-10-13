@@ -48,7 +48,6 @@ class CreatorReader {
   constructor(creatorId, secret, store, options = {}) {
     this.creatorId = creatorId; this.secret = secret; this.options = options; // { fanNames: bool }
     this.s = store || { rooms: {}, sent: {}, lastObservedAt: null };
-    if (!this.s.creators) this.s.creators = {}; // conversas com outras criadoras (não contam como fã esperando)
   }
   ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, ...parts].join('|')).digest('hex'); }
   roomKey(name) { return this.ref('room', name); }
@@ -63,17 +62,13 @@ class CreatorReader {
     this.s.lastObservedAt = observedAt;
 
     // ---- fila (só local) + vendas por total gasto na lista ----
-    let waiting = 0, oldest = null, recent = 0; const waitList = [];
-    if (data.open && data.open.otherCreator && data.open.name) this.s.creators[this.roomKey(data.open.name)] = 1;
+    let waiting = 0, oldest = null, recent = 0;
     for (const r of data.rooms || []) {
       const key = this.roomKey(r.name);
-      if (r.verified) this.s.creators[key] = 1;
-      if (!r.ours && !this.s.creators[key]) {
+      if (!r.ours) {
         waiting += 1;
         const t = listAt(r.when, now);
         if (t && (!oldest || t < oldest)) oldest = t;
-        // quem está esperando (só fica no app, para o chatter achar a conversa: nunca vai para o painel)
-        waitList.push({ name: r.name, rid: r.rid || null, at: t ? t.getTime() : null, spent_cents: r.spent ? r.spent.cents : null });
         // balão vermelho: só conversas em que o fã falou por último nas últimas 24 h
         if (t && now - t < 864e5) recent += 1;
       }
@@ -92,7 +87,7 @@ class CreatorReader {
 
     // ---- conversa aberta: esperas e respostas ----
     const open = data.open;
-    if (open && !open.skeleton && open.msgs.length && !open.otherCreator) {
+    if (open && !open.skeleton && open.msgs.length) {
       let start = null;
       for (const m of open.msgs) {
         const t = at(m.date, m.time, now); if (!t) continue;
@@ -135,10 +130,7 @@ class CreatorReader {
       radar.push({ ...this.fan(r.name), cid: r.rid || null, spent_cents: r.spent ? r.spent.cents : null, last_from: r.ours ? 'us' : 'fan',
         last_at: t ? isoLocal(t) : null, unread: r.unread || 0, intent: !!r.intent });
     }
-    // mais antiga primeiro; sem horário conhecido vai para o fim
-    const waitingList = waitList.sort((a, b) => (a.at == null) - (b.at == null) || (a.at || 0) - (b.at || 0)).slice(0, 40)
-      .map((w) => ({ name: w.name, rid: w.rid, spent_cents: w.spent_cents, waitMin: w.at == null ? null : Math.max(0, Math.round((now - w.at) / 60000)) }));
-    return { events, radar, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, waitingList, page: data.page, readAt: isoLocal(now) } };
+    return { events, radar, summary: { waiting, waitingRecent: recent, oldestWaitMin: oldest ? Math.max(0, Math.round((now - oldest) / 60000)) : null, page: data.page, readAt: isoLocal(now) } };
   }
 }
 

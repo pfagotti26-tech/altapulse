@@ -1,0 +1,66 @@
+{
+  "summary": "Executed ADDITIONAL native Electron smoke only (Linux arm64 under manual Xvfb) using isolated desktop copy and MOCKED stand-in page (privacy_url -> /api/health in test copy only). UI login succeeded and TEMP_NATIVE fixture sidebar click succeeded, but critical native registration/open pipeline failed.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/desktop/devices/register",
+        "issue": "Returns 401 'Entre na sua conta para continuar.' from Electron main session.fetch after successful UI login (/api/auth/me=200). Blocks device approval, lease acquisition, and WebContentsView open.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BrowserWorkspace native toolbar",
+        "issue": "close-native-browser remains disabled because native state never leaves 'Navegador fechado'.",
+        "selector": "[data-testid='close-native-browser']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Desktop register -> open creator via WebContentsView",
+        "issue": "No active lease, no health-page WebContents, no creator partition observed in main process because register keeps failing 401.",
+        "affected_selectors": [
+          "[data-testid='browser-runtime-state']",
+          "[data-testid='sidebar-creator-f9a88d3450dd30302a1d2797']"
+        ]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/native-smoke-runtime/tools/native_smoke.js",
+    "/app/test_reports/native-smoke-runtime/tools/cleanup_native_device.py",
+    "/app/test_reports/native-smoke-runtime/artifacts/native_smoke_result.json",
+    "/app/test_reports/native-smoke-runtime/artifacts/native_smoke_console.log"
+  ],
+  "action_items": [
+    "Fix Electron control-session auth propagation so /api/desktop/devices/register sees the same authenticated session as renderer after login.",
+    "After register works, retest lease open path: WebContentsView URL load (/api/health stand-in), non-zero bounds, isolated partition, and native close/unmount/logout lifecycle.",
+    "Keep production desktop files unchanged; stand-in substitution must remain test-copy-only."
+  ],
+  "critical_code_review_comments": [
+    "Main process uses session.fromPartition('persist:alta-control') with session.fetch(credentials:'include'), but observed behavior indicates cookie/token not present in that request path during native runtime.",
+    "Backend logs during run repeatedly show /api/desktop/devices/register 401 while concurrent /api/auth/me is 200, confirming a cross-context auth gap rather than invalid manager credentials.",
+    "Because register failed, downstream validations (WebContentsView composition, preload isolation checks on stand-in page, lease heartbeat lifecycle) could not be fully validated."
+  ],
+  "updated_files": [
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/config.json",
+    "/app/test_reports/native-smoke-runtime/AltaCoreSmoke/package.json",
+    "/app/test_reports/native-smoke-runtime/tools/native_smoke.js",
+    "/app/test_reports/native-smoke-runtime/tools/cleanup_native_device.py",
+    "/app/test_reports/iteration_6.json"
+  ],
+  "success_rate": {
+    "backend": "40%",
+    "frontend": "45%"
+  },
+  "seed_data_creation": "Created TEMP_NATIVE creator fixture f9a88d3450dd30302a1d2797 and removed it via API cleanup. Temporary device record was not created (register 401); DB cleanup confirmed 0 deletions for machine ae5e78d5-664b-4bc2-bacc-35ca4c968eca.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Native run artifacts: /app/test_reports/native-smoke-runtime/artifacts/. Screenshot: native_open_state.jpeg. Stand-in was MOCKED in isolated copy only with app_url=https://privacy-agent-hub.preview.emergentagent.com and privacy_url=https://privacy-agent-hub.preview.emergentagent.com/api/health. Used manager test account from /root/alta-core-test.env. Preserved real creator Mel Martins (e004895129b339393d0da552) and all user data.",
+  "rca of the issue": "Repro: launch isolated Electron app under Xvfb, login via UI, call altaDesktop.register() -> backend returns 401; then open TEMP_NATIVE sidebar profile stays 'Navegador fechado', no lease in /api/creators, no health WebContents in main process. Evidence: backend.out log lines show repeated POST /api/desktop/devices/register 401 interleaved with GET /api/auth/me 200. Likely root cause is auth cookie/session not available to Electron control session.fetch context (partition/cookie scope propagation issue). Mitigation direction: instrument cookies in main process for persist:alta-control before register, verify vertice_session path/samesite/secure visibility for session.fetch, and ensure register call happens only after authenticated cookie is present in control session."
+}
