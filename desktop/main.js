@@ -593,6 +593,25 @@ let urlbarPref = readJson('barra-endereco.json', { show: true });
 let urlView = null;
 const activeView = () => { const t = activeId && tabs.get(activeId); const p = activeId && activeTab.get(activeId); return t && p ? t.get(p) || null : null; };
 const urlbarOn = () => !!(urlbarPref.show && urlView && activeView());
+// ---------- foco do teclado ----------
+// As abas ocultas (extrato, FatalFans, OnlyFans, CloseFans) carregam páginas em segundo plano e o Chromium pode puxar
+// o foco para elas; o chatter perdia o que estava digitando até clicar de novo na caixa. Guardamos quem tinha o foco
+// (lateral, cartão do fã, barra ou a aba da criadora) e devolvemos na hora em que uma aba oculta tenta pegá-lo.
+let lastUserFocus = null;
+function userView(view) { if (view) view.webContents.on('focus', () => { lastUserFocus = view.webContents; }); }
+function giveFocusBack() {
+  try {
+    const wc = lastUserFocus && !lastUserFocus.isDestroyed() ? lastUserFocus : (activeView() || {}).webContents;
+    if (wc && !wc.isDestroyed() && win && win.isFocused()) wc.focus();
+  } catch {}
+}
+function hiddenGuard(view, isShown) {
+  if (!view) return view;
+  const back = () => { if (!(isShown && isShown())) giveFocusBack(); }; // extrato aberto pela pessoa ("Ver extrato") pode ter o foco
+  view.webContents.on('focus', back);
+  for (const ev of ['did-start-loading', 'did-finish-load', 'did-navigate', 'did-navigate-in-page', 'dom-ready']) view.webContents.on(ev, () => setTimeout(back, 0));
+  return view;
+}
 function pushUrl() {
   if (!urlView || urlView.webContents.isDestroyed()) return;
   const v = activeView(); let url = '';
@@ -707,6 +726,7 @@ function openProfile(creatorId, platform = 'privacy', opts = {}) {
   view.webContents.on('did-fail-load', (_e, code, description, url, isMain) => {
     if (isMain && sidebar) sidebar.webContents.send('toast', `Falha ao abrir ${PLATFORMS[platform].label} (${code} ${description}).`);
   });
+  userView(view);
   win.contentView.addChildView(view);
   t.set(platform, view);
   if (platform === 'privacy') views.set(creatorId, view);
@@ -900,6 +920,7 @@ function statsView(id) {
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // fica por BAIXO das outras abas (índice 0) e com tamanho de tela de desktop: com uma janela minúscula
   // a Privacy montava o layout de celular (sem as abas) e com setVisible(false) não terminava de carregar
+  hiddenGuard(view, () => !!(extratos.get(id) || {}).shown);
   win.contentView.addChildView(view, 0);
   view.setBounds(hiddenBounds());
   x.view = view;
@@ -1258,7 +1279,7 @@ function ffView(id) {
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
+  hiddenGuard(view); win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
   x.view = view; return view;
 }
 function closeFFView(id) {
@@ -1289,7 +1310,7 @@ async function readFFNow(id, opts = {}) {
   try {
     x.reader.options.fanNames = !!state.fan_names_allowed;
     const view = ffView(id);
-    win.contentView.removeChildView(view); win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
+    win.contentView.removeChildView(view); hiddenGuard(view); win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
     const step = ffStep;
     const run = (a) => runJs(view, FF.script(a), 10000).catch((e) => ({ error: String(e && e.message || e), rows: [] }));
     step({ stage: 'carregando' });
@@ -1379,7 +1400,7 @@ function cfView(id) {
   const view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
+  hiddenGuard(view); win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds());
   x.view = view; return view;
 }
 function closeCFView(id) { const x = cfs.get(id); if (!x) return; if (x.view && !x.view.webContents.isDestroyed()) { win.contentView.removeChildView(x.view); x.view.webContents.close(); } x.view = null; }
@@ -1462,7 +1483,7 @@ async function readOFNow(id, opts = {}) {
     view = new WebContentsView({ webPreferences: { partition: partitionFor(id), contextIsolation: true, sandbox: true, nodeIntegration: false } });
     view.webContents.setUserAgent(UA, LANG); view.webContents.setAudioMuted(true); view.webContents.setBackgroundThrottling(false);
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds()); x.view = view;
+    hiddenGuard(view); win.contentView.addChildView(view, 0); view.setBounds(hiddenBounds()); x.view = view;
     const run = (a) => runJs(view, OF.script(a), 10000).catch((e) => ({ error: String(e && e.message || e), rows: [] }));
     await new Promise((resolve) => {
       let timer = null;
@@ -2138,6 +2159,7 @@ app.whenReady().then(async () => {
   urlView.webContents.loadFile(path.join(__dirname, 'ui', 'urlbar.html'));
   urlView.webContents.on('did-finish-load', pushUrl);
   urlView.setVisible(false);
+  userView(sidebar); userView(fanView); userView(urlView);
   // Ctrl +/−/0 com o foco na lateral ou no cartão do fã: ajusta a página aberta (a lateral não muda de tamanho)
   for (const ui of [sidebar, fanView]) ui.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
