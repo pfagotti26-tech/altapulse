@@ -41,6 +41,7 @@ export default function Shadow() {
           <Stat id="sh-ok" label="Aproveitamento" value={pct(t.aproveitamento)} caption={`${int(t.igual)} enviadas iguais · ${int(t.editado)} editadas`} icon={ShieldCheck} tone="green"/>
           <Stat id="sh-ed" label="Editadas" value={int(t.editado)} caption="O chatter partiu da sugestão e mudou o texto" icon={Pencil}/>
           <Stat id="sh-no" label="Diferentes" value={int(t.diferente)} caption="O chatter escreveu outra coisa: os casos mais úteis para ler" icon={XCircle} tone="red"/>
+          <Stat id="sh-media" label="Mídias enviadas" value={int(t.media.n)} caption={`${int(t.media.pagas)} pagas (${money(t.media.valor_cents)}) · ${int(t.media.gratis)} grátis · ${int(t.media.abaixo_sugerido)} abaixo do preço sugerido`} icon={Clock}/>
         </div>
         <section className="panel ai-panel"><h2>Por criadora</h2><p className="body-muted">Aproveitamento baixo numa criadora costuma ser ficha incompleta (voz, exemplos de mensagens, roteiro). Semelhança é o quanto o texto enviado parece com o sugerido.</p><Table rows={d.by_creator} first="Criadora"/></section>
         <section className="panel ai-panel"><h2>Por chatter</h2><Table rows={d.by_user} first="Chatter"/></section>
@@ -52,10 +53,10 @@ export default function Shadow() {
           {!rows.length ? <p className="body-muted">Nada com esse filtro.</p> : <div className="table-scroll"><table className="shadow-table"><thead><tr><th>Quando</th><th>Criadora · chatter</th><th>Última do fã</th><th>Sugestão da IA</th><th>Enviado</th><th>Resultado</th></tr></thead>
             <tbody>{rows.map((r) => <tr key={r.id} className={`st-${r.status}`}>
               <td className="tabular" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.at)}</td>
-              <td><strong>{r.creator_name}</strong><br/><small className="body-muted">{r.user_name}{r.product ? ` · ${r.product}` : ''}</small></td>
+              <td><strong>{r.creator_name}</strong><br/><small className="body-muted">{r.user_name}{r.product ? ` · sugeriu ${r.product}${r.product_cents ? ' ' + money(r.product_cents) : ''}` : ''}</small></td>
               <td className="shadow-txt muted">{r.last_fan || '—'}</td>
               <td className="shadow-txt">{r.proposed}</td>
-              <td className="shadow-txt">{r.sent || <span className="body-muted">—</span>}{r.media_cents != null && <><br/><small>{money(r.media_cents)}</small></>}</td>
+              <td className="shadow-txt">{r.sent || <span className="body-muted">—</span>}{r.media_kind && <><br/><small className={r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? 'shadow-tag bad' : 'shadow-tag info'}>{r.media_kind} {r.media_free ? 'grátis' : r.media_cents != null ? money(r.media_cents) : 'paga'}{r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? ' · abaixo do sugerido' : ''}</small></>}</td>
               <td><Tag st={r.status}/>{r.similarity != null && r.status !== 'midia' && <><br/><small className="tabular">{Math.round(r.similarity * 100)}%</small></>}</td>
             </tr>)}</tbody></table></div>}
         </section>

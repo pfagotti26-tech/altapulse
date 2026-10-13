@@ -664,7 +664,7 @@ FIM DA CONVERSA:
         sid = uid()
         await db.shadow_actions.insert_one({'id': sid, 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
             'at': iso(), 'day': today(), 'fan_ref': body.fan_ref, 'usage_id': usage_id, 'platform': body.platform, 'mode': body.mode, 'style': body.style,
-            'level': level, 'step': result['step'], 'situation': situation, 'product': prod['item'] if prod else '', 'proposed': text[:1200], 'last_fan': last_fan[:300],
+            'level': level, 'step': result['step'], 'situation': situation, 'product': prod['item'] if prod else '', 'product_cents': fan_price(prod['cents'], anchor) if prod else None, 'proposed': text[:1200], 'last_fan': last_fan[:300],
             'status': 'pendente', 'sent': None, 'sent_at': None, 'similarity': None, 'media_cents': None, 'expires_at': now() + timedelta(days=120)})
         result['shadow_id'] = sid
     return result
@@ -683,8 +683,17 @@ def shadow_similarity(a, b):
     x, y = ' '.join(PM._norm(a)), ' '.join(PM._norm(b))
     if not x or not y: return 0.0
     return round(difflib.SequenceMatcher(None, x, y).ratio(), 3)
+MEDIA_RE = re.compile(r'\[(foto e v[ií]deo|v[ií]deo|foto|m[ií]dia|solicita[çc][aã]o de m[ií]dia)\s*(paga enviada|gr[áa]tis enviada)?:?\s*(R\$\s*([\d.]+),?(\d{0,2}))?[^\]]*\]', re.I)
+def media_info(sent):
+    """Do texto lido no chat: {'kind': foto|vídeo|foto e vídeo|solicitação, 'free': bool, 'cents': int|None} ou None."""
+    m = MEDIA_RE.search(sent or '')
+    if not m: return None
+    kind = m.group(1).lower()
+    free = 'gr' in (m.group(2) or '').lower()
+    cents = (int(m.group(4).replace('.', '')) * 100 + int((m.group(5) or '0').ljust(2, '0'))) if m.group(4) else (0 if free else None)
+    return {'kind': 'solicitação' if kind.startswith('solicita') else kind, 'free': free, 'cents': cents}
 def shadow_status(sim, sent):
-    if re.search(r'\[m[ií]dia paga enviada', sent or '', re.I): return 'midia'
+    if media_info(sent): return 'midia'
     return 'igual' if sim >= 0.9 else 'editado' if sim >= 0.4 else 'diferente'
 class ShadowSentIn(Strict):
     text: str = Field(default='', max_length=1200)
@@ -695,10 +704,10 @@ async def shadow_sent(shadow_id: str, body: ShadowSentIn, user=Depends(extension
     if row.get('status') != 'pendente': return {'ok': True, 'status': row['status']}
     sent = scrub(body.text.strip())
     sim = shadow_similarity(row.get('proposed') or '', sent)
-    m = re.search(r'\[m[ií]dia paga enviada:\s*R\$\s*([\d.]+),?(\d{0,2})', sent, re.I)
-    cents = (int(m.group(1).replace('.', '')) * 100 + int((m.group(2) or '0').ljust(2, '0'))) if m else None
+    mi = media_info(sent)
     st = shadow_status(sim, sent)
-    await db.shadow_actions.update_one({'id': shadow_id}, {'$set': {'sent': sent[:1200], 'sent_at': iso(), 'similarity': sim, 'status': st, 'media_cents': cents}})
+    await db.shadow_actions.update_one({'id': shadow_id}, {'$set': {'sent': sent[:1200], 'sent_at': iso(), 'similarity': sim, 'status': st,
+        'media_cents': mi['cents'] if mi else None, 'media_kind': mi['kind'] if mi else None, 'media_free': bool(mi and mi['free'])}})
     return {'ok': True, 'status': st, 'similarity': sim}
 
 @router.get('/assist/shadow')
@@ -726,7 +735,11 @@ async def shadow_report(days: int = 7, creator_id: str = '', user=Depends(manage
             g['similaridade'] = round(100 * g['sim_sum'] / g['sim_n']) if g['sim_n'] else None
             g.pop('sim_sum'); g.pop('sim_n'); res.append(g)
         return sorted(res, key=lambda x: -x['n'])
-    total = {'n': len(rows)}
+    media = [r for r in rows if r['status'] == 'midia']
+    total_media = {'n': len(media), 'gratis': sum(1 for r in media if r.get('media_free')), 'pagas': sum(1 for r in media if not r.get('media_free') and r.get('media_cents')),
+                   'valor_cents': sum(r.get('media_cents') or 0 for r in media),
+                   'abaixo_sugerido': sum(1 for r in media if r.get('product_cents') and r.get('media_cents') is not None and r['media_cents'] < r['product_cents'])}
+    total = {'n': len(rows), 'media': total_media}
     for st in ('igual', 'editado', 'diferente', 'midia', 'sem_resposta', 'pendente'): total[st] = sum(1 for r in rows if r['status'] == st)
     done = total['igual'] + total['editado'] + total['diferente']
     total['aproveitamento'] = round(100 * (total['igual'] + total['editado']) / done) if done else None

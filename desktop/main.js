@@ -1577,8 +1577,14 @@ const READ_MSGS_SCRIPT = String.raw`(() => {
     const parts = [...el.querySelectorAll('.vac-format-message-wrapper')].filter((x) => !x.closest('.vac-reply-message'));
     let t = parts.map(txt).join(' ').trim();
     const np = el.querySelector('.vac-text-not-paid');
-    if (np) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(np) + ']';
-    else if (!t && el.querySelector('.vac-message-files-container, .vac-message-image, video, img')) t = '[mídia]';
+    // mídia: foto/vídeo pelo ícone do cartão; paga (R$ X ainda não pago / pago) ou grátis
+    const icons = [...el.querySelectorAll('.media-type svg[data-icon], .vac-message-files-container svg[data-icon]')].map((x) => x.getAttribute('data-icon'));
+    const photo = icons.some((i) => /image|camera|photo/.test(i)), video = icons.some((i) => /video|film|play/.test(i)) || !!el.querySelector('video');
+    const kind = photo && video ? 'foto e vídeo' : video ? 'vídeo' : photo ? 'foto' : 'mídia';
+    const paidEl = [...el.querySelectorAll('.vac-text-timestamp span')].find((x) => /R\$/.test(txt(x)) && /pago|paid/i.test(txt(x)) && !/n[aã]o pago|not-paid/i.test(txt(x) + ' ' + x.className));
+    const request = !!el.querySelector('.media-request-action') || /solicita/i.test(txt(el.querySelector('.text-amount-info')));
+    if (np || paidEl) t = (t ? t + ' ' : '') + '[' + (request ? 'solicitação de mídia' : kind + ' paga enviada') + ': ' + txt(np || paidEl) + ']';
+    else if (el.querySelector('.vac-message-files-container, .vac-message-image, video, img')) t = (t ? t + ' ' : '') + '[' + kind + ' grátis enviada]';
     if (!t) continue;
     msgs.push({ ours: el.classList.contains('vac-offset-current'), text: t.slice(0, 1200) });
   }
