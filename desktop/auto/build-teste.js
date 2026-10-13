@@ -1,22 +1,40 @@
-const { execSync } = require('child_process');
+const { build, Platform, Arch } = require('electron-builder');
 const path = require('path');
+const fs = require('fs');
 const cfg = require('./teste.config.js');
 
-const extra = JSON.stringify({
-  origin: cfg.origin,
-  userDataFolder: cfg.userDataFolder,
-});
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+const base = pkg.build || {};
 
-const cmd = [
-  'npx electron-builder --win nsis --x64 --publish never',
-  `--config.extraMetadata.altaTeste='${extra}'`,
-  `--config.appId=${cfg.appId}`,
-  `--config.productName="${cfg.productName}"`,
-  `--config.nsis.shortcutName="${cfg.productName}"`,
-  `--config.nsis.uninstallDisplayName="${cfg.productName}"`,
-  `--config.win.artifactName="AltaPulse-Teste-Setup-\\${version}.exe"`,
-].join(' ');
+const config = {
+  ...base,
+  appId: cfg.appId,
+  productName: cfg.productName,
+  nsis: {
+    ...(base.nsis || {}),
+    shortcutName: cfg.productName,
+    uninstallDisplayName: cfg.productName,
+  },
+  win: {
+    ...(base.win || {}),
+    artifactName: 'AltaPulse-Teste-Setup-${version}.exe',
+  },
+  extraMetadata: {
+    altaTeste: {
+      origin: cfg.origin,
+      userDataFolder: cfg.userDataFolder,
+    },
+  },
+};
 
 console.log('Empacotando Alta Pulse Teste...');
-execSync(cmd, { stdio: 'inherit', cwd: path.join(__dirname, '..') });
-console.log('Instalador gerado em desktop/dist/');
+build({
+  targets: Platform.WINDOWS.createTarget('nsis', Arch.x64),
+  config,
+  publish: 'never',
+}).then(() => {
+  console.log('Instalador gerado em desktop/dist/');
+}).catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

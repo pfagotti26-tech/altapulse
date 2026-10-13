@@ -64,22 +64,25 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     if not aid or body.creator_id != aid:
         raise HTTPException(403, "Automação só para Aline Fishborn")
 
-    # Server checks presence and plantao itself
-    # Presence: any open shift for this creator in the last 5 min
-    five_min_ago = (datetime.now(BR) - __import__('datetime').timedelta(minutes=5)).isoformat()
-    shift = await db.shifts.find_one({
-        "creator_id": body.creator_id,
-        "ended_at": None,
-        "started_at": {"$gte": five_min_ago}
-    })
+    # Presence: active shift (same pattern as extension_routes.py)
+    shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True})
     if shift:
         return DecideOut(should_send=False, reason="chatter ativo", essay=cfg["essay"])
 
-    # Plantao: check config window or queue (simplified)
-    pcfg = await db.plantao_configs.find_one({"creator_id": body.creator_id}) or {}
-    # If plantao is enabled and current hour is in window, skip (basic)
-    if pcfg.get("enabled"):
-        return DecideOut(should_send=False, reason="plantão ativo", essay=cfg["essay"])
+    # Plantao: window and recent approaches
+    pcfg = await db.plantao_configs.find_one({'creator_id': body.creator_id}) or {}
+    if pcfg.get('enabled'):
+        ws = pcfg.get('window_start', '03:00')
+        we = pcfg.get('window_end', '08:00')
+        now_hm = datetime.now(BR).strftime('%H:%M')
+        in_window = ws <= now_hm <= we if ws <= we else (now_hm >= ws or now_hm <= we)
+        if in_window:
+            return DecideOut(should_send=False, reason="janela de plantão", essay=cfg["essay"])
+    # Fan recently approached by plantao
+    since = (datetime.now(BR) - __import__('datetime').timedelta(hours=18)).isoformat()
+    recent = await db.plantao_log.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'sent_at': {'$gt': since}})
+    if recent:
+        return DecideOut(should_send=False, reason="fã na fila do plantão", essay=cfg["essay"])
 
 
     now = datetime.now(BR)
