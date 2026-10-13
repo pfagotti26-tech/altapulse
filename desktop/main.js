@@ -5,6 +5,16 @@
 // extensão Chrome (/api/extension/*). Nenhuma senha ou cookie da Privacy sai deste computador.
 'use strict';
 const { app, BaseWindow, WebContentsView, webContents, ipcMain, session, safeStorage, shell, dialog, clipboard, nativeImage, Notification, powerMonitor } = require('electron');
+// AUTO (Grok) — app de teste
+try {
+  const teste = require('./auto/is-teste.json');
+  if (teste && teste.userDataFolder) {
+    const path = require('path');
+    const base = app.getPath('appData');
+    app.setPath('userData', path.join(base, teste.userDataFolder));
+  }
+} catch {}
+
 const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
@@ -38,7 +48,10 @@ try { app.commandLine.appendSwitch('lang', 'pt-BR'); } catch {}
 app.userAgentFallback = UA;
 
 // ---------- configuração ----------
-const DEFAULT_ORIGIN = 'https://altapulse.com.br';
+const DEFAULT_ORIGIN = (() => {
+  try { const t = require('./auto/is-teste.json'); if (t && t.origin) return t.origin; } catch {}
+  return 'https://altapulse.com.br';
+})(); // AUTO (Grok)
 const PRIVACY_HOME = 'https://privacy.com.br/';
 const SIDEBAR_WIDTH = 300;
 const HEARTBEAT_MS = 15000;
@@ -2305,3 +2318,16 @@ function setupAutoUpdate() {
   };
   setTimeout(check, 15000); setInterval(check, 60 * 60 * 1000);
 }
+
+
+// AUTO (Grok) — chama /auto/decide e mostra o que enviaria (ensaio)
+ipcMain.handle('auto:decide', async (_e, payload) => {
+  try {
+    const r = await api('POST', '/auto/decide', payload);
+    if (r && r.suggested_text) {
+      // No ensaio só mostra; não envia
+      console.log('[AUTO ensaio]', r.suggested_text.slice(0, 120));
+    }
+    return r;
+  } catch (e) { return { should_send: false, reason: 'erro', error: String(e) }; }
+});

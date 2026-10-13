@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('pulse', {
   fanSegSet: (segment) => ipcRenderer.invoke('fanseg:set', segment),
   assistPrices: () => ipcRenderer.invoke('assist:prices'),
   assistUsed: (id) => ipcRenderer.invoke('assist:used', id),
+  autoDecide: (payload) => ipcRenderer.invoke('auto:decide', payload),  // AUTO (Grok)
   thermoRead: (opts) => ipcRenderer.invoke('thermo:read', opts || {}),
   fanMemGet: () => ipcRenderer.invoke('fanmem:get'),
   fanMemAdd: (items) => ipcRenderer.invoke('fanmem:add', items),
