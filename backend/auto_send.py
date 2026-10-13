@@ -105,11 +105,25 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
             mode='reply',
         )
-        # Note: this calls the endpoint function directly; in production wire properly
         result = await A.suggest(suggest_body, user)
+        if isinstance(result, dict) and result.get("alert"):
+            await db.auto_log.insert_one({
+                "id": uid(), "at": iso(), "day": today(),
+                "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+                "last_fan": scrub(last_text)[:500],
+                "decision": "travado", "reason": result.get("reason", "alerta"),
+            })
+            return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
         suggested = result.get("text") if isinstance(result, dict) else None
     except Exception as e:
-        suggested = None
+        await db.auto_log.insert_one({
+            "id": uid(), "at": iso(), "day": today(),
+            "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "last_fan": scrub(last_text)[:500],
+            "decision": "erro", "reason": "falha no suggest",
+            "error": str(e)[:300],
+        })
+        return DecideOut(should_send=False, reason="erro interno", essay=cfg["essay"])
 
     await db.auto_log.insert_one({
         "id": uid(), "at": iso(), "day": today(),
