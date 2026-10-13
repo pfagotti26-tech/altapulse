@@ -9,13 +9,6 @@ const path = require('path');
 const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
-
-function injectMediaObserver(view) {
-  if (!view || view.webContents.isDestroyed()) return;
-  try { view.webContents.executeJavaScript(MEDIA_OBSERVER, true).catch(() => {}); } catch {}
-}
-
-const MEDIA_OBSERVER = require('./media-observer.js');
 const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
@@ -407,7 +400,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
 async function quickFan(id) {
   if (id === activeId && (activeTab.get(id) === 'onlyfans' || activeTab.get(id) === 'fatalfans')) return quickFanOF(id);
   const view = views.get(id); if (!view || id !== activeId || view.webContents.isDestroyed()) return;
-  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); injectMediaObserver(view); } catch {}
+  try { const data = await view.webContents.executeJavaScript(READER_SCRIPT, true); setFanFromChat(id, data && data.page === 'chat' ? data.open : null); } catch {}
 }
 // Cartão do fã no OnlyFans: conversa aberta na aba OnlyFans da criadora ativa
 async function quickFanOF(id) {
