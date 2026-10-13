@@ -14,6 +14,7 @@ from performance import router as performance
 from fans import router as fans
 from quality_ai import router as quality_ai
 from assist import router as assist
+from auto_send import router as auto_send  # AUTO (Grok)
 from fan_memory import router as fan_memory
 from content import router as content
 from scorecard import router as scorecard
@@ -102,6 +103,7 @@ async def origin_guard(request: Request, call_next):
 
 for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content]:
     app.include_router(router, prefix='/api')
+    app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 
 @app.get('/api/health')
 async def health():
