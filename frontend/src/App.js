@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Plantao, { canPlantao } from './pages/Plantao';
 import InstallExtension from './pages/InstallExtension';
 import Shadow from './pages/Shadow';
+import Auto from './pages/Auto'; // AUTO (Grok)
 import Account, { PasswordSetup } from './pages/Account';
 import './App.css';
 import './AltaTheme.css';

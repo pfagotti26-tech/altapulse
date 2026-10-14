@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from core import db, iso, uid
+from core import db, iso, uid, manager
 from quality_ai import scrub
 from extension_routes import extension_user
 from zoneinfo import ZoneInfo
@@ -152,6 +152,35 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         "suggested_text": suggested,
     })
     return DecideOut(should_send=False, reason="modo ensaio", essay=True, suggested_text=suggested)
+
+
+@router.get("/report")
+async def report(day: str = "", user=Depends(manager)):
+    """Resumo e lista do dia para o painel de teste. Só gestor."""
+    from core import manager
+    d = day or today()
+    rows = await db.auto_log.find({"day": d}, {"_id": 0}).sort("at", -1).to_list(500)
+    # gasto do dia (assist_usage)
+    usage = await db.assist_usage.aggregate([
+        {"$match": {"day": d}},
+        {"$group": {"_id": None, "cost": {"$sum": "$cost_usd"}, "calls": {"$sum": 1}}}
+    ]).to_list(1)
+    cost = usage[0]["cost"] if usage else 0
+    calls = usage[0]["calls"] if usage else 0
+    summary = {
+        "day": d,
+        "ensaios": sum(1 for r in rows if r.get("decision") == "ensaio"),
+        "travados": sum(1 for r in rows if r.get("decision") == "travado"),
+        "erros": sum(1 for r in rows if r.get("decision") == "erro"),
+        "motivos": {},
+        "cost_usd": round(cost or 0, 4),
+        "calls": calls,
+    }
+    for r in rows:
+        if r.get("decision") == "travado":
+            m = r.get("reason") or "outro"
+            summary["motivos"][m] = summary["motivos"].get(m, 0) + 1
+    return {"summary": summary, "rows": rows}
 
 @router.get("/status")
 async def status(user=Depends(extension_user)):
