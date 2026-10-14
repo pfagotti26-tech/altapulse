@@ -39,7 +39,9 @@ module.exports = String.raw`(() => {
   const REACTION = /\breagiu com\b|\bcurtiu\b|\breacted\b|\bliked\b/i;
   const lastText = (r) => txt(r.querySelector('.vac-text-last, .vac-room-footer .vac-format-message-wrapper, .message-last'));
   const isOurs = (r) => !!r.querySelector('.message-last .vac-icon-check') || REACTION.test(lastText(r));
-  const VERIFIED = '[class*="verified" i], [class*="verificad" i], svg[data-icon*="badge-check"], svg[data-icon="circle-check"]:not(.vac-icon-check), img[alt*="verific" i]';
+  // selo de conta verificada. A Privacy passou a envolver o avatar de TODO item da lista num
+  // <div class="wrapper-room-avatar-verified"> (out/2026): caixas "wrapper-…" não são selo, só o elemento do selo em si conta.
+  const VERIFIED = '[class*="verified" i]:not([class*="wrapper" i]), [class*="verificad" i]:not([class*="wrapper" i]), svg[data-icon*="badge-check"], svg[data-icon="circle-check"]:not(.vac-icon-check), img[alt*="verific" i]';
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
     online: online(r),

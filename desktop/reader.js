@@ -49,6 +49,9 @@ class CreatorReader {
     this.creatorId = creatorId; this.secret = secret; this.options = options; // { fanNames: bool }
     this.s = store || { rooms: {}, sent: {}, lastObservedAt: null };
     if (!this.s.creators) this.s.creators = {}; // conversas com outras criadoras (não contam como fã esperando)
+    // out/2026: a lista da Privacy ganhou uma caixa "…-verified" em todo item e o leitor marcou todo fã como criadora;
+    // zera essas marcas uma vez (as criadoras de verdade voltam a ser marcadas na leitura seguinte, pelo selo certo)
+    if (!this.s.creatorsV2) { this.s.creators = {}; this.s.creatorsV2 = 1; }
   }
   ref(...parts) { return crypto.createHmac('sha256', this.secret).update([this.creatorId, ...parts].join('|')).digest('hex'); }
   roomKey(name) { return this.ref('room', name); }
