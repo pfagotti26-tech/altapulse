@@ -29,6 +29,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         fan_segments: (p.fan_segments || []).map(x => ({ ...x })), hot_terms: p.hot_terms || '', openers: { ...(p.openers || {}) },
         modules: { ...(p.modules || {}) }, voice: { tone: '', tone_notes: '', use_words: '', avoid_words: '', emojis: '', ...(p.voice || {}) },
         sales: { warm_first: true, discount: 'uma_vez', script: '', ...(p.sales || {}), plan: { preset: '', picks: [], only: {}, single: {}, ...((p.sales || {}).plan || {}) } }, limit_flags: p.limit_flags || ['encontro', 'contato'],
+        telegram: { mode: 'nao', how: '', ...(p.telegram || {}) },
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
@@ -55,7 +56,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const plan = form.sales.plan || {}; const sales = { ...form.sales, plan: { ...plan, only: Object.fromEntries(Object.entries(plan.only || {}).map(([k, v]) => [k, v.map(x => segKey[x]).filter(Boolean)]).filter(([, v]) => v.length)) } };
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
-        voice: form.voice, sales, limit_flags: form.limit_flags, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
+        voice: form.voice, sales, limit_flags: form.limit_flags, telegram: form.telegram, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
         languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens', shadow: !!form.shadow };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
@@ -93,6 +94,10 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       <section className="profile-sec"><h3>⛔ Limites</h3>
         <div className="pf-flags">{Object.entries(meta.limit_flags).map(([k, l]) => <span key={k}>{chk(form.limit_flags.includes(k), v => up({ limit_flags: v ? [...form.limit_flags, k] : form.limit_flags.filter(x => x !== k) }), l)}</span>)}</div>
         <Field id="pf-limits" label="Outros limites (o que ela NÃO faz)">{ta(form.limits, v => up({ limits: v }), 2, 'Em aberto', 3000)}</Field>
+        <div className="profile-grid">
+          <Field id="pf-telegram" label='Telegram com fãs ("tele" na boca do fã = Telegram)'><Select id="pf-telegram" data-testid="pf-telegram" value={form.telegram.mode} onChange={e => sub('telegram', { mode: e.target.value })}>{Object.entries(meta.telegram || {}).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
+          {form.telegram.mode !== 'nao' && <Field id="pf-telegram-how" label="Como responder quando o fã fala do Telegram">{ta(form.telegram.how, v => sub('telegram', { how: v }), 2, form.telegram.mode === 'vip' ? 'ex.: é meu grupo VIP, R$ 49/mês, manda que eu te passo o link' : 'ex.: sim, sou eu mesma no tele; chama lá que eu respondo', 300)}</Field>}
+        </div>
       </section>
       <section className="profile-sec"><h3>💼 Estratégia de venda</h3><div className="profile-grid">
         <div>{chk(form.sales.warm_first, v => sub('sales', { warm_first: v }), 'Aquece a conversa antes de vender (nunca oferta fria)')}</div>
