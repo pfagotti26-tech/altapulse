@@ -876,7 +876,7 @@ async function readAllNow() {
     // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
     if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
-    if (data && data.page === 'chat') plantao.onRooms(id, data.rooms);
+    if (data && data.page === 'chat') { lastRooms[id] = data.rooms || []; plantao.onRooms(id, data.rooms); } // AUTO (Grok)
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary, radar;
@@ -1851,23 +1851,20 @@ ipcMain.handle('fanseg:set', async (_e, segment) => {
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
 
 // AUTO (Grok) — fila de ensaio
+const lastRooms = {}; // AUTO (Grok)
 let filaEnsaio = null;
 if (ALTA_TESTE) {
   filaEnsaio = createFila({
     api,
     getState: () => state,
     roomKey: (id, name) => readerFor(id).reader.roomKey(name),
+    getLastRooms: (id) => lastRooms[id] || [],
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);
     },
-    readChat: async (creatorId) => {
-      const tg = chatTarget();
-      if (!tg || tg.id !== creatorId) return null;
-      return await runJs(tg.view, tg.read, 4000).catch(() => null);
-    },
   });
   // start after login
-  setTimeout(() => { if (filaEnsaio && me) filaEnsaio.start(); }, 15000);
+  setTimeout(() => { if (filaEnsaio && state.user) filaEnsaio.start(); }, 15000); // AUTO (Grok)
 }
 
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });

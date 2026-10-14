@@ -156,4 +156,6 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
-    return {**cfg, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}
+    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["ensaio", "enviado"]}}) if cfg.get("creator_id") else 0
+    remaining = max(0, MAX_PER_DAY - today_count)
+    return {**cfg, "today": today_count, "remaining": remaining, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}
