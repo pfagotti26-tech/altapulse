@@ -21,6 +21,7 @@ const config = {
   },
   afterPack: null,  // AUTO (Grok) — teste não usa afterPack do oficial
   extraMetadata: {
+    name: 'alta-pulse-teste',
     altaTeste: {
       origin: cfg.origin,
       userDataFolder: cfg.userDataFolder,

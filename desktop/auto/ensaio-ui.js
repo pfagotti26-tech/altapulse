@@ -13,3 +13,4 @@ module.exports = String.raw`(() => {
     box.innerHTML = '<strong>ENSAIO — enviaria:</strong><br>' + (text || '(sem texto)') + '<br><small>' + (reason || '') + '</small>';
   };
 })();
+`;
