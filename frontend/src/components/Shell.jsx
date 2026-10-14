@@ -26,7 +26,8 @@ export const Shell = ({ children }) => {
     {(user.owner || (user.perms || []).includes('plantao')) && <NavLink to="/plantao" data-testid="nav-plantao" className="nav-item" onClick={() => setMobile(false)}><MoonStar size={18}/>Plantão noturno</NavLink>}
     {user.owner && <NavLink to="/consumo-ia" data-testid="nav-consumo-ia" className="nav-item" onClick={() => setMobile(false)}><Sparkles size={18}/>Consumo da IA</NavLink>}
     {user.role === 'manager' && <NavLink to="/sombra" data-testid="nav-sombra" className="nav-item" onClick={() => setMobile(false)}><ShieldCheck size={18}/>Sombra</NavLink>}
-    {user.role === 'manager' && <NavLink to="/auto" data-testid="nav-auto" className="nav-item" onClick={() => setMobile(false)}><Sparkles size={18}/>Ensaio</NavLink>} // AUTO (Grok)
+    {/* AUTO (Grok) */}
+    {user.role === 'manager' && <NavLink to="/auto" data-testid="nav-auto" className="nav-item" onClick={() => setMobile(false)}><Sparkles size={18}/>Ensaio</NavLink>}
     {canContent(user) && <NavLink to="/conteudo" data-testid="nav-conteudo" className="nav-item" onClick={() => setMobile(false)}><Megaphone size={18}/>Conteúdo e disparos</NavLink>}
     {user.role === 'manager' && <NavLink to="/configuracoes" data-testid="nav-configuracoes" className="nav-item" onClick={() => setMobile(false)}><Settings2 size={18}/>Configurações</NavLink>}
     <Link to="/instalar" data-testid="nav-install-extension" className="sidebar-install-link" onClick={() => setMobile(false)}><Puzzle size={16}/>Extensão para Chrome<ArrowUpRight size={14}/></Link>

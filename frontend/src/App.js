@@ -67,7 +67,8 @@ export default function App() {
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
       <Route path="/sombra" element={user.role === 'manager' ? <Shadow/> : <Navigate to="/"/>}/>
-      <Route path="/auto" element={user.role === 'manager' ? <Auto/> : <Navigate to="/"/>}/> // AUTO (Grok)
+      {/* AUTO (Grok) */}
+      <Route path="/auto" element={user.role === 'manager' ? <Auto/> : <Navigate to="/"/>}/>
       <Route path="/conteudo" element={canContent(user) ? <Content user={user}/> : <Navigate to="/"/>}/>
       <Route path="/configuracoes" element={user.role === 'manager' ? <Settings/> : <Navigate to="/"/>}/>
       <Route path="/minha-conta" element={<Account/>}/>
