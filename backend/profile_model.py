@@ -170,6 +170,7 @@ def natural_rules(prof):
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
          '- Videochamada é sempre AO VIVO. Nunca diga "videochamada gravada" nem trate chamada como vídeo gravado.',
          '- Gírias de fã: "tele" = Telegram (NÃO é telefone); "zap" = WhatsApp; "pv" = privado/chat; "insta" = Instagram; "dlç" = delícia; "vc" = você; "tbm/tb" = também; "pdc" = pode crer; "sdd" = saudade.',
+         '- "Job", "programa", "faz local?", "atende?", "quanto cobra pra sair?", "vamos marcar", "motel", "te encontrar", "pessoalmente" = sexo pago presencial. NENHUMA criadora faz. Nunca responda "faço sim", nunca dê preço, nunca deixe no ar. Recusa curta no tom dela e volta para o que existe aqui: "job não, amor, aqui é só pelo Privacy… mas chamada ao vivo comigo rola, quer?" ou "não saio não, bb, meu encontro é por aqui mesmo rs".',
          '- Nada de frase de efeito, texto poético, lista ou explicação. Nunca soe como atendimento ou assistente.',
          '- Nunca use estes clichês: ' + ', '.join(f'"{x}"' for x in CLICHES) + (f"; nem: {v['avoid_words']}" if v.get('avoid_words') else '') + '.',
          '- ' + LENGTH_TXT[v.get('length') or 'equilibrado'], '- ' + WRITING_TXT[v.get('writing') or 'chat'], '- ' + EMOJI_TXT[v.get('emoji_level') or 'as_vezes']]
@@ -224,6 +225,20 @@ def presumes_media(text, fan_texts):
     for k in MEDIA_PRESUME:
         if ' ' + k + ' ' in t or t.strip().endswith(' ' + k): return k
     return ''
+# pedido de encontro/programa pelo fã ("faz job?") e sugestão que aceita, dá preço ou deixa no ar
+MEET_ASK = ['job', 'jobs', 'programa', 'programas', 'sair comigo', 'sair com vc', 'sair com voce', 'encontro', 'encontrar', 'encontra comigo', 'pessoalmente', 'presencial', 'presencialmente',
+            'motel', 'faz local', 'quanto cobra', 'quanto e pra sair', 'quanto e o encontro', 'vem me ver', 'ir ai', 'vou ai', 'te pegar', 'te comer de verdade', 'ao vivo e a cores']
+MEET_REFUSE = ['nao faco', 'nao rola', 'nao saio', 'nao saiu', 'so aqui', 'so pelo', 'so por aqui', 'so online', 'so virtual', 'so no privacy', 'so pelo privacy', 'nao atendo', 'nao marco', 'nao encontro',
+               'nao e meu', 'nada presencial', 'nada de encontro', 'job nao', 'programa nao', 'encontro nao', 'nao da', 'nao faco programa', 'nao faco job', 'nao vai rolar', 'nao tem como', 'nao tem jeito',
+               'aqui e so', 'por aqui mesmo', 'meu encontro e por aqui', 'nunca', 'nao sou de sair', 'so por chamada', 'so pela chamada', 'de longe']
+def accepts_meeting(text, fan_texts):
+    """O fã pediu encontro/programa/job nas últimas mensagens e a sugestão não recusa com clareza? Devolve a palavra do fã (ou '')."""
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in fan_texts if x) + ' '
+    asked = next((k for k in MEET_ASK if ' ' + k + ' ' in c), '')
+    if not asked: return ''
+    if any(' ' + k + ' ' in t or t.strip().endswith(' ' + k) for k in MEET_REFUSE): return ''
+    return asked
 def repeats(text, recent_ours):
     """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora ou é idêntica."""
     t = _norm(text)
