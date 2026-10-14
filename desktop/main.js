@@ -463,6 +463,7 @@ async function tryAutoDecide(view, creatorId) {
     if (!tg || tg.id !== creatorId) return;
     const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
     if (!read || !read.msgs || !read.msgs.length) return;
+    if (read.otherCreator) return;
     if (read.msgs[read.msgs.length - 1].ours) return;
     const fan_ref = fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '');
     if (!fan_ref) return;
@@ -476,12 +477,30 @@ async function tryAutoDecide(view, creatorId) {
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
-    if (r && r.should_send && r.suggested_text) {
+    if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
       if (tg) {
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
-          await runJs(tg.view, `(() => { const b = document.querySelector('button[type="submit"], .vac-send-button, button[aria-label*="enviar" i], button[title*="enviar" i]'); if (b) b.click(); return !!b; })()`, 2000).catch(() => false);
+          const clickScript = `(() => {
+            const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+            let btn = null, ta = null;
+            for (const root of roots) {
+              btn = root.querySelector('.vac-room-footer button[type="submit"], .vac-room-footer .vac-send-button, .vac-room-footer button');
+              ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea');
+              if (btn || ta) break;
+            }
+            if (btn) { btn.click(); return true; }
+            if (ta) { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; }
+            return false;
+          })()`;
+          await runJs(tg.view, clickScript, 2000).catch(() => false);
+          await new Promise(res => setTimeout(res, 1500));
+          const after = await runJs(tg.view, tg.read, 4000).catch(() => null);
+          const last = after && after.msgs && after.msgs[after.msgs.length - 1];
+          if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
+            await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
+          }
         }
       }
     } else if (r && (r.suggested_text || r.reason)) {
@@ -1843,6 +1862,7 @@ setInterval(async () => {
   const tg = chatTarget(); if (!tg || tg.id !== shadow.creatorId) return;
   const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
   if (!read || !read.msgs || !read.msgs.length) return;
+    if (read.otherCreator) return;
   const last = read.msgs[read.msgs.length - 1];
   if (!last.ours || last.text === shadow.lastOurs) return;
   const w = shadow; shadow = null;
@@ -1870,6 +1890,7 @@ if (ALTA_TESTE) {
     getState: () => state,
     roomKey: (id, name) => readerFor(id).reader.roomKey(name),
     getLastRooms: (id) => lastRooms[id] || [],
+    getReader: (id) => readerFor(id).reader,
     listAt,
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);

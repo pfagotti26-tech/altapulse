@@ -37,6 +37,7 @@ class DecideOut(BaseModel):
     reason: str
     essay: bool = True
     suggested_text: Optional[str] = None
+    log_id: Optional[str] = None
 
 async def get_config():
     doc = await db.auto_config.find_one({"id": "main"}) or {}
@@ -54,7 +55,7 @@ def today():
     return datetime.now(BR).strftime('%Y-%m-%d')
 
 async def count_today(creator_id: str, fan_ref: Optional[str] = None):
-    q = {"day": today(), "creator_id": creator_id, "decision": {"$in": ["ensaio", "enviado"]}}
+    q = {"day": today(), "creator_id": creator_id, "decision": {"$in": ["aprovado", "enviado"]}}
     if fan_ref:
         q["fan_ref"] = fan_ref
     return await db.auto_log.count_documents(q)
@@ -162,17 +163,18 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         "suggested_text": suggested,
     })
     should = not cfg["essay"]
-    decision = "ensaio" if cfg["essay"] else "enviado"
-    reason = "modo ensaio — não envia" if cfg["essay"] else "enviado"
+    decision = "ensaio" if cfg["essay"] else "aprovado"
+    reason = "modo ensaio — não envia" if cfg["essay"] else "aprovado"
+    lid = uid()
     await db.auto_log.insert_one({
-        "id": uid(), "at": iso(), "day": today(),
+        "id": lid, "at": iso(), "day": today(),
         "creator_id": body.creator_id, "fan_ref": body.fan_ref,
         "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
         "last_fan": scrub(last_text)[:500],
         "decision": decision, "reason": reason,
         "suggested_text": suggested,
     })
-    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested)
+    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid)
 
 
 @router.get("/report")
@@ -202,9 +204,18 @@ async def report(day: str = "", user=Depends(manager)):
             summary["motivos"][m] = summary["motivos"].get(m, 0) + 1
     return {"summary": summary, "rows": rows}
 
+
+@router.post("/sent/{log_id}")
+async def mark_sent(log_id: str, user=Depends(extension_user)):
+    await db.auto_log.update_one(
+        {"id": log_id, "decision": "aprovado"},
+        {"$set": {"decision": "enviado", "sent_at": iso(), "reason": "enviado"}}
+    )
+    return {"ok": True}
+
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
-    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["ensaio", "enviado"]}}) if cfg.get("creator_id") else 0
+    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["aprovado", "enviado"]}}) if cfg.get("creator_id") else 0
     remaining = max(0, MAX_PER_DAY - today_count)
     return {**cfg, "today": today_count, "remaining": remaining, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}

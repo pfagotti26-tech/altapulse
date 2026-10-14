@@ -2,7 +2,7 @@
 // Só abre a conversa. Quem decide é tryAutoDecide.
 // Para quando enabled:false ou remaining <= 0.
 module.exports = function createFila(deps) {
-  const { api, getState, roomKey, openChat, getLastRooms, listAt } = deps;
+  const { api, getState, roomKey, openChat, getLastRooms, listAt, getReader } = deps;
   let running = false;
   let timer = null;
   let seen = new Set();
@@ -27,7 +27,9 @@ module.exports = function createFila(deps) {
       const now = Date.now();
       for (const r of rooms) {
         if (r.ours) continue;
-        if (r.otherCreator || r.verified) continue;
+        const ref = roomKey(creatorId, r.name);
+        const reader = getReader ? getReader(creatorId) : null;
+        if (reader && reader.s && reader.s.creators && reader.s.creators[ref]) continue;
         const at = listAt ? listAt(r.when, new Date()) : null;
         if (at && (Date.now() - at.getTime()) < 10 * 60 * 1000) continue;
         const ref = roomKey(creatorId, r.name);
