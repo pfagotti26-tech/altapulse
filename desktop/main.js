@@ -2209,6 +2209,23 @@ app.whenReady().then(async () => {
   });
   win.contentView.addChildView(sidebar);
   sidebar.webContents.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  // AUTO (Grok) — faixa fixa no app de teste
+  if (ALTA_TESTE) {
+    sidebar.webContents.on('did-finish-load', () => {
+      sidebar.webContents.executeJavaScript(`
+        (function() {
+          if (document.getElementById('alta-teste-banner')) return;
+          const b = document.createElement('div');
+          b.id = 'alta-teste-banner';
+          b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7c2d12;color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:bold;z-index:999999;';
+          b.textContent = 'TESTE — servidor 46.224.48.3 — modo ensaio';
+          document.body.prepend(b);
+          document.body.style.paddingTop = '28px';
+        })();
+      `).catch(() => {});
+    });
+  }
+
   fanView = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   win.contentView.addChildView(fanView);
   fanView.webContents.loadFile(path.join(__dirname, 'ui', 'fan.html'));
