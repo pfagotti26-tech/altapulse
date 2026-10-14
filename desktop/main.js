@@ -476,7 +476,15 @@ async function tryAutoDecide(view, creatorId) {
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
-    if (r && (r.suggested_text || r.reason)) {
+    if (r && r.should_send && r.suggested_text) {
+      const tg = chatTarget();
+      if (tg) {
+        const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
+        if (filled) {
+          await runJs(tg.view, `(() => { const b = document.querySelector('button[type="submit"], .vac-send-button, button[aria-label*="enviar" i], button[title*="enviar" i]'); if (b) b.click(); return !!b; })()`, 2000).catch(() => false);
+        }
+      }
+    } else if (r && (r.suggested_text || r.reason)) {
       await view.webContents.executeJavaScript(
         `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify(r.reason || '')})`,
         true

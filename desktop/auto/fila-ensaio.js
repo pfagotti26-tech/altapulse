@@ -27,6 +27,7 @@ module.exports = function createFila(deps) {
       const now = Date.now();
       for (const r of rooms) {
         if (r.ours) continue;
+        if (r.otherCreator || r.verified) continue;
         const at = listAt ? listAt(r.when, new Date()) : null;
         if (at && (Date.now() - at.getTime()) < 10 * 60 * 1000) continue;
         const ref = roomKey(creatorId, r.name);

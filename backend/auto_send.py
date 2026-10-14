@@ -44,6 +44,10 @@ async def get_config():
         "enabled": bool(doc.get("enabled")),
         "essay": doc.get("essay", True),
         "creator_id": doc.get("creator_id"),
+        "max_per_day": int(doc.get("max_per_day") or 15),
+        "max_per_fan": int(doc.get("max_per_fan") or 2),
+        "hour_start": int(doc.get("hour_start") or 10),
+        "hour_end": int(doc.get("hour_end") or 22),
     }
 
 def today():
@@ -94,7 +98,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
 
     now = datetime.now(BR)
-    if not (HOUR_START <= now.hour < HOUR_END):
+    if not (cfg['hour_start'] <= now.hour < cfg['hour_end']):
         return DecideOut(should_send=False, reason="fora do horário", essay=cfg["essay"])
 
     # Fan must have spoken last
@@ -102,9 +106,9 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         return DecideOut(should_send=False, reason="fã não falou por último", essay=cfg["essay"])
 
     last_text = body.messages[-1].text
-    if await count_today(body.creator_id) >= MAX_PER_DAY:
+    if await count_today(body.creator_id) >= cfg['max_per_day']:
         return DecideOut(should_send=False, reason="teto diário", essay=cfg["essay"])
-    if await count_today(body.creator_id, body.fan_ref) >= MAX_PER_FAN:
+    if await count_today(body.creator_id, body.fan_ref) >= cfg['max_per_fan']:
         return DecideOut(should_send=False, reason="teto por fã", essay=cfg["essay"])
 
     # Distrust / robot
@@ -157,7 +161,18 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         "decision": "ensaio", "reason": "modo ensaio — não envia",
         "suggested_text": suggested,
     })
-    return DecideOut(should_send=False, reason="modo ensaio", essay=True, suggested_text=suggested)
+    should = not cfg["essay"]
+    decision = "ensaio" if cfg["essay"] else "enviado"
+    reason = "modo ensaio — não envia" if cfg["essay"] else "enviado"
+    await db.auto_log.insert_one({
+        "id": uid(), "at": iso(), "day": today(),
+        "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+        "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+        "last_fan": scrub(last_text)[:500],
+        "decision": decision, "reason": reason,
+        "suggested_text": suggested,
+    })
+    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested)
 
 
 @router.get("/report")
