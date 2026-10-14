@@ -461,9 +461,14 @@ async function tryAutoDecide(view, creatorId) {
   try {
     const tg = chatTarget();
     if (!tg || tg.id !== creatorId) return;
-    const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
-    if (!read || !read.msgs || !read.msgs.length) return;
-    if (read.otherCreator) return;
+    let read = null;
+    for (let i = 0; i < 8; i++) {
+      read = await runJs(tg.view, tg.read, 4000).catch(() => null);
+      if (read && read.msgs && read.msgs.length && (!read.name || !fan.name || read.name === fan.name)) break;
+      await new Promise(res => setTimeout(res, 1000));
+    }
+    if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return; }
+    if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
     if (read.msgs[read.msgs.length - 1].ours) return;
     const fan_ref = fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '');
     if (!fan_ref) return;
@@ -477,6 +482,7 @@ async function tryAutoDecide(view, creatorId) {
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
+    appLog('fila', `decide ${(fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
     if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
       if (tg) {
@@ -509,7 +515,7 @@ async function tryAutoDecide(view, creatorId) {
         true
       );
     }
-  } catch (e) { /* silencioso */ }
+  } catch (e) { appLog('fila', String(e)); }
 }
 
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
@@ -1894,7 +1900,9 @@ if (ALTA_TESTE) {
     listAt,
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);
+      await quickFan(creatorId);
     },
+    log: (msg) => appLog('fila', msg),
   });
   // start after login
 }
@@ -2427,6 +2435,7 @@ function setupAutoUpdate() {
 ipcMain.handle('auto:decide', async (_e, payload) => {
   try {
     const r = await api('POST', '/auto/decide', payload);
+    appLog('fila', `decide ${(fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
     if (r && r.suggested_text) {
       // No ensaio só mostra; não envia
       console.log('[AUTO ensaio]', r.suggested_text.slice(0, 120));
