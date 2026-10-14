@@ -450,17 +450,21 @@ function setFanFromChat(id, open, platform = 'privacy') {
 let lastAutoKey = '';
 async function tryAutoDecide(view, creatorId) {
   if (!ALTA_TESTE) return;
+  // Só na Aline (id vem da lista de criadoras do state)
+  const aline = (state.creators || []).find(c => /aline\s*fishborn/i.test(c.name || ''));
+  if (!aline || creatorId !== aline.id) return;
   try {
     const data = await view.webContents.executeJavaScript(READER_SCRIPT, true);
-    if (!data || data.page !== 'chat' || !data.open) return;
-    const msgs = data.open.messages || [];
+    if (!data || data.page !== 'chat' || !data.open || !data.open.name) return;
+    const msgs = data.open.msgs || [];
     if (!msgs.length || msgs[msgs.length - 1].ours) return;
-    const key = creatorId + ':' + msgs.length + ':' + (msgs[msgs.length - 1].text || '').slice(0, 40);
+    const fan_ref = readerFor(creatorId).reader.roomKey(data.open.name);
+    const key = creatorId + ':' + fan_ref + ':' + msgs.length + ':' + (msgs[msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
     const payload = {
       creator_id: creatorId,
-      fan_ref: data.open.fan_ref || '',
+      fan_ref,
       messages: msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
