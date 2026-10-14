@@ -32,7 +32,6 @@ module.exports = function createFila(deps) {
         if (reader && reader.s && reader.s.creators && reader.s.creators[ref]) continue;
         const at = listAt ? listAt(r.when, new Date()) : null;
         if (at && (Date.now() - at.getTime()) < 10 * 60 * 1000) continue;
-        const ref = roomKey(creatorId, r.name);
         const key = creatorId + ':' + ref;
         if (seen.has(key)) continue;
         seen.add(key);
