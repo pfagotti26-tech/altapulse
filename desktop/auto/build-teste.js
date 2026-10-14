@@ -19,6 +19,7 @@ const config = {
     ...(base.win || {}),
     artifactName: 'AltaPulse-Teste-Setup-${version}.exe',
   },
+  afterPack: null,  // AUTO (Grok) — teste não usa afterPack do oficial
   extraMetadata: {
     altaTeste: {
       origin: cfg.origin,
