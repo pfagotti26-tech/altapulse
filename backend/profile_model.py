@@ -13,10 +13,11 @@ from schemas import Strict
 
 TONES = {'dominadora': 'Dominadora (manda, não pede)', 'namoradinha': 'Namoradinha carinhosa', 'safada': 'Safada experiente',
          'meiga': 'Meiga e tímida', 'divertida': 'Divertida e descontraída', 'elegante': 'Elegante e misteriosa', 'outro': 'Outro (descrito abaixo)'}
-LIMIT_FLAGS = {'encontro': 'Encontro presencial / programa', 'contato': 'Passar contato pessoal (telefone, @, e-mail)', 'scat': 'Scat',
+LIMIT_FLAGS = {'encontro': 'Encontro presencial / programa', 'contato': 'Passar contato pessoal (telefone, @, e-mail; Telegram só se a ficha disser que usa)', 'scat': 'Scat',
                'golden': 'Golden shower', 'ageplay': 'Ageplay', 'fisting': 'Fisting', 'traicao': 'Insinuação de traição',
                'incesto': 'Incesto (mesmo fantasia)', 'violencia': 'Violência / falta de consentimento', 'nome_fa': 'Falar o nome do fã',
                'trisal': 'Trisal', 'com_fa': 'Gravar com fã / assinante'}
+TELEGRAM = {'nao': 'Não usa Telegram com fãs', 'fas': 'Usa Telegram com fãs (conversa direta)', 'vip': 'Só grupo VIP pago no Telegram'}
 GENDERS = {'f': 'Feminino', 'm': 'Masculino', 'o': 'Outro / não binário'}
 AUDIENCES = {'homens': 'Homens (hétero)', 'mulheres': 'Mulheres', 'gays': 'Homens gays / bi', 'misto': 'Misto'}
 WHO = {'f': {'cr': 'a criadora', 'ela': 'ela', 'dela': 'dela'}, 'm': {'cr': 'o criador', 'ela': 'ele', 'dela': 'dele'},
@@ -163,7 +164,12 @@ def natural_rules(prof):
          '- Use o nome do fã de vez em quando, se souber ("bom dia Sousa"). Fã que some ou pergunta "cadê vc": "tô aqui" basta.',
          '- Mídia enviada e não aberta: cobre leve e curto ("cadê? rs", "não viu nadinha ainda rs", "é hoje que vai abrir um vídeo meu?").',
          '- Na oferta com mídia, um desafio leve funciona ("será que aguenta?", "me prova que vale a pena"). Fã pede mais barato: ofereça um item menor da tabela em uma linha, sem baixar o preço do mesmo item.',
-         '- "rs" e "kkk" são bem-vindos; letra esticada às vezes ("vidinhaaa", "amorrr").',
+         '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
+         '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
+         '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
+         '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
+         '- Videochamada é sempre AO VIVO. Nunca diga "videochamada gravada" nem trate chamada como vídeo gravado.',
+         '- Gírias de fã: "tele" = Telegram (NÃO é telefone); "zap" = WhatsApp; "pv" = privado/chat; "insta" = Instagram; "dlç" = delícia; "vc" = você; "tbm/tb" = também; "pdc" = pode crer; "sdd" = saudade.',
          '- Nada de frase de efeito, texto poético, lista ou explicação. Nunca soe como atendimento ou assistente.',
          '- Nunca use estes clichês: ' + ', '.join(f'"{x}"' for x in CLICHES) + (f"; nem: {v['avoid_words']}" if v.get('avoid_words') else '') + '.',
          '- ' + LENGTH_TXT[v.get('length') or 'equilibrado'], '- ' + WRITING_TXT[v.get('writing') or 'chat'], '- ' + EMOJI_TXT[v.get('emoji_level') or 'as_vezes']]
@@ -173,7 +179,8 @@ def natural_rules(prof):
 # mensagens reais dos chatters da agência (sem dado de fã), usadas quando o perfil ainda não tem exemplos próprios
 AGENCY_EXAMPLES = ['bom dia, meu amor!', 'bem e vc?', 'tô aqui', 'cadê? rs', 'não viu nadinha ainda rs...', 'é hoje que vai abrir um vídeo meu?',
                    'oi safadinho ❤️', 'apagou? rs', 'entendi amor', 'mas não faço', 'Amor?', 'tá afim de uma brincadeira mais safada hoje? 👀',
-                   'quero você começando com esse aqui, será que aguenta, amor?', 'me prova que vale a pena 😈', 'quer ver o que eu aprontei dessa vez? 🔥']
+                   'quero você começando com esse aqui, será que aguenta, amor?', 'me prova que vale a pena 😈', 'quer ver o que eu aprontei dessa vez? 🔥',
+                   'e você, gosta de uma buceta bem molhadinha?', 'o que mais te deixa louco em mim?', 'bom dia, safado rs', 'obrigada amor, e você, tá como hoje?']
 import unicodedata as _ud
 def _norm(t):
     t = _ud.normalize('NFD', (t or '').lower()); t = ''.join(c for c in t if _ud.category(c) != 'Mn')
@@ -204,6 +211,18 @@ def invents_routine(text, convo_texts):
     if any(' ' + k + ' ' in c for k in ROUTINE) or ' sempre ' in c: return ''  # a conversa já fala de rotina: deixa a IA acompanhar
     for k in ROUTINE:
         if ' ' + k + ' ' in t: return k
+    return ''
+# reação a mídia que a IA tende a presumir (gostou do vídeo, continuar assistindo) sem o fã ter falado de mídia
+MEDIA_PRESUME = ['gostou do video', 'gostado do video', 'gostou da foto', 'gostado da foto', 'curte assim', 'curtiu', 'continuar assistindo', 'assistindo', 'assistiu',
+                 'o que mais te deixou excitado nele', 'excitado no video', 'excitado num video', 'deixou com tesao ai', 'do video que te mandei', 'viu o video', 'viu a foto', 'sua reacao']
+MEDIA_WORDS = ['video', 'videos', 'foto', 'fotos', 'midia', 'assist', 'vi ', 'gostei', 'curti', 'mandou', 'mandado', 'recebi', 'abri', 'post', 'conteudo', 'gozou', 'gozando']
+def presumes_media(text, fan_texts):
+    """Devolve a expressão da sugestão que presume reação a mídia sem o fã ter citado vídeo/foto nas últimas mensagens (ou '')."""
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in fan_texts if x) + ' '
+    if any((' ' + w if not w.endswith(' ') else ' ' + w) in c for w in MEDIA_WORDS): return ''  # o fã falou de mídia: tudo bem
+    for k in MEDIA_PRESUME:
+        if ' ' + k + ' ' in t or t.strip().endswith(' ' + k): return k
     return ''
 def repeats(text, recent_ours):
     """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora ou é idêntica."""
@@ -276,6 +295,9 @@ class Objection(Strict):
 class Preview(Strict):
     mode: Literal['nao', 'parcial', 'borrada', 'livre'] = 'parcial'
     gift: str = Field(default='', max_length=300)
+class Telegram(Strict):
+    mode: Literal['nao', 'fas', 'vip'] = 'nao'
+    how: str = Field(default='', max_length=300)  # como responder quando o fã fala do Telegram
 class Languages(Strict):
     langs: list[Literal['pt', 'en', 'es']] = Field(default_factory=lambda: ['pt'])
     foreign_price: Literal['brl', 'usd_convert', 'usd_fixed'] = 'brl'
@@ -309,7 +331,7 @@ def normalize(prof):
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('gender', 'f'); p.setdefault('audience', 'homens')
     p['shadow'] = bool(p.get('shadow'))  # modo sombra: registra sugestão x enviado para medir a Alta Ajuda (nunca envia)
-    p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
+    p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('telegram', {'mode': 'nao', 'how': ''}); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
     return p
 
 def completeness(prof):
@@ -359,6 +381,10 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
     if p.get('style'): L.append('OBSERVAÇÕES DA AGÊNCIA (siga à risca): ' + p['style'])
     flags = [LIMIT_FLAGS[f] for f in p.get('limit_flags') or [] if f in LIMIT_FLAGS]
     L.append(f"LIMITES (o que {w['ela']} NÃO faz): " + '; '.join(flags + ([p['limits']] if p.get('limits') else [])) if (flags or p.get('limits')) else 'LIMITES: não informado')
+    tg = p.get('telegram') or {}
+    if (tg.get('mode') or 'nao') == 'nao': L.append(f"TELEGRAM/WHATSAPP: {w['ela']} não usa com fãs. Fã que fala de \"tele\" (= Telegram), zap ou outro app: responda curto que só fala por aqui, sem sermão.")
+    elif tg.get('mode') == 'vip': L.append('TELEGRAM: só grupo VIP pago. ' + (tg.get('how') or 'Se o fã perguntar, explique que é um grupo pago e como entra.'))
+    else: L.append(f"TELEGRAM: {w['ela']} usa com fãs (conversa direta); \"tele\" = Telegram. " + (tg.get('how') or f"Se o fã falar do Telegram, confirme natural que é {w['ela']} mesmo lá."))
     if p['prices']:
         L.append('TABELA DE PREÇOS (mínimos): ' + '; '.join(f"{x['item']} [{PRICE_CATS.get(x['category'], 'Outro')}{', explícito' if x.get('explicit') else ''}]: {money_br(x['cents'])}" + (f" ({x['obs']})" if x.get('obs') else '') for x in p['prices']))
     else: L.append('TABELA DE PREÇOS: nenhuma cadastrada')

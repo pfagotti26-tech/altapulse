@@ -161,6 +161,7 @@ class ProfileIn(Strict):
     voice: PM.Voice = Field(default_factory=PM.Voice)
     sales: PM.Sales = Field(default_factory=PM.Sales)
     limit_flags: list[str] = Field(default_factory=lambda: ['encontro', 'contato'], max_length=20)
+    telegram: PM.Telegram = Field(default_factory=PM.Telegram)  # Telegram por criadora: não usa / usa com fãs / só grupo VIP
     call: PM.CallRules = Field(default_factory=PM.CallRules)
     preview: PM.Preview = Field(default_factory=PM.Preview)
     languages: PM.Languages = Field(default_factory=PM.Languages)
@@ -209,7 +210,7 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
 @router.get('/assist/fields')
 async def fields(user=Depends(manager)):
     return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS,
-            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'sales_stages': PM.SALES_STAGES, 'sales_single': PM.SALES_SINGLE, 'sales_presets': PM.SALES_PRESETS, 'limit_flags': PM.LIMIT_FLAGS, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
+            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'sales_stages': PM.SALES_STAGES, 'sales_single': PM.SALES_SINGLE, 'sales_presets': PM.SALES_PRESETS, 'limit_flags': PM.LIMIT_FLAGS, 'telegram': PM.TELEGRAM, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
 
 class ImportItem(Strict):
     creator_id: str
@@ -608,10 +609,12 @@ FIM DA CONVERSA:
     txt0 = str((out or {}).get('texto') or '')
     rep = bool(out and not out.get('alerta') and PM.repeats(txt0, recent_ours))
     rot = PM.invents_routine(txt0, [m.text for m in msgs[-14:]]) if out and not out.get('alerta') else ''
-    if rep or rot:
+    med = PM.presumes_media(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
+    if rep or rot or med:
         why = []
         if rep: why.append('começou igual a uma mensagem recente; use abertura e jeito diferentes')
         if rot: why.append(f'falou "{rot}", mas a conversa não mostra essa rotina; responda só ao momento, sem citar frequência')
+        if med: why.append(f'falou "{med}", mas o fã não citou vídeo, foto ou mídia; responda ao que ele disse e, se for perguntar, pergunte sobre você ("em mim"), não sobre vídeo ou perfil')
         try:
             r2 = await call(model, '\n\nATENÇÃO: a versão anterior ' + ' e '.join(why) + '. Escreva outra.')
             if r2.status_code < 400:
