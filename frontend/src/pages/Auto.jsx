@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Sparkles, AlertTriangle, XCircle } from 'lucide-react';
+import { RefreshCw, Sparkles, AlertTriangle, XCircle, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, errorText, dateTime } from '../lib/api';
 import { PageHeading, Stat, Button, Empty, Notice } from '../components/Common';
@@ -25,10 +25,10 @@ export default function Auto() {
       </PageHeading>
       {!d ? <p className="body-muted">Carregando…</p> : <>
         <div className="stats-grid">
-          <Stat label="Ensaios" value={s.ensaios} icon={Sparkles}/>
-          <Stat label="Travados" value={s.travados} icon={AlertTriangle}/>
-          <Stat label="Erros" value={s.erros} icon={XCircle}/>
-          <Stat label="Gasto IA (US$)" value={s.cost_usd.toFixed(4)} caption={`${s.calls} chamadas`}/>
+          <Stat id="au-ensaios" label="Ensaios" value={s.ensaios} icon={Sparkles}/>
+          <Stat id="au-travados" label="Travados" value={s.travados} icon={AlertTriangle}/>
+          <Stat id="au-erros" label="Erros" value={s.erros} icon={XCircle}/>
+          <Stat id="au-gasto" label="Gasto IA (US$)" value={s.cost_usd.toFixed(4)} caption={`${s.calls} chamadas`} icon={DollarSign}/>
         </div>
         {Object.keys(s.motivos).length > 0 && (
           <Notice>Motivos de trava: {Object.entries(s.motivos).map(([k,v]) => `${k} (${v})`).join(', ')}</Notice>
