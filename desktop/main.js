@@ -456,18 +456,20 @@ async function tryAutoDecide(view, creatorId) {
   }
   if (!global.autoCreatorId || creatorId !== global.autoCreatorId) return;
   try {
-    const data = await view.webContents.executeJavaScript(READER_SCRIPT, true);
-    if (!data || data.page !== 'chat' || !data.open || !data.open.name) return;
-    const msgs = data.open.msgs || [];
-    if (!msgs.length || msgs[msgs.length - 1].ours) return;
-    const fan_ref = readerFor(creatorId).reader.roomKey(data.open.name);
-    const key = creatorId + ':' + fan_ref + ':' + msgs.length + ':' + (msgs[msgs.length - 1].text || '').slice(0, 40);
+    const tg = chatTarget();
+    if (!tg || tg.id !== creatorId) return;
+    const read = await runJs(tg.view, tg.read, 4000).catch(() => null);
+    if (!read || !read.msgs || !read.msgs.length) return;
+    if (read.msgs[read.msgs.length - 1].ours) return;
+    const fan_ref = fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '');
+    if (!fan_ref) return;
+    const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
     const payload = {
       creator_id: creatorId,
       fan_ref,
-      messages: msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
+      messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
     if (r && (r.suggested_text || r.reason)) {
