@@ -14,6 +14,7 @@ const config = {
     ...(base.nsis || {}),
     shortcutName: cfg.productName,
     uninstallDisplayName: cfg.productName,
+    artifactName: 'AltaPulse-Teste-Setup-${version}.exe',
   },
   win: {
     ...(base.win || {}),
