@@ -39,11 +39,11 @@ class DecideOut(BaseModel):
 
 async def get_config():
     doc = await db.auto_config.find_one({"id": "main"}) or {}
-    return {"enabled": bool(doc.get("enabled")), "essay": doc.get("essay", True)}
-
-async def aline_id():
-    c = await db.creators.find_one({"name": CREATOR_NAME}, {"_id": 0, "id": 1})
-    return c["id"] if c else None
+    return {
+        "enabled": bool(doc.get("enabled")),
+        "essay": doc.get("essay", True),
+        "creator_id": doc.get("creator_id"),
+    }
 
 def today():
     return datetime.now(BR).strftime('%Y-%m-%d')
@@ -60,9 +60,15 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     if not cfg["enabled"]:
         return DecideOut(should_send=False, reason="automação desligada", essay=cfg["essay"])
 
-    aid = await aline_id()
-    if not aid or body.creator_id != aid:
-        raise HTTPException(403, "Automação só para Aline Fishborn")
+    if not cfg.get("creator_id"):
+        await db.auto_log.insert_one({
+            "id": uid(), "at": iso(), "day": today(),
+            "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "decision": "travado", "reason": "creator_id não configurado",
+        })
+        raise HTTPException(403, "creator_id não configurado")
+    if body.creator_id != cfg["creator_id"]:
+        raise HTTPException(403, "Automação só para a criadora configurada")
 
     # Presence: active shift (same pattern as extension_routes.py)
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True})
@@ -150,4 +156,4 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
-    return {"creator": CREATOR_NAME, **cfg, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}
+    return {**cfg, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}

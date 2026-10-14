@@ -450,9 +450,11 @@ function setFanFromChat(id, open, platform = 'privacy') {
 let lastAutoKey = '';
 async function tryAutoDecide(view, creatorId) {
   if (!ALTA_TESTE) return;
-  // Só na Aline (id vem da lista de criadoras do state)
-  const aline = (state.creators || []).find(c => /aline\s*fishborn/i.test(c.name || ''));
-  if (!aline || creatorId !== aline.id) return;
+  // Só na criadora configurada (id vem de /auto/status)
+  if (!global.autoCreatorId) {
+    try { const st = await api('GET', '/auto/status'); global.autoCreatorId = st && st.creator_id; } catch {}
+  }
+  if (!global.autoCreatorId || creatorId !== global.autoCreatorId) return;
   try {
     const data = await view.webContents.executeJavaScript(READER_SCRIPT, true);
     if (!data || data.page !== 'chat' || !data.open || !data.open.name) return;
