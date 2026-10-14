@@ -472,6 +472,7 @@ async function tryAutoDecide(view, creatorId) {
     const payload = {
       creator_id: creatorId,
       fan_ref,
+      fan_name: (state.fan_names_allowed && fan.name) ? fan.name : undefined,
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);

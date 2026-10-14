@@ -29,6 +29,7 @@ class ChatMsg(BaseModel):
 class DecideIn(BaseModel):
     creator_id: str
     fan_ref: str
+    fan_name: Optional[str] = None
     messages: List[ChatMsg] = Field(default_factory=list, max_length=16)
 
 class DecideOut(BaseModel):
@@ -64,6 +65,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         await db.auto_log.insert_one({
             "id": uid(), "at": iso(), "day": today(),
             "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "decision": "travado", "reason": "creator_id não configurado",
         })
         raise HTTPException(403, "creator_id não configurado")
@@ -111,6 +113,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         await db.auto_log.insert_one({
             "id": uid(), "at": iso(), "day": today(),
             "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
             "decision": "travado", "reason": "desconfiança",
         })
@@ -129,6 +132,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             await db.auto_log.insert_one({
                 "id": uid(), "at": iso(), "day": today(),
                 "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
                 "last_fan": scrub(last_text)[:500],
                 "decision": "travado", "reason": result.get("reason", "alerta"),
             })
@@ -138,6 +142,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         await db.auto_log.insert_one({
             "id": uid(), "at": iso(), "day": today(),
             "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
             "decision": "erro", "reason": "falha no suggest",
             "error": str(e)[:300],
@@ -147,6 +152,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     await db.auto_log.insert_one({
         "id": uid(), "at": iso(), "day": today(),
         "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
         "last_fan": scrub(last_text)[:500],
         "decision": "ensaio", "reason": "modo ensaio — não envia",
         "suggested_text": suggested,
@@ -157,7 +163,6 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 @router.get("/report")
 async def report(day: str = "", user=Depends(manager)):
     """Resumo e lista do dia para o painel de teste. Só gestor."""
-    from core import manager
     d = day or today()
     rows = await db.auto_log.find({"day": d}, {"_id": 0}).sort("at", -1).to_list(500)
     # gasto do dia (assist_usage)
