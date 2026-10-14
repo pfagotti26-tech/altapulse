@@ -1859,6 +1859,7 @@ if (ALTA_TESTE) {
     getState: () => state,
     roomKey: (id, name) => readerFor(id).reader.roomKey(name),
     getLastRooms: (id) => lastRooms[id] || [],
+    listAt,
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);
     },
