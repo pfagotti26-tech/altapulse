@@ -184,6 +184,8 @@ async function refreshState() {
     const data = await api('GET', '/extension/state');
     if (data.user && data.user.id) { const me = readJson('ultimo-usuario.json', null); if (!me || me.id !== data.user.id) writeJson('ultimo-usuario.json', { id: data.user.id }); }
     state = { user: data.user, creators: data.creators, sla_minutes: data.sla_minutes, version: data.version, storage_allowed: !!data.storage_allowed, fan_names_allowed: !!data.fan_names_allowed, quality_ai_allowed: !!data.quality_ai_allowed };
+    // AUTO (Grok) — inicia fila no login
+    if (ALTA_TESTE && filaEnsaio && data.user && !filaEnsaio.running) filaEnsaio.start();
     // as leituras seguintes não dependem uma da outra: rodam juntas (o app abre mais rápido)
     await Promise.all([
       (async () => { try { credentials = await api('GET', '/extension/credentials'); } catch { /* painel antigo sem cofre */ } })(),
@@ -1865,7 +1867,6 @@ if (ALTA_TESTE) {
     },
   });
   // start after login
-  setTimeout(() => { if (filaEnsaio && state.user) filaEnsaio.start(); }, 15000); // AUTO (Grok)
 }
 
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
@@ -1998,6 +1999,7 @@ async function revokeLocal() {
   } finally { revoking = false; }
 }
 async function doLogout() {
+  if (filaEnsaio) filaEnsaio.stop(); // AUTO (Grok)
   cancelRestore();
   try { if (token) await api('POST', '/extension/logout'); } catch {}
   token = null; writeToken(null);
@@ -2291,6 +2293,7 @@ app.on('window-all-closed', () => app.quit());
 // não fica em disco, a próxima abertura pede e-mail e senha de qualquer jeito.
 let quitting = false;
 app.on('before-quit', (e) => {
+  if (filaEnsaio) filaEnsaio.stop(); // AUTO (Grok)
   cancelRestore();
   if (quitting || !token) return;
   quitting = true; e.preventDefault();
