@@ -19,6 +19,7 @@ const fs = require('fs');
 const CALIBRATION_SCRIPT = require('./calibration.js');
 const READER_SCRIPT = require('./reader-page.js');
 const ENSAIO_UI = require('./auto/ensaio-ui.js'); // AUTO (Grok)
+const createFila = require('./auto/fila-ensaio.js'); // AUTO (Grok)
 const { CreatorReader, parseDateLabel, at: msgAt, listAt } = require('./reader.js');
 const SAMPLE_SCRIPT = require('./sample-page.js');
 const EXTRATO = require('./extrato-page.js');
@@ -1848,6 +1849,27 @@ ipcMain.handle('fanseg:set', async (_e, segment) => {
   return { ...r, fanRef: fan.fanRef };
 });
 // ---------- Plantão (copiloto): fila de abordagens de quem tem a permissão; abrir a conversa e preencher o texto — o envio é da pessoa ----------
+
+// AUTO (Grok) — fila de ensaio
+let filaEnsaio = null;
+if (ALTA_TESTE) {
+  filaEnsaio = createFila({
+    api,
+    getState: () => state,
+    roomKey: (id, name) => readerFor(id).reader.roomKey(name),
+    openChat: async (creatorId, name, fanRef) => {
+      await openConversation(creatorId, 'privacy', null, name, fanRef);
+    },
+    readChat: async (creatorId) => {
+      const tg = chatTarget();
+      if (!tg || tg.id !== creatorId) return null;
+      return await runJs(tg.view, tg.read, 4000).catch(() => null);
+    },
+  });
+  // start after login
+  setTimeout(() => { if (filaEnsaio && me) filaEnsaio.start(); }, 15000);
+}
+
 const plantao = plantaoApp.create({ api, log: (...a) => console.log('[plantao]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
 ipcMain.handle('plantao:queue', async () => { if (Date.now() - (plantao.fetchedAt || 0) > 120000) await plantao.fetchConfigs(); return plantao.queue(); });
 ipcMain.handle('plantao:refresh', async () => { await plantao.fetchConfigs(); return plantao.queue(); });
