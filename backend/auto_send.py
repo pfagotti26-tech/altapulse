@@ -154,14 +154,6 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         })
         return DecideOut(should_send=False, reason="erro interno", essay=cfg["essay"])
 
-    await db.auto_log.insert_one({
-        "id": uid(), "at": iso(), "day": today(),
-        "creator_id": body.creator_id, "fan_ref": body.fan_ref,
-            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
-        "last_fan": scrub(last_text)[:500],
-        "decision": "ensaio", "reason": "modo ensaio — não envia",
-        "suggested_text": suggested,
-    })
     should = not cfg["essay"]
     decision = "ensaio" if cfg["essay"] else "aprovado"
     reason = "modo ensaio — não envia" if cfg["essay"] else "aprovado"
@@ -205,6 +197,15 @@ async def report(day: str = "", user=Depends(manager)):
     return {"summary": summary, "rows": rows}
 
 
+
+@router.post("/failed/{log_id}")
+async def mark_failed(log_id: str, user=Depends(extension_user)):
+    await db.auto_log.update_one(
+        {"id": log_id, "decision": "aprovado"},
+        {"$set": {"decision": "falha_envio", "reason": "falha_envio"}}
+    )
+    return {"ok": True}
+
 @router.post("/sent/{log_id}")
 async def mark_sent(log_id: str, user=Depends(extension_user)):
     await db.auto_log.update_one(
@@ -217,5 +218,5 @@ async def mark_sent(log_id: str, user=Depends(extension_user)):
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
     today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["aprovado", "enviado"]}}) if cfg.get("creator_id") else 0
-    remaining = max(0, MAX_PER_DAY - today_count)
+    remaining = max(0, cfg['max_per_day'] - today_count)
     return {**cfg, "today": today_count, "remaining": remaining, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}

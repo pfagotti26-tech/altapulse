@@ -482,24 +482,24 @@ async function tryAutoDecide(view, creatorId) {
       if (tg) {
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
-          const clickScript = `(() => {
+          const enterScript = `(() => {
             const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-            let btn = null, ta = null;
-            for (const root of roots) {
-              btn = root.querySelector('.vac-room-footer button[type="submit"], .vac-room-footer .vac-send-button, .vac-room-footer button');
-              ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea');
-              if (btn || ta) break;
-            }
-            if (btn) { btn.click(); return true; }
-            if (ta) { ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; }
-            return false;
+            let ta = null;
+            for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
+            if (!ta) return false;
+            const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
+            ta.dispatchEvent(new KeyboardEvent('keydown', ev));
+            ta.dispatchEvent(new KeyboardEvent('keyup', ev));
+            return true;
           })()`;
-          await runJs(tg.view, clickScript, 2000).catch(() => false);
+          await runJs(tg.view, enterScript, 2000).catch(() => false);
           await new Promise(res => setTimeout(res, 1500));
           const after = await runJs(tg.view, tg.read, 4000).catch(() => null);
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
+          } else {
+            await api('POST', `/auto/failed/${r.log_id}`, {}).catch(() => {});
           }
         }
       }
