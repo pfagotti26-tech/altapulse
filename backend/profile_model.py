@@ -153,7 +153,9 @@ def natural_rules(prof):
     v = (normalize(prof) or {}).get('voice') or {}
     L = ['NATURALIDADE (é isto que faz parecer gente, siga sempre):',
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
-         '- A maioria das mensagens é curta. Mensagem mais longa só na oferta com mídia, nas boas-vindas ou ao contar a história de um conteúdo.',
+         '- Papo quente (sexting): quando o fã descreve o que faria, responda DENTRO da cena dele, curto, completando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história ("gravei pensando em momentos assim").',
+         '- Oferta no papo quente = uma legenda provocante ligada à cena + valor ("quer me ver engasgando assim? R$ 75"), não um anúncio do vídeo. NUNCA diga a duração (minutos/segundos) nem descreva o vídeo, mesmo se ele perguntar: diga só que ele vai gostar, que é gostoso, que vai deixar ele louco.',
+         '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 mensagens sem oferecer nada, a próxima oferece um item da tabela com valor, ligado ao que ele disse (sem pressão, sem textão).',
          '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
@@ -374,7 +376,7 @@ def free_show(text, fan_texts):
     if not any(' ' + k + ' ' in t for k in SHOW_ASK): return False
     return not any(' ' + k + ' ' in t for k in SHOW_PAY) and 'r$' not in (text or '').lower()
 # lote 100: bordão de fim de mensagem ("me conta, o que mais te excita em mim?") repetido na conversa ou com outros fãs
-TICS = ['o que mais', 'me conta o que', 'me diz o que', 'o que voce faria', 'o que vc faria']
+TICS = ['o que mais', 'o que mais te deixa', 'me conta o que', 'me diz o que', 'o que voce faria', 'o que vc faria']
 def catchphrase(text, recent_ours, other_texts):
     """Devolve o bordão se a sugestão termina numa pergunta-fórmula já usada nesta conversa ou em 3+ mensagens a outros fãs."""
     q = (text or '').strip()
@@ -389,9 +391,14 @@ def catchphrase(text, recent_ours, other_texts):
 def too_long(text, fan_last):
     """Devolve (palavras da sugestão, limite) quando passa do tamanho proporcional à última do fã; senão None."""
     fw = len(_norm(fan_last)); tw = len(_norm(text))
-    lim = 18 if fw <= 3 else 32 if fw <= 10 else 60
-    if 'r$' in (text or '').lower(): lim += 12  # oferta com valor pode ser um pouco maior
+    lim = 10 if fw <= 3 else 14  # lote 112 (Paulo): padrão UMA linha de chat; no máximo duas
+    if 'r$' in (text or '').lower(): lim = 22  # oferta com valor: até duas linhas
     return (tw, lim) if tw > lim else None
+# lote 112: oferta nunca fala a duração do vídeo
+DUR = re.compile(r'\b\d+\s*(min|minutos?|seg|segundos?|s)\b', re.I)
+def says_duration(text, fan_last):
+    m = DUR.search(text or '')
+    return m.group(0) if m else ''  # Paulo: nunca dizer o tempo do vídeo
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '

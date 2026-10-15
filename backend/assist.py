@@ -662,15 +662,17 @@ FIM DA CONVERSA:
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
     nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
+    dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur:
         why = []
+        if dur: why.append(f'falou a duração do vídeo ("{dur}"); nunca diga tempo nem descreva o vídeo: diga só que ele vai gostar, que é gostoso, ligado ao que ele disse, + o valor')
         if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso no tom dela, sem pressão: ofereça o item mais barato da tabela com o valor ou deixe a porta aberta para quando ele puder')
         if scold: why.append(f'deu bronca/cobrou o fã ("{scold}"); ela pode provocar e se fazer de difícil, mas sem acusar nem cobrar: corte com charme e ofereça algo')
         if nosale: why.append(f'não ofereceu nada, e já são {_n_off} mensagens da criadora sem oferta; responda curto ao que ele disse e ofereça UM item da tabela com o valor, ligado ao assunto, preenchendo "produto"')
         if vibe and vibe[0] == 'abertura': why.append(f'começou com "{vibe[1]}", do mesmo jeito que várias mensagens a outros fãs hoje; comece de outro jeito (não agradeça de novo, reaja ao que ESTE fã disse)')
         if vibe and vibe[0] == 'ideia': why.append(f'disse a mesma coisa que já foi dita a outro fã hoje, só trocando palavras ({vibe[1]}); responda com outra ideia, ligada ao que ESTE fã escreveu')
-        if longo: why.append(f'ficou longa demais ({longo[0]} palavras) para o que o fã mandou; responda em no máximo {longo[1]} palavras, uma frase só, no ritmo dele')
+        if longo: why.append(f'ficou longa demais ({longo[0]} palavras); o padrão é UMA linha de chat: no máximo {longo[1]} palavras, no ritmo dele')
         if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
         if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
