@@ -759,8 +759,12 @@ async def shadow_report(days: int = 7, creator_id: str = '', start: str = '', en
     rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(2000)
     # pendente há mais de 2 h = o chatter não respondeu depois da sugestão (ou fechou a conversa)
     cut = (now() - timedelta(hours=2)).isoformat()
+    # lote 102: o que a equipe já ensinou nessas linhas (para todos os gestores verem, não só quem salvou)
+    taught = {e['ref_id']: e async for e in db.assist_examples.find({'source': 'sombra', 'ref_id': {'$in': [r.get('id') for r in rows if r.get('id')]}},
+                                                                      {'_id': 0, 'ref_id': 1, 'kind': 1, 'good': 1, 'reason': 1, 'by_name': 1, 'at': 1, 'id': 1})}
     for r in rows:
         r.pop('expires_at', None)
+        if r.get('id') in taught: r['example'] = taught[r['id']]
         if r.get('status') == 'pendente' and str(r.get('at') or '') < cut: r['status'] = 'sem_resposta'
         r['status'] = r.get('status') or 'pendente'
     def group(key):

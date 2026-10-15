@@ -23,14 +23,20 @@ function Table({ rows, first }) {
 // Vira exemplo aprovado da criadora (a IA imita o jeito nas próximas sugestões, sem copiar).
 const REASONS = [['', 'motivo (opcional)'], ['tom', 'tom errado'], ['contexto', 'fora de contexto'], ['repetiu', 'repetiu'], ['vender', 'devia vender'], ['inventou', 'inventou coisa'], ['outro', 'outro']];
 function Teach({ r }) {
-  const [open, setOpen] = useState(false), [txt, setTxt] = useState(''), [why, setWhy] = useState(''), [done, setDone] = useState(''), [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false), [txt, setTxt] = useState(r.example && r.example.kind === 'corrigido' ? r.example.good : ''), [why, setWhy] = useState(''), [done, setDone] = useState(''), [busy, setBusy] = useState(false);
   const send = async (better, label) => {
     setBusy(true);
     try { await api.post('/assist/examples', { creator_id: r.creator_id, fan_text: r.last_fan || '', ai_text: r.proposed || '', better_text: better, reason: why, source: 'sombra', ref_id: r.id }); setDone(label); setOpen(false); toast.success('Exemplo salvo: a IA vai seguir esse jeito.'); }
     catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
   };
-  if (done) return <small className="shadow-tag info">✓ {done}</small>;
+  const ex = r.example;
+  const saved = done ? <small className="shadow-tag info">✓ {done}</small>
+    : ex ? <div style={{ fontSize: 12 }}><small className="shadow-tag info">✓ {ex.kind === 'corrigido' ? '✏️ corrigido' : '👍 aprovado'}{ex.by_name ? ` por ${ex.by_name}` : ''}</small>
+        {ex.kind === 'corrigido' && <div className="shadow-txt" style={{ marginTop: 4 }}>{ex.good}</div>}
+        {ex.reason && <small className="body-muted">motivo: {ex.reason}</small>}</div> : null;
+  if (done) return saved;
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 150 }}>
+    {saved}
     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
       <Button variant="outline" disabled={busy || !r.proposed} title="A sugestão da IA estava boa" onClick={() => send('', '👍 IA')}>👍 IA</Button>
       {r.sent && <Button variant="outline" disabled={busy} title="O que o chatter mandou ficou melhor" onClick={() => send(r.sent, '👍 enviado')}>👍 enviado</Button>}
