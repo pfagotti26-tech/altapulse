@@ -43,9 +43,10 @@ async def _email(req, late=False):
     agency = (await settings()).get('agency_name', 'Alta Pulse')
     e = html.escape
     what = f"{e(req.get('item') or 'Solicitação de mídia')} · <b>{e(money(req['amount_cents']))}</b>"
-    task = 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)'
+    call = req.get('category') in ('chamada', 'chamada_gravada')  # lote 116: chamada é cobrada pela solicitação de mídia
+    task = 'combinar o horário da chamada com a criadora e avisar o fã' if call else 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)'
     due = datetime.fromisoformat(req['due_at']).astimezone().strftime('%d/%m %H:%M')
-    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b> e mandou a mídia dele.<br>{what}<br><br>"
+    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b>{'' if call else ' e mandou a mídia dele'}.<br>{what}<br><br>"
              f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar feito (app: oportunidade “Ver mídia paga do fã” → Feito; painel: Sombra → Mídias pagas).")
     if late: intro = '<b style="color:#c8102e">PASSOU DO PRAZO.</b> ' + intro
     link = req.get('chat_url') or (ORIGIN + '/sombra')
@@ -59,7 +60,7 @@ async def _email(req, late=False):
 
 async def _opportunity(req, t, late=False):
     reason = (f"Pagou {money(req['amount_cents'])}" + (f" ({req['item']})" if req.get('item') else '') +
-              ' e mandou a mídia dele · ver, responder e tocar em Feito.' + (' ATRASADA.' if late else ''))
+              (' · CHAMADA: combinar horário com a criadora e tocar em Feito.' if req.get('category') in ('chamada', 'chamada_gravada') else ' e mandou a mídia dele · ver, responder e tocar em Feito.') + (' ATRASADA.' if late else ''))
     ref = f"entregar_midia:{req['id']}"
     await db.opportunities.update_one({'creator_id': req['creator_id'], 'fan_ref': req['fan_ref'], 'ref': ref},
         {'$set': {'status': 'open', 'hot': True, 'reason': reason, 'due_at': (t + timedelta(days=3)).isoformat()},
