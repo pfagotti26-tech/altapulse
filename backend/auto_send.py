@@ -226,6 +226,16 @@ class ConfigIn(BaseModel):
 @router.put("/config")
 async def set_config(body: ConfigIn, user=Depends(manager)):
     upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
+    if "max_per_day" in upd and not (1 <= upd["max_per_day"] <= 40):
+        raise HTTPException(400, "max_per_day deve estar entre 1 e 40")
+    if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 3):
+        raise HTTPException(400, "max_per_fan deve estar entre 1 e 3")
+    if "hour_start" in upd and not (0 <= upd["hour_start"] <= 23):
+        raise HTTPException(400, "hour_start deve estar entre 0 e 23")
+    if "hour_end" in upd and not (0 <= upd["hour_end"] <= 23):
+        raise HTTPException(400, "hour_end deve estar entre 0 e 23")
+    if "hour_start" in upd and "hour_end" in upd and upd["hour_start"] >= upd["hour_end"]:
+        raise HTTPException(400, "hour_start deve ser menor que hour_end")
     await db.auto_config.update_one({"id": "main"}, {"$set": upd}, upsert=True)
     return {"ok": True}
 

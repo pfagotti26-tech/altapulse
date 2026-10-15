@@ -482,6 +482,7 @@ async function tryAutoDecide(view, creatorId) {
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
+    if (filaEnsaio && r && (r.log_id || r.suggested_text)) filaEnsaio.markRecent(fan_ref);
     appLog('fila', `decide ${(payload.fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
     if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
@@ -2435,6 +2436,7 @@ function setupAutoUpdate() {
 ipcMain.handle('auto:decide', async (_e, payload) => {
   try {
     const r = await api('POST', '/auto/decide', payload);
+    if (filaEnsaio && r && (r.log_id || r.suggested_text)) filaEnsaio.markRecent(fan_ref);
     appLog('fila', `decide ${(payload.fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
     if (r && r.suggested_text) {
       // No ensaio só mostra; não envia

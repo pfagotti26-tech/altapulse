@@ -53,6 +53,7 @@ module.exports = String.raw`(() => {
     // A frase é avaliada aqui e descartada: só o sim/não sai da página.
     rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
     intent: !isOurs(r) && INTENT.test(lastText(r).toLowerCase()),
+    typing: /est[aá] escrevendo|digitando/i.test(lastText(r)), // AUTO (Grok)
     // selo de conta verificada ao lado do nome = outra criadora (divulgação, venda de mídia): não é fã esperando
     verified: !!r.querySelector(VERIFIED),
   })).filter((r) => r.name);

@@ -41,15 +41,10 @@ module.exports = function createFila(deps) {
       });
       for (const r of rooms) {
         if (r.ours) continue;
-        if (isTyping(r)) continue;
+        if (r.typing) continue;
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
-        if (at) {
-          const age = now - at.getTime();
-          if (age < 45 * 1000) continue;
-          // se when é HH:MM e bate com o minuto atual, espera próximo tick
-          if (/^\d{1,2}:\d{2}$/.test(String(r.when || '')) && Math.abs(age) < 60000) continue;
-        }
+        if (at && (now - at.getTime()) < 105 * 1000) continue;
         const key = creatorId + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
         seen.add(key);
