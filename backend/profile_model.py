@@ -155,7 +155,8 @@ def natural_rules(prof):
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
          '- PRIMEIRO CONVERSA. Reaja ao que ele disse com charme, curiosidade ou provocação curta ("Safado", "delícia", "sabe chupar direitinho?", "qual sua posição favorita, amor?"). Elogio ou mídia grátis: agradeça e puxe papo, sem oferecer nada na mesma mensagem.',
          '- Papo quente (sexting): responda DENTRO da cena dele, continuando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"; fã: "banho agarradinho" → "final perfeito, amor"). Pode ser 2 linhas curtas na mesma mensagem ("gostei\nme deixou bem molhadinha aqui"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história.',
-         '- Oferta = uma LEGENDA que continua a cena, como se a mídia fosse o próximo passo da fantasia ("vem, amor? bem limpinha e cheirosinha pra você", "quer me ver engasgando assim?", "começa lambendo devagarinho…") + o valor no fim. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
+         '- Papéis (público hétero): quem senta, cavalga, rebola e chupa é SEMPRE ela; o fã mete, goza, assiste. Nunca "vem sentar", "senta em mim" para o fã.',
+         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a mídia paga, o preço vai na própria mídia ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele abrir e contar ("abre e me conta se faria desse jeitinho 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
@@ -304,6 +305,11 @@ def same_vibe(text, other_texts):
     if len(w) >= 2:
         op = ' '.join(w[:2])
         if sum(1 for o in (other_texts or [])[:12] if ' '.join(_norm(o)[:2]) == op) >= 2: return ('abertura', op)
+    # lote 114: apelido de abertura em série ("bb, …" em várias mensagens seguidas)
+    if w and w[0] in ('bb', 'amor', 'vida', 'gato', 'lindo', 'delicia') and sum(1 for o in (other_texts or [])[:6] if _norm(o)[:1] == [w[0]]) >= 2: return ('abertura', w[0])
+    # lote 114: palavra-muleta repetida entre fãs ("molhadinha")
+    for k in ('molhadinha', 'molhada', 'excita', 'excitado'):
+        if k in w and sum(1 for o in (other_texts or [])[:8] if k in _norm(o)) >= 2: return ('ideia', k)
     mine = _content(text)
     if len(mine) >= 3:
         for o in (other_texts or [])[:12]:
@@ -398,6 +404,7 @@ def catchphrase(text, recent_ours, other_texts):
     tail = ' ' + ' '.join(_norm(re.split(r'[.!…\n]', q.rstrip('?'))[-1])) + ' '
     tic = next((k for k in TICS if ' ' + k + ' ' in tail), '')
     if not tic: return ''
+    if tic.startswith('o que mais'): return tic  # lote 114: "o que mais te excita…" nunca
     here = sum(1 for x in (recent_ours or [])[-6:] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
     there = sum(1 for x in (other_texts or [])[:12] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
     return tic if here >= 1 or there >= 2 else ''
@@ -413,6 +420,31 @@ DUR = re.compile(r'\b\d+\s*(min|minutos?|seg|segundos?|s)\b', re.I)
 def says_duration(text, fan_last):
     m = DUR.search(text or '')
     return m.group(0) if m else ''  # Paulo: nunca dizer o tempo do vídeo
+# lote 114 (Paulo): família e a palavra "incesto" são proibidas em QUALQUER texto (mensagem ao fã e avisos do painel)
+FAMILY = ['incesto', 'incestuoso', 'familia', 'mae', 'mamae', 'pai', 'papai', 'irma', 'irmao', 'irmaozinho', 'irmazinha', 'filha', 'filho', 'filhinha', 'sogra', 'sogro',
+          'tia', 'tio', 'titia', 'titio', 'prima', 'primo', 'sobrinha', 'sobrinho', 'enteada', 'enteado', 'madrasta', 'padrasto', 'cunhada', 'cunhado', 'avo', 'vovo', 'neta', 'neto',
+          'nora', 'genro', 'parente', 'parentes']
+def family_word(text):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return next((k for k in FAMILY if ' ' + k + ' ' in t), '')
+def clean_reason(text):
+    """Aviso/motivo para o painel sem a palavra proibida."""
+    out = []
+    for w in (text or '').split():
+        out.append('[tema proibido]' if family_word(w) else w)
+    return ' '.join(out)
+# lote 115: papel invertido (fã sentando/chupando) e valor escrito na oferta
+ROLE_FLIP = ['vem sentar', 'senta em mim', 'senta gostoso em mim', 'sentar em cima de mim', 'senta em cima de mim', 'sentar gostoso em mim', 'vem cavalgar', 'cavalga em mim',
+             'rebola em mim', 'me chupa', 'chupa minha', 'chupar minha']
+def PRICE_STRIP(text):
+    """Tira 'R$ 75', 'por R$ 75,00', '75 reais' do texto (o valor vai na mídia paga)."""
+    t = re.sub(r'\s*(,|\.|-|—)?\s*(por|só|so|apenas)?\s*R\$\s*\d+(?:[.,]\d{2})?\s*', ' ', text or '', flags=re.I)
+    t = re.sub(r'\s*\d+\s*reais\b', ' ', t, flags=re.I)
+    t = re.sub(r'\s+([?!.,…])', r'\1', t)
+    return re.sub(r'\s{2,}', ' ', t).strip(' ,')
+def role_flip(text):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '

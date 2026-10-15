@@ -22,9 +22,9 @@ from core import db, now, iso, uid, staff, is_staff, has_perm, settings, clean_t
 from schemas import Strict
 
 router = APIRouter()
-TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), 'novo_sem_compra': timedelta(days=3), 'esfriando': timedelta(days=4), 'voltou': timedelta(days=1), 'entregar_midia': timedelta(days=3)}
+TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), 'novo_sem_compra': timedelta(days=3), 'esfriando': timedelta(days=4), 'voltou': timedelta(days=1), 'entregar_midia': timedelta(days=3), 'mandar_ppv': timedelta(hours=12)}
 LABEL = {'pediu_preco': 'Pediu preço / conteúdo', 'oferta_aberta': 'Oferta sem pagamento', 'novo_sem_compra': 'Assinante novo sem compra',
-         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar', 'entregar_midia': 'Ver mídia paga do fã'}
+         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar', 'entregar_midia': 'Ver mídia paga do fã', 'mandar_ppv': 'Mandar PPV (a IA já provocou)'}
 CONVERT_DAYS = 2
 OFFER_MAX_DAYS = 3
 MIN_RETURN_DAYS = 14
@@ -190,7 +190,7 @@ async def settle(creator_id=None, min_gap=45):
     ops = []
     for o in opens:
         if o['kind'] == 'entregar_midia': continue  # lote 110: só fecha com "Feito"/entregue (responder "já já te mando" não conta)
-        evs = [e for e in acts.get((o['creator_id'], o['fan_ref']), []) if (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) and (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) >= o['created_at']]
+        evs = [e for e in acts.get((o['creator_id'], o['fan_ref']), []) if (o['kind'] != 'mandar_ppv' or e['kind'] == 'offer') and (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) and (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) >= o['created_at']]
         if evs:
             ev = min(evs, key=lambda e: e.get('responded_at') or e.get('offered_at')); when = ev.get('responded_at') or ev.get('offered_at'); who = who_at(o['creator_id'], when)
             ops.append(UpdateOne({'id': o['id']}, {'$set': {'status': 'contacted', 'contacted_at': when, 'contacted_how': 'oferta' if ev['kind'] == 'offer' else 'resposta', 'contacted_by': who.get('operator_id'), 'contacted_name': who.get('operator_name')}}))
