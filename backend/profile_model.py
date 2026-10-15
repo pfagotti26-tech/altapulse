@@ -224,7 +224,9 @@ MEDIA_PRESUME = ['gostou do video', 'gostado do video', 'gostou da foto', 'gosta
                  'o que mais te deixou excitado nele', 'excitado no video', 'excitado num video', 'deixou com tesao ai', 'do video que te mandei', 'viu o video', 'viu a foto', 'sua reacao',
                  # lote 96: outras formas de presumir reação ("fico feliz que tenha gostado… nesse vídeo") ou pedido que o fã não fez ("claro que mandaria… quer que eu grave?")
                  'tenha gostado', 'tenha curtido', 'que gostou', 'nesse video', 'naquele video', 'desse video', 'daquele video', 'nessa foto', 'naquela foto', 'achou do video', 'achou da foto',
-                 'claro que mandaria', 'claro que mando', 'claro que gravo', 'quer que eu grave', 'mandaria sim', 'gravaria sim']
+                 'claro que mandaria', 'claro que mando', 'claro que gravo', 'quer que eu grave', 'mandaria sim', 'gravaria sim',
+                 # lote 105: fala do perfil/feed como se o fã já tivesse visto ('viu no meu perfil', 'aquela que postei')
+                 'no meu perfil', 'do meu perfil', 'la no perfil', 'no meu feed', 'do meu feed', 'que postei', 'que eu postei', 'que acabei de postar', 'minha ultima postagem', 'meu ultimo post']
 MEDIA_WORDS = ['video', 'videos', 'foto', 'fotos', 'midia', 'assist', 'vi ', 'gostei', 'curti', 'mandou', 'mandado', 'recebi', 'abri', 'post', 'conteudo', 'gozou', 'gozando']
 def presumes_media(text, fan_texts):
     """Devolve a expressão da sugestão que presume reação a mídia sem o fã ter citado vídeo/foto nas últimas mensagens (ou '')."""
