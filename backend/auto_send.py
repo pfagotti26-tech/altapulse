@@ -144,6 +144,8 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             })
             return DecideOut(should_send=False, reason="desconfiança", essay=cfg["essay"])
 
+        caption = ""
+        after = ""
         # Call existing suggest logic
         try:
             suggest_body = A.SuggestIn(
@@ -166,6 +168,8 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             prod = result.get("product") if isinstance(result, dict) else None
             product_item = prod.get("item") if isinstance(prod, dict) else None
             product_cents = prod.get("cents") if isinstance(prod, dict) else None
+            caption = (result.get("caption") or "") if isinstance(result, dict) else ""
+            after = (result.get("after") or "") if isinstance(result, dict) else ""
         except Exception as e:
             await db.auto_log.insert_one({
                 "id": uid(), "at": iso(), "day": today(),

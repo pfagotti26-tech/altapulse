@@ -612,7 +612,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
                 await api('POST', '/assist/ppv-needed', {
                   creator_id: creatorId,
                   fan_ref,
-                  fan_name: fan.name || undefined,
+                  fan_name: read.name || undefined,
                   item: r.product,
                   cents: r.product_cents,
                   caption: r.caption || '',
