@@ -271,6 +271,17 @@ def repeats(text, recent_ours):
 # lote 96: fã aceitou a oferta/convite e pediu a proposta → a resposta tem que fechar (item + valor)
 ACCEPT = ['quero', 'bora', 'vamos', 'topo', 'pode ser', 'claro', 'sim', 'fechado', 'o que vc propoe', 'o que voce propoe', 'o que propoe', 'quanto', 'como funciona', 'como e', 'como seria', 'me fala', 'como faz', 'como faco', 'quanto custa', 'qual o valor', 'manda ai']
 INVITE = ['quer', 'bora', 'topa', 'vamos', 'que tal', 'te mando', 'posso te mandar', 'chamada', 'video', 'foto', 'pack', 'ao vivo', 'gozar comigo']
+def _shingles(text, n=4):
+    w = [x for x in _norm(text)]
+    return {' '.join(w[i:i + n]) for i in range(len(w) - n + 1)}
+def reused_elsewhere(text, other_texts):
+    """Lote 97: trecho de 4+ palavras igual ao que a criadora já mandou a OUTRO fã nas últimas horas ("acabei de sair do banho", "tô só de robe"). Devolve o trecho ou ''."""
+    mine = _shingles(text)
+    if not mine: return ''
+    for o in other_texts:
+        hit = mine & _shingles(o)
+        if hit: return sorted(hit, key=len)[-1]
+    return ''
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '
