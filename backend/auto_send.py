@@ -214,6 +214,21 @@ async def mark_sent(log_id: str, user=Depends(extension_user)):
     )
     return {"ok": True}
 
+
+class ConfigIn(BaseModel):
+    enabled: Optional[bool] = None
+    essay: Optional[bool] = None
+    max_per_day: Optional[int] = None
+    max_per_fan: Optional[int] = None
+    hour_start: Optional[int] = None
+    hour_end: Optional[int] = None
+
+@router.put("/config")
+async def set_config(body: ConfigIn, user=Depends(manager)):
+    upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
+    await db.auto_config.update_one({"id": "main"}, {"$set": upd}, upsert=True)
+    return {"ok": True}
+
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()

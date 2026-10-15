@@ -6,6 +6,9 @@ import { PageHeading, Stat, Button, Empty, Notice } from '../components/Common';
 
 // AUTO (Grok) — resumo do ensaio. Só leitura. Nada envia.
 export default function Auto() {
+  const [cfg, setCfg] = useState({enabled:false, essay:true, max_per_day:15, max_per_fan:2, hour_start:10, hour_end:22});
+  const saveCfg = async () => { try { await api.put('/auto/config', cfg); toast.success('Salvo'); } catch(e){ toast.error(errorText(e)); } };
+  useEffect(() => { api.get('/auto/status').then(r => setCfg(c => ({...c, ...r.data}))).catch(()=>{}); }, []);
   const [day, setDay] = useState(new Date().toISOString().slice(0, 10));
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -24,6 +27,16 @@ export default function Auto() {
         <Button variant="ghost" disabled={busy} onClick={load}><RefreshCw size={15}/>Atualizar</Button>
       </PageHeading>
       {!d ? <p className="body-muted">Carregando…</p> : <>
+        <div style={{margin:'16px 0',padding:12,background:'#1a1a2e',borderRadius:8}}>
+          <label>Ligado <input type="checkbox" checked={cfg.enabled} onChange={e => setCfg({...cfg, enabled: e.target.checked})} /></label>
+          <label style={{marginLeft:12}}>Ensaio <input type="checkbox" checked={cfg.essay} onChange={e => setCfg({...cfg, essay: e.target.checked})} /></label>
+          <label style={{marginLeft:12}}>Max/dia <input type="number" value={cfg.max_per_day} onChange={e => setCfg({...cfg, max_per_day: +e.target.value})} style={{width:60}} /></label>
+          <label style={{marginLeft:12}}>Max/fã <input type="number" value={cfg.max_per_fan} onChange={e => setCfg({...cfg, max_per_fan: +e.target.value})} style={{width:50}} /></label>
+          <label style={{marginLeft:12}}>Início <input type="number" value={cfg.hour_start} onChange={e => setCfg({...cfg, hour_start: +e.target.value})} style={{width:50}} /></label>
+          <label style={{marginLeft:12}}>Fim <input type="number" value={cfg.hour_end} onChange={e => setCfg({...cfg, hour_end: +e.target.value})} style={{width:50}} /></label>
+          <Button onClick={saveCfg} style={{marginLeft:12}}>Salvar</Button>
+        </div>
+
         <div className="stats-grid">
           <Stat id="au-ensaios" label="Ensaios" value={s.ensaios} icon={Sparkles}/>
           <Stat id="au-travados" label="Travados" value={s.travados} icon={AlertTriangle}/>
