@@ -527,7 +527,7 @@ PERFIS DE FÃ (o perfil deste fã vem no pedido):
 {catalog or 'nenhum cadastrado: use o tom padrão da ficha.'}
 
 Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
-{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "temperatura": 0, "motivo_temperatura": "", "fatos": [], "texto": "..."}}
+{{"alerta": false, "passo": "abertura|aquecimento|oferta|fechamento|pos-venda|reativacao", "objecao": "objeção do fã em poucas palavras ou vazio", "aviso": "alerta curto para o chatter ou vazio", "perfil_sugerido": "", "produto": "item exato da tabela que a mensagem oferece, ou vazio", "legenda": "só com produto: frase curta que vai junto com a mídia paga (sem valor)", "depois": "só com produto: chamada curta para depois da mídia (abre e me conta…)", "temperatura": 0, "motivo_temperatura": "", "fatos": [], "texto": "..."}}
 "fatos": coisas NOVAS que o fã contou sobre ele nesta conversa e que ajudam a criar intimidade ou vender (ex.: {{"tipo": "sobre", "texto": "tem um cachorro chamado Thor"}}, {{"tipo": "momento", "texto": "foi pra praia no fim de semana", "data": "AAAA-MM-DD"}}). tipo: sobre | gostos | fantasia | momento | compras. Até 4, frases curtas. NUNCA inclua telefone, @, e-mail, endereço, cidade exata, local de trabalho, saúde, religião ou política. Não repita o que já está na memória. Se não houver nada novo, [].
 "temperatura" (0 a 100) diz o quanto o fã está pronto para comprar AGORA: 0-19 frio, 20-44 morno, 45-64 quente, 65+ hora de vender (pediu para ver, perguntou preço, ofereceu mostrar o dele, pediu algo sob medida). Objeção ou despedida baixa a temperatura. "motivo_temperatura": até 8 palavras."""
     if segs and seg: seg_text = f"PERFIL DESTE FÃ (classificado pela equipe): {seg['label']}. Use SÓ o jeito de falar deste perfil, mesmo que contrarie o padrão da ficha."
@@ -556,10 +556,11 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
     if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
     if must_sell:
-        goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e escreva uma LEGENDA curta que continua a fantasia "
-                "dele, como se a mídia fosse o próximo passo (ex.: \"vem, amor? bem limpinha e cheirosinha pra você\"), terminando com o valor (da lista do fã, se houver). Não descreva o conteúdo, "
-                "não diga \"tenho um vídeo\", não cite duração nem parceiro. Preencha \"produto\" com o nome exato do item. Exceção: encontro/job ou menor, siga as regras fixas.")
-        if pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já ofereça, na legenda, com o valor.'
+        goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
+                "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai com a mídia paga "
+                "(ex.: \"olha aqui como eu imaginei…\"); \"depois\" = chamada curta para abrir e contar (ex.: \"abre e me conta se faria desse jeitinho 🔥\"). Preencha \"produto\" com o nome exato do item. "
+                "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
+        if pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
@@ -662,7 +663,7 @@ FIM DA CONVERSA:
     # lote 96: a criadora convidou, o fã aceitou/pediu a proposta e a sugestão não fecha (sem item nem valor)
     _lo = next((m.text for m in reversed(msgs[:-1]) if m.ours), '') if msgs else ''
     _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
-    close = bool(not mreq and out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
+    close = bool(not mreq and out and not out.get('alerta') and not str(out.get('produto') or '').strip() and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
@@ -673,10 +674,14 @@ FIM DA CONVERSA:
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
     fam = PM.family_word(txt0) if out and not out.get('alerta') else ''
+    flip = PM.role_flip(txt0) if out and not out.get('alerta') else ''
+    pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt:
         why = []
+        if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga e chupa é ELA, o fã mete e goza')
+        if pricetxt: why.append('escreveu o valor no texto; o valor vai na mídia paga: o "texto" é só a provocação, a "legenda" vai com a mídia e o "depois" chama para abrir')
         if fam: why.append('usou palavra de família ou de tema proibido; é PROIBIDO citar qualquer parente ou esse tema, nem para recusar: mude de assunto com charme sem mencionar nada disso')
         if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
         if dur: why.append(f'falou a duração do vídeo ("{dur}"); nunca diga tempo nem descreva o vídeo: diga só que ele vai gostar, que é gostoso, ligado ao que ele disse, + o valor')
@@ -732,6 +737,13 @@ FIM DA CONVERSA:
     got = str(out.get('produto') or '').strip().lower()
     prod = next((p for p in prices if p['item'].lower() == got), None) or (next((p for p in prices if p['item'] == product), None) if product else None)
     warning = str(out.get('aviso') or '')[:160]
+    # lote 115: oferta em 3 passos — legenda e "depois" vão para o chatter/automação; o valor vai na mídia (PPV), nunca no texto
+    caption = PM.PRICE_STRIP(scrub(str(out.get('legenda') or '')).strip())[:200] if prod else ''
+    after = PM.PRICE_STRIP(scrub(str(out.get('depois') or '')).strip())[:200] if prod else ''
+    if prod:
+        text = PM.PRICE_STRIP(text)
+        ppv = f"💰 Mandar {prod['item']} {money_br(fan_price(prod['cents'], anchor))} como mídia paga" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
+        warning = (warning + ' · ' if warning else '') + ppv
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora antes de o fã pagar.'
     # lote 114: palavra de família/incesto na resposta final → não sugere nada (nem a automação envia)
@@ -744,6 +756,7 @@ FIM DA CONVERSA:
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
             'facts': FM.pick_new_facts(out.get('fatos'), facts), 'phase': phase,
             'product': {'item': prod['item'], 'cents': fan_price(prod['cents'], anchor), 'table_cents': prod['cents']} if prod else None,
+            'caption': caption, 'after': after,
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}

@@ -13,6 +13,8 @@ import os, html, logging
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import Field
+from schemas import Strict
 from core import db, now, iso, uid, staff, is_staff, audit, settings, ORIGIN, WORKSPACE
 import mailer
 
@@ -131,4 +133,32 @@ async def delivered(req_id: str, user=Depends(staff)):
     r = await deliver(req_id, user)
     if not r: raise HTTPException(404, 'Pedido não encontrado ou já entregue.')
     await audit(user, 'Mídia paga marcada como entregue', 'media_request', {'creator': r['creator_name'], 'fan': r.get('fan_name'), 'valor': r.get('amount_cents')}, None)
+    return {'ok': True}
+
+
+# ---------- lote 115: automação ofereceu (provocação enviada) e falta a mídia paga — balão "Mandar PPV" para a equipe ----------
+class PpvIn(Strict):
+    creator_id: str = Field(min_length=1, max_length=80)
+    fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    fan_name: str = Field(default='', max_length=80)
+    item: str = Field(min_length=1, max_length=80)
+    cents: int = Field(ge=100, le=10000000)
+    caption: str = Field(default='', max_length=200)
+    after: str = Field(default='', max_length=200)
+
+def _ext_user():
+    from extension_routes import extension_user
+    return extension_user
+
+@router.post('/assist/ppv-needed')
+async def ppv_needed(body: PpvIn, user=Depends(_ext_user())):
+    t = now()
+    creator = await db.creators.find_one({'id': body.creator_id}, {'_id': 0, 'name': 1}) or {}
+    fan_name, cid, _url = await _fan_info(body.creator_id, body.fan_ref)
+    reason = f"Mandar {body.item} {money(body.cents)} como mídia paga" + (f' · legenda: "{body.caption}"' if body.caption else '') + (f' · depois: "{body.after}"' if body.after else '')
+    ref = f"mandar_ppv:{t.strftime('%Y%m%d%H')}"
+    await db.opportunities.update_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'ref': ref},
+        {'$set': {'status': 'open', 'hot': True, 'reason': reason[:400], 'value_cents': body.cents, 'due_at': (t + timedelta(hours=12)).isoformat()},
+         '$setOnInsert': {'id': uid(), 'creator_name': creator.get('name') or '?', 'fan_name': body.fan_name or fan_name, 'cid': cid, 'platform': 'privacy', 'kind': 'mandar_ppv',
+                          'created_at': t.isoformat(), 'workspace_id': WORKSPACE, 'expires_at': t + timedelta(days=120)}}, upsert=True)
     return {'ok': True}
