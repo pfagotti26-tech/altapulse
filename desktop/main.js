@@ -451,7 +451,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
 
 // AUTO (Grok) — chama /auto/decide uma vez por mensagem nova do fã na Aline (só app de teste)
 let lastAutoKey = '';
-async function tryAutoDecide(view, creatorId) {
+async function tryAutoDecide(view, creatorId, expectName) {
   if (!ALTA_TESTE) return;
   const p = (async () => {
   // Só na criadora configurada (id vem de /auto/status)
@@ -462,17 +462,19 @@ async function tryAutoDecide(view, creatorId) {
   try {
     const tg = chatTarget();
     if (!tg || tg.id !== creatorId) return;
+    const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     let read = null;
     for (let i = 0; i < 8; i++) {
       read = await runJs(tg.view, tg.read, 4000).catch(() => null);
-      if (read && read.msgs && read.msgs.length && (!read.name || !fan.name || read.name === fan.name)) break;
+      if (read && read.msgs && read.msgs.length && (!expectName || norm(read.name) === norm(expectName))) break;
       await new Promise(res => setTimeout(res, 1000));
     }
     if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return; }
+    if (expectName && norm(read.name) !== norm(expectName)) { appLog('fila', `decide: conversa não trocou (esperado ${expectName})`); return 'retry'; }
     if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
-    if (read.msgs[read.msgs.length - 1].ours) return;
+    if (read.msgs[read.msgs.length - 1].ours) { appLog('fila', 'decide: última é nossa'); return; }
     const fan_ref = fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '');
-    if (!fan_ref) return;
+    if (!fan_ref) { appLog('fila', 'decide: sem fan_ref'); return; }
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
@@ -1905,8 +1907,11 @@ if (ALTA_TESTE) {
     listAt,
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);
-      await quickFan(creatorId);
+      const view = (tabs.get(creatorId) || new Map()).get('privacy');
+      let result = null;
+      if (view) result = await tryAutoDecide(view, creatorId, name);
       if (global.autoBusy) await global.autoBusy.catch(() => {});
+      return result;
     },
     log: (msg) => appLog('fila', msg),
   });

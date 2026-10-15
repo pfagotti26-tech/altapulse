@@ -43,13 +43,15 @@ module.exports = function createFila(deps) {
       for (const r of rooms) {
         if (r.ours) continue;
         if (r.typing) continue;
+        if (r.verified) continue;
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
         if (at && (now - at.getTime()) < 105 * 1000) continue;
         const key = creatorId + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
         seen.add(key);
-        if (openChat) await openChat(creatorId, r.name, ref);
+        const result = openChat ? await openChat(creatorId, r.name, ref) : null;
+        if (result === 'retry') { seen.delete(key); }
         await new Promise(res => setTimeout(res, 3000));
         if (log) log(`abriu: ${r.name}`);
         break;
