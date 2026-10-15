@@ -469,7 +469,7 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
         mreq = await open_for(body.creator_id, body.fan_ref)
         if mreq and mreq.get('acked_at'):
             return {'alert': True, 'remaining': None, 'waiting_delivery': True,
-                    'reason': f"Fã pagou a solicitação de mídia ({mreq.get('item') or 'mídia'}, R$ {(mreq.get('amount_cents') or 0) / 100:.2f}) e aguarda a entrega. A IA pausou este fã: entregue e toque em Feito na oportunidade “Entregar mídia” (ou Sombra → Mídias pagas)."}
+                    'reason': f"Fã pagou a solicitação (R$ {(mreq.get('amount_cents') or 0) / 100:.2f}) e mandou a mídia dele. A IA não enxerga imagem e pausou este fã: veja, responda e toque em Feito na oportunidade “Ver mídia paga do fã” (ou Sombra → Mídias pagas)."}
     c = await config(); key = await xai_key()
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
@@ -554,7 +554,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
-                + ("diga que já vai olhar o que ele mandou com calma" if mreq.get('category') == 'avaliacao' else "diga que já já manda") +
+                + "diga que já vai olhar o que ele mandou com calma (você NÃO vê a mídia: não descreva nem elogie detalhes dela)" +
                 ", sem prometer horário exato, sem oferecer nada novo e sem perguntar nada. \"produto\" vazio.")
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)

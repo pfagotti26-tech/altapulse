@@ -74,7 +74,8 @@ module.exports = String.raw`(() => {
       const offer = np ? { cents: (money(txt(np)) || {}).cents, paid: false } : paidEl ? { cents: (money(txt(paidEl)) || {}).cents, paid: true } : null;
       if (offer) {
         // "Solicitação Mídia" (botão Aguardando pagamento) x mídia paga enviada com valor; foto/vídeo pelo ícone do cartão
-        offer.type = el.querySelector('.media-request-action') || /solicita/i.test(txt(el.querySelector('.text-amount-info'))) ? 'request' : 'ppv';
+        // out/2026 (lote 111): solicitação PAGA vira cartão com borda (.vac-message-card.border) mostrando a mídia DO FÃ, sem legenda; PPV pago não tem borda
+        offer.type = el.querySelector('.media-request-action') || /solicita/i.test(txt(el.querySelector('.text-amount-info'))) || (offer.paid && el.querySelector('.vac-message-card.border') && !el.querySelector('.vac-format-message-wrapper')) ? 'request' : 'ppv';
         const icons = [...el.querySelectorAll('.media-type svg[data-icon], .vac-message-files-container svg[data-icon]')].map((x) => x.getAttribute('data-icon'));
         const photo = icons.some((i) => /image|camera|photo/.test(i)), video = icons.some((i) => /video|film|play/.test(i));
         offer.media = photo && video ? 'mixed' : video ? 'video' : photo ? 'photo' : null;

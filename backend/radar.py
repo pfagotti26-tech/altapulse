@@ -24,7 +24,7 @@ from schemas import Strict
 router = APIRouter()
 TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), 'novo_sem_compra': timedelta(days=3), 'esfriando': timedelta(days=4), 'voltou': timedelta(days=1), 'entregar_midia': timedelta(days=3)}
 LABEL = {'pediu_preco': 'Pediu preço / conteúdo', 'oferta_aberta': 'Oferta sem pagamento', 'novo_sem_compra': 'Assinante novo sem compra',
-         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar', 'entregar_midia': 'Entregar mídia paga'}
+         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar', 'entregar_midia': 'Ver mídia paga do fã'}
 CONVERT_DAYS = 2
 OFFER_MAX_DAYS = 3
 MIN_RETURN_DAYS = 14
