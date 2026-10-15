@@ -473,7 +473,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
     if (expectName && norm(read.name) !== norm(expectName)) { appLog('fila', `decide: conversa não trocou (esperado ${expectName})`); return 'retry'; }
     if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
     if (read.msgs[read.msgs.length - 1].ours) { appLog('fila', 'decide: última é nossa'); return; }
-    const fan_ref = fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '');
+    const fan_ref = expectName ? (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '') : (fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : ''));
     if (!fan_ref) { appLog('fila', 'decide: sem fan_ref'); return; }
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
