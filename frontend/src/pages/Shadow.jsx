@@ -47,9 +47,40 @@ function Teach({ r, onSaved }) {
   </div>;
 }
 
+// lote 108: fãs bloqueados — a IA (automação e Sugerir resposta) não escreve para eles; só gestor bloqueia e desbloqueia
+function Blocked({ creators, list, reload }) {
+  const [cid, setCid] = useState(''), [name, setName] = useState(''), [found, setFound] = useState(null), [why, setWhy] = useState(''), [busy, setBusy] = useState(false);
+  const search = async () => { if (!cid || name.trim().length < 2) return toast.error('Escolha a criadora e digite o nome do assinante.'); setBusy(true);
+    try { setFound((await api.get(`/assist/blocked/search?creator_id=${encodeURIComponent(cid)}&name=${encodeURIComponent(name.trim())}`)).data); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
+  const block = async (f) => { setBusy(true); try { await api.post('/assist/blocked', { creator_id: cid, fan_ref: f.fan_ref, fan_name: f.fan_name || name.trim(), reason: why }); toast.success('Bloqueado: a IA não responde mais a ele.'); setFound(null); setName(''); setWhy(''); reload(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
+  const unblock = async (b) => { setBusy(true); try { await api.delete(`/assist/blocked/${b.id}`); toast.success('Desbloqueado.'); reload(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
+  return <section className="panel ai-panel" id="shadow-blocked">
+    <h2>🚫 Fãs bloqueados</h2>
+    <p className="body-muted">A IA não escreve nada para esses assinantes: a automação pula e o Sugerir resposta avisa o chatter. Só gestor bloqueia e desbloqueia. O chatter ainda pode responder à mão.</p>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+      <Select value={cid} onChange={(e) => { setCid(e.target.value); setFound(null); }}><option value="">Criadora…</option>{creators.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
+      <input className="table-search" style={{ maxWidth: 220 }} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Nome do assinante (ex.: Dudu)"/>
+      <input className="table-search" style={{ maxWidth: 260 }} value={why} maxLength={200} onChange={(e) => setWhy(e.target.value)} placeholder="Motivo (opcional)"/>
+      <Button variant="outline" disabled={busy} onClick={search}>Procurar</Button>
+    </div>
+    {found && (!found.length ? <p className="body-muted">Nenhum assinante com esse nome nessa criadora. O nome precisa estar como aparece na Privacy.</p> :
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>{found.map((f) => <div key={f.fan_ref} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <strong>{f.fan_name || '(sem nome)'}</strong>{f.chat_url && <a href={f.chat_url} target="_blank" rel="noreferrer">abrir conversa ↗</a>}
+        <Button disabled={busy} onClick={() => block(f)}>Bloquear</Button></div>)}</div>)}
+    {!list.length ? <p className="body-muted">Ninguém bloqueado.</p> : <div className="table-scroll"><table><thead><tr><th>Assinante</th><th>Criadora</th><th>Motivo</th><th>Quem bloqueou</th><th></th></tr></thead>
+      <tbody>{list.map((b) => <tr key={b.id}><td><strong>{b.fan_name || '(sem nome)'}</strong></td><td>{b.creator_name}</td><td>{b.reason || '—'}</td><td><small className="body-muted">{b.by_name} · {dateTime(b.at)}</small></td>
+        <td><Button variant="outline" disabled={busy} onClick={() => unblock(b)}>Desbloquear</Button></td></tr>)}</tbody></table></div>}
+  </section>;
+}
+
 export default function Shadow() {
   const [days, setDays] = useState(7), [creator, setCreator] = useState(''), [only, setOnly] = useState(''), [d, setD] = useState(null), [busy, setBusy] = useState(false);
-  const [start, setStart] = useState(''), [end, setEnd] = useState('');  // período De/Até (vale no lugar dos atalhos de dias)
+  const [start, setStart] = useState(''), [end, setEnd] = useState('');
+  const [blocked, setBlocked] = useState([]);
+  const loadBlocked = async () => { try { setBlocked((await api.get('/assist/blocked')).data); } catch (e) { /* sem acesso: some a seção */ } };
+  useEffect(() => { loadBlocked(); }, []);
+  const isBlocked = (r) => blocked.some((b) => b.creator_id === r.creator_id && b.fan_ref === r.fan_ref);
+  const blockRow = async (r) => { try { await api.post('/assist/blocked', { creator_id: r.creator_id, fan_ref: r.fan_ref, fan_name: r.fan_name || '', reason: 'pela Sombra' }); toast.success('Bloqueado: a IA não responde mais a ele.'); loadBlocked(); } catch (e) { toast.error(errorText(e)); } };  // período De/Até (vale no lugar dos atalhos de dias)
   const load = async () => { setBusy(true); try { setD((await api.get(`/assist/shadow?days=${days}&creator_id=${encodeURIComponent(creator)}&start=${start}&end=${end}`)).data); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
   useEffect(() => { load(); }, [days, creator, start, end]); // eslint-disable-line react-hooks/exhaustive-deps
   const t = d && d.total;
@@ -66,6 +97,7 @@ export default function Shadow() {
     {!d ? <p className="body-muted">Carregando…</p> : <>
       {!d.enabled.length && <Notice tone="danger" id="shadow-off">Nenhuma criadora está com o Modo sombra ligado. Ligue na ficha da criadora (aba Alta Ajuda) para começar a registrar.</Notice>}
       {!!d.enabled.length && <Notice id="shadow-on">Em sombra: {enabledNames.join(', ')}. Os registros duram 120 dias.</Notice>}
+      <Blocked creators={d.creators} list={blocked} reload={loadBlocked}/>
       {!t.n ? <Empty title="Nenhuma sugestão registrada no período" description="Com o Modo sombra ligado, cada sugestão da Alta Ajuda aparece aqui junto com o que o chatter enviou." icon={ShieldCheck}/> : <>
         <div className="stats-grid">
           <Stat id="sh-n" label={`Sugestões em ${d.days} dias`} value={int(t.n)} caption={`${int(t.sem_resposta)} sem resposta · ${int(t.pendente)} aguardando`} icon={Sparkles}/>
@@ -85,7 +117,7 @@ export default function Shadow() {
             <tbody>{rows.map((r) => <tr key={r.id} className={`st-${r.status}`}>
               <td className="tabular" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.at)}</td>
               <td><strong>{r.creator_name}</strong><br/><small className="body-muted">{r.user_name}{r.product ? ` · sugeriu ${r.product}${r.product_cents ? ' ' + money(r.product_cents) : ''}` : ''}</small></td>
-              <td className="shadow-txt muted">{(r.fan_name || r.chat_url) && <div style={{ marginBottom: 4 }}><strong style={{ color: 'var(--text, inherit)' }}>{r.fan_name || 'Assinante'}</strong>{r.chat_url && <> · <a href={r.chat_url} target="_blank" rel="noreferrer">abrir conversa ↗</a></>}</div>}{r.last_fan || '—'}</td>
+              <td className="shadow-txt muted">{(r.fan_name || r.chat_url) && <div style={{ marginBottom: 4 }}><strong style={{ color: 'var(--text, inherit)' }}>{r.fan_name || 'Assinante'}</strong>{r.chat_url && <> · <a href={r.chat_url} target="_blank" rel="noreferrer">abrir conversa ↗</a></>}</div>}{r.fan_ref && (isBlocked(r) ? <div><small className="shadow-tag bad">🚫 bloqueado</small></div> : <div><button className="link-button" style={{ fontSize: 12, background: 'none', border: 0, padding: 0, color: 'var(--danger, #b42318)', cursor: 'pointer' }} onClick={() => blockRow(r)}>🚫 bloquear p/ IA</button></div>)}{r.last_fan || '—'}</td>
               <td className="shadow-txt">{r.proposed}</td>
               <td className="shadow-txt">{r.sent || <span className="body-muted">—</span>}{r.media_kind && <><br/><small className={r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? 'shadow-tag bad' : 'shadow-tag info'}>{r.media_kind} {r.media_free ? 'grátis' : r.media_cents != null ? money(r.media_cents) : 'paga'}{r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? ' · abaixo do sugerido' : ''}</small></>}</td>
               <td><Tag st={r.status}/>{r.similarity != null && r.status !== 'midia' && <><br/><small className="tabular">{Math.round(r.similarity * 100)}%</small></>}</td>

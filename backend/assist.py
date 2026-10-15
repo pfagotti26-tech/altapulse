@@ -459,6 +459,9 @@ def fan_block(card):
 @router.post('/extension/assist/suggest')
 async def suggest(body: SuggestIn, user=Depends(extension_user)):
     creator = await can_see(user, body.creator_id)
+    # lote 108: fã bloqueado pela equipe — a IA não escreve nada para ele (automação e Sugerir resposta); só gestor desbloqueia
+    if body.fan_ref and await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 1}):
+        return {'alert': True, 'reason': 'Assinante bloqueado pela equipe: a IA não responde a ele. Só um gestor desbloqueia (painel → Sombra → Fãs bloqueados).', 'remaining': None, 'blocked': True}
     c = await config(); key = await xai_key()
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
@@ -921,4 +924,51 @@ async def list_examples(creator_id: str = '', user=Depends(manager)):
 async def del_example(ex_id: str, user=Depends(manager)):
     r = await db.assist_examples.delete_one({'id': ex_id})
     if not r.deleted_count: raise HTTPException(404, 'Exemplo não encontrado.')
+    return {'ok': True}
+
+
+# ---------- lote 108: fãs bloqueados (a IA não responde; só gestor bloqueia e desbloqueia) ----------
+class BlockIn(Strict):
+    creator_id: str = Field(min_length=1, max_length=80)
+    fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    fan_name: str = Field(default='', max_length=80)
+    reason: str = Field(default='', max_length=200)
+
+@router.get('/assist/blocked')
+async def blocked_list(creator_id: str = '', user=Depends(manager)):
+    q = {'creator_id': creator_id} if creator_id else {}
+    rows = await db.assist_blocked.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    names = {c['id']: c.get('name') async for c in db.creators.find({'id': {'$in': list({r['creator_id'] for r in rows})}}, {'_id': 0, 'id': 1, 'name': 1})}
+    for r in rows: r['creator_name'] = names.get(r['creator_id'], '?')
+    return rows
+
+@router.get('/assist/blocked/search')
+async def blocked_search(creator_id: str, name: str, user=Depends(manager)):
+    """Acha o fan_ref pelo nome do assinante (radar de fãs e log da automação) para bloquear."""
+    name = name.strip()[:80]
+    if len(name) < 2: return []
+    rx = {'$regex': '^' + re.escape(name), '$options': 'i'}
+    found = {}
+    async for f in db.fan_radar.find({'creator_id': creator_id, 'fan_name': rx}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1}).limit(20):
+        found.setdefault(f['fan_ref'], {'fan_ref': f['fan_ref'], 'fan_name': f.get('fan_name') or '', 'cid': str(f.get('cid') or '')})
+    async for f in db.auto_log.find({'creator_id': creator_id, 'fan_name': rx, 'fan_ref': {'$regex': '^[a-f0-9]{64}$'}}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1}).sort('at', -1).limit(50):
+        found.setdefault(f['fan_ref'], {'fan_ref': f['fan_ref'], 'fan_name': f.get('fan_name') or '', 'cid': ''})
+    out = list(found.values())[:10]
+    for f in out:
+        if f['cid'] and not f['cid'].startswith(('n:', 'ff:')): f['chat_url'] = f"https://privacy.com.br/chat?cid={f['cid']}"
+    return out
+
+@router.post('/assist/blocked')
+async def blocked_add(body: BlockIn, user=Depends(manager)):
+    doc = {'id': uid(), 'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'fan_name': scrub(body.fan_name)[:80], 'reason': scrub(body.reason)[:200],
+           'by_id': user['id'], 'by_name': user['name'], 'at': iso()}
+    await db.assist_blocked.update_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'$setOnInsert': doc}, upsert=True)
+    await audit(user, 'Fã bloqueado para a IA', 'assist', {'creator_id': body.creator_id, 'fan_name': doc['fan_name'], 'reason': doc['reason']}, None)
+    return await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 0})
+
+@router.delete('/assist/blocked/{bid}')
+async def blocked_del(bid: str, user=Depends(manager)):
+    r = await db.assist_blocked.find_one_and_delete({'id': bid}, {'_id': 0})
+    if not r: raise HTTPException(404, 'Bloqueio não encontrado.')
+    await audit(user, 'Fã desbloqueado para a IA', 'assist', {'creator_id': r['creator_id'], 'fan_name': r.get('fan_name')}, None)
     return {'ok': True}
