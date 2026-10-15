@@ -451,6 +451,56 @@ function setFanFromChat(id, open, platform = 'privacy') {
 
 // AUTO (Grok) — chama /auto/decide uma vez por mensagem nova do fã na Aline (só app de teste)
 let lastAutoKey = '';
+
+// AUTO (Grok) — preenche modal de solicitação de mídia
+async function tryMediaRequest(view, creatorId, suggested, fanRef) {
+  if (!suggested || !/solicita[çc][aã]o|pagar pela|avalia[çc][aã]o|v[íi]deo/i.test(suggested)) return false;
+  const m = suggested.match(/(avalia[çc][aã]o|v[íi]deo\s*\([^)]+\)|foto\s*\([^)]+\))/i);
+  const item = m ? m[1].trim() : null;
+  if (!item) return false;
+  try {
+    const price = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(item)}`);
+    if (!price || price.cents == null) {
+      await api('POST', '/auto/decide', { creator_id: creatorId, fan_ref: fanRef, messages: [], }).catch(() => {});
+      appLog('fila', `solicitação: item sem preço (${item})`);
+      return false;
+    }
+    // Essay mode: only log
+    const st = await api('GET', '/auto/status');
+    if (st && st.essay) {
+      appLog('fila', `ensaio: solicitaria ${item} R$ ${(price.cents/100).toFixed(2)}`);
+      return true;
+    }
+    // Fill modal (best effort)
+    const script = `(() => {
+      const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+      let input = null, btn = null;
+      for (const root of roots) {
+        input = root.querySelector('input[placeholder*="valor" i], input[type="number"], input');
+        btn = [...root.querySelectorAll('button')].find(b => /confirmar|solicitar|ok/i.test(b.textContent || ''));
+        if (input && btn) break;
+      }
+      if (!input) return false;
+      const cents = ${price.cents};
+      input.focus();
+      input.value = String(cents);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (btn) btn.click();
+      return true;
+    })()`;
+    const ok = await runJs(view, script, 3000).catch(() => false);
+    if (ok) {
+      await db_log_request(creatorId, fanRef, item, price.cents);
+      appLog('fila', `solicitação criada: ${item} R$ ${(price.cents/100).toFixed(2)}`);
+    }
+    return ok;
+  } catch (e) { appLog('fila', String(e)); return false; }
+}
+async function db_log_request(creatorId, fanRef, item, cents) {
+  // logged via a simple call; server can also log
+  appLog('fila', `log solicitação ${item} ${cents}`);
+}
+
 async function tryAutoDecide(view, creatorId, expectName) {
   if (!ALTA_TESTE) return;
   const p = (async () => {

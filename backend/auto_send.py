@@ -244,6 +244,21 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
     await db.auto_config.update_one({"id": "main"}, {"$set": upd}, upsert=True)
     return {"ok": True}
 
+
+@router.get("/request-price")
+async def request_price(creator_id: str, item: str, user=Depends(extension_user)):
+    """Devolve o preço da tabela para um item. Só a criadora configurada."""
+    cfg = await get_config()
+    if not cfg.get("creator_id") or creator_id != cfg["creator_id"]:
+        raise HTTPException(403, "Automação só para a criadora configurada")
+    prof = await db.assist_profiles.find_one({"creator_id": creator_id}) or {}
+    prices = prof.get("prices") or []
+    item_low = item.strip().lower()
+    for p in prices:
+        if p.get("item", "").strip().lower() == item_low:
+            return {"item": p["item"], "cents": p.get("cents", 0)}
+    return {"item": item, "cents": None}
+
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
