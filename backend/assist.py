@@ -521,6 +521,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _since = (now() - timedelta(hours=8)).isoformat()
     other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
     other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
+    # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
+    _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
+    examples_block = await examples_for(body.creator_id, _lastfan)
     if body.style == 'vendedora':
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
@@ -591,6 +594,7 @@ O QUE SE SABE DO FÃ: {fan_block(card)}
 {opener_block}
 {PM.avoid_now(recent_ours, prof)}
 {other_block}
+{examples_block}
 
 FIM DA CONVERSA:
 {convo}
@@ -625,8 +629,10 @@ FIM DA CONVERSA:
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
-    if rep or rot or med or meet or close or recd or reused or free:
+    tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
+    if rep or rot or med or meet or close or recd or reused or free or tic:
         why = []
+        if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
         if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
         if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
@@ -836,3 +842,49 @@ async def consumption(days: int = 30, user=Depends(owner)):
             'by_creator': sorted([{'creator_id': k, **fin(v)} for k, v in by_creator.items()], key=lambda x: -x['cost']),
             'by_mode': sorted([fin(v) for v in by_mode.values()], key=lambda x: -x['n']),
             'series': series, 'by_hour': by_hour}
+
+
+# ---------- lote 100: exemplos aprovados pela equipe (correção "como deveria ser" e 👍) ----------
+class ExampleIn(Strict):
+    creator_id: str = Field(min_length=1, max_length=64)
+    fan_text: str = Field(default='', max_length=600)      # última mensagem do fã
+    ai_text: str = Field(default='', max_length=1200)      # o que a IA sugeriu/enviou
+    better_text: str = Field(default='', max_length=1200)  # como deveria ser (vazio = 👍 na sugestão da IA)
+    reason: Literal['', 'tom', 'contexto', 'repetiu', 'vender', 'inventou', 'outro'] = ''
+    source: Literal['auto', 'sombra', 'manual'] = 'manual'
+    ref_id: str = Field(default='', max_length=64)          # id do registro de origem (auto_log/shadow); um exemplo por origem
+
+def _ex_words(t): return {w for w in PM._norm(t) if len(w) > 2 and w not in PM.STOP}
+
+async def examples_for(creator_id, fan_text, n=7):
+    rows = [r async for r in db.assist_examples.find({'creator_id': creator_id}, {'_id': 0, 'fan_text': 1, 'good': 1, 'at': 1}).sort('at', -1).limit(300)]
+    if not rows: return ''
+    fw = _ex_words(fan_text)
+    rows.sort(key=lambda r: (len(fw & _ex_words(r.get('fan_text', ''))), r.get('at', '')), reverse=True)
+    lines = [f"- fã: \"{r.get('fan_text', '')[:160]}\" → ela: \"{r['good'][:300]}\"" for r in rows[:n] if r.get('good')]
+    return ('EXEMPLOS APROVADOS PELA EQUIPE desta criadora (imite o jeito, o tamanho e o tom; NUNCA copie as frases):\n' + '\n'.join(lines)) if lines else ''
+
+@router.post('/assist/examples')
+async def add_example(body: ExampleIn, user=Depends(manager)):
+    good = (body.better_text or body.ai_text).strip()
+    if not good: raise HTTPException(400, 'Escreva como deveria ser, ou marque 👍 numa sugestão com texto.')
+    if not await db.creators.find_one({'id': body.creator_id, 'deleted_at': None}, {'_id': 1}): raise HTTPException(404, 'Criadora não encontrada.')
+    doc = {'creator_id': body.creator_id, 'fan_text': scrub(body.fan_text), 'ai_text': scrub(body.ai_text), 'good': scrub(good), 'kind': 'corrigido' if body.better_text.strip() else 'bom',
+           'reason': body.reason, 'source': body.source, 'ref_id': body.ref_id, 'by': user['id'], 'by_name': user['name'], 'at': iso()}
+    if body.ref_id:
+        await db.assist_examples.update_one({'creator_id': body.creator_id, 'ref_id': body.ref_id}, {'$set': doc, '$setOnInsert': {'id': uid()}}, upsert=True)
+        saved = await db.assist_examples.find_one({'creator_id': body.creator_id, 'ref_id': body.ref_id}, {'_id': 0})
+    else:
+        doc['id'] = uid(); await db.assist_examples.insert_one(dict(doc)); saved = doc
+    return saved
+
+@router.get('/assist/examples')
+async def list_examples(creator_id: str = '', user=Depends(manager)):
+    q = {'creator_id': creator_id} if creator_id else {}
+    return [r async for r in db.assist_examples.find(q, {'_id': 0}).sort('at', -1).limit(1000)]
+
+@router.delete('/assist/examples/{ex_id}')
+async def del_example(ex_id: str, user=Depends(manager)):
+    r = await db.assist_examples.delete_one({'id': ex_id})
+    if not r.deleted_count: raise HTTPException(404, 'Exemplo não encontrado.')
+    return {'ok': True}
