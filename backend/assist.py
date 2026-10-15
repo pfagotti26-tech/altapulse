@@ -168,6 +168,8 @@ class ProfileIn(Strict):
     promos: list[PM.Promo] = Field(default_factory=list, max_length=10)
     objections: list[PM.Objection] = Field(default_factory=list, max_length=15)
     custom_delivery: str = Field(default='', max_length=300)
+    catalog: list[PM.CatalogItem] = Field(default_factory=list, max_length=80)  # conteúdo disponível (lote 98)
+    delivery: PM.Delivery = Field(default_factory=PM.Delivery)  # mídia paga: prazo de entrega e sob encomenda
     features: PM.Features = Field(default_factory=PM.Features)
     connection: PM.Connection = Field(default_factory=PM.Connection)
     content_goals: PM.ContentGoals = Field(default_factory=PM.ContentGoals)
@@ -210,7 +212,7 @@ async def put_profile(creator_id: str, body: ProfileIn, user=Depends(manager)):
 @router.get('/assist/fields')
 async def fields(user=Depends(manager)):
     return {'persona': [{'key': k, 'label': l, 'section': s} for k, l, s in PERSONA], 'price_items': PRICE_ITEMS,
-            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'sales_stages': PM.SALES_STAGES, 'sales_single': PM.SALES_SINGLE, 'sales_presets': PM.SALES_PRESETS, 'limit_flags': PM.LIMIT_FLAGS, 'telegram': PM.TELEGRAM, 'price_cats': PM.PRICE_CATS, 'modules': PM.MODULES, 'days': PM.DAYS}
+            'tones': PM.TONES, 'genders': PM.GENDERS, 'audiences': PM.AUDIENCES, 'fan_catalog': PM.FAN_CATALOG, 'sales_stages': PM.SALES_STAGES, 'sales_single': PM.SALES_SINGLE, 'sales_presets': PM.SALES_PRESETS, 'limit_flags': PM.LIMIT_FLAGS, 'telegram': PM.TELEGRAM, 'price_cats': PM.PRICE_CATS, 'catalog_kinds': PM.CATALOG_KINDS, 'modules': PM.MODULES, 'days': PM.DAYS}
 
 class ImportItem(Strict):
     creator_id: str
@@ -622,8 +624,10 @@ FIM DA CONVERSA:
     close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused:
+    free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
+    if rep or rot or med or meet or close or recd or reused or free:
         why = []
+        if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
         if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
         if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')

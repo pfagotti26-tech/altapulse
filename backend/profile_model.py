@@ -167,6 +167,7 @@ def natural_rules(prof):
          '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
          '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
+         '- Fã que puxa o próprio corpo no papo quente ("quero te mostrar", "tô duro", "gozei litros", "olha meu pau") é chance de venda: peça para ver, curto e provocante, e diga que é pela solicitação de mídia ("mostra pra mim, amor… é só pagar a solicitação e mandar"). O valor é o item Avaliação da tabela (campo "produto" = esse item). Nunca peça para ele mandar de graça no chat, e nunca faça isso no "oi" ou com fã que ainda está se conhecendo.',
          '- Não repita uma pergunta que você já fez nesta conversa, nem com outras palavras ("o que mais te deixa louco…?" e depois "o que mais te excita…?" é a mesma pergunta). Se ele não respondeu, siga por outro caminho.',
          '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
@@ -282,6 +283,17 @@ def reused_elsewhere(text, other_texts):
         hit = mine & _shingles(o)
         if hit: return sorted(hit, key=len)[-1]
     return ''
+# lote 99: fã oferece mostrar o corpo e a sugestão pede para ver de graça (sem solicitação/pagamento)
+SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'meu pau', 'minha rola', 'to duro', 'tou duro', 'estou duro', 'gozei', 'gozando', 'foto minha', 'video meu', 'quer ver']
+SHOW_ASK = ['mostra', 'me mostra', 'manda', 'me manda', 'quero ver', 'deixa eu ver']
+SHOW_PAY = ['solicitacao', 'solicita', 'pagar', 'paga', 'pago', 'r', 'reais', 'avaliacao', 'valor']
+def free_show(text, fan_texts):
+    """Pede ao fã para mostrar/mandar a mídia dele sem citar a solicitação paga."""
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in fan_texts if x) + ' '
+    if not any(' ' + k + ' ' in c for k in SHOW_FAN): return False
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    if not any(' ' + k + ' ' in t for k in SHOW_ASK): return False
+    return not any(' ' + k + ' ' in t for k in SHOW_PAY) and 'r$' not in (text or '').lower()
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '
@@ -362,6 +374,16 @@ class Preview(Strict):
 class Telegram(Strict):
     mode: Literal['nao', 'fas', 'vip'] = 'nao'
     how: str = Field(default='', max_length=300)  # como responder quando o fã fala do Telegram
+CATALOG_KINDS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'audio': 'Áudio', 'outro': 'Outro'}
+class CatalogItem(Strict):  # conteúdo que a criadora TEM pronto para vender (a IA só oferece/cobra o que está aqui)
+    kind: Literal['foto', 'pack_fotos', 'video', 'pack_videos', 'audio', 'outro'] = 'video'
+    desc: str = Field(min_length=1, max_length=200)   # "vídeo de 3 min com brinquedo no sofá"
+    detail: str = Field(default='', max_length=60)    # quantidade/duração
+    price_item: str = Field(default='', max_length=80)  # item da tabela de preços que vale para ele
+class Delivery(Strict):  # mídia paga: cobrança antes, entrega manual pela equipe
+    hours: int = Field(default=2, ge=0, le=72)        # prazo que a IA pode prometer (horário da equipe)
+    custom_ok: str = Field(default='', max_length=400)  # o que ela grava sob encomenda
+    notes: str = Field(default='', max_length=300)
 class Languages(Strict):
     langs: list[Literal['pt', 'en', 'es']] = Field(default_factory=lambda: ['pt'])
     foreign_price: Literal['brl', 'usd_convert', 'usd_fixed'] = 'brl'
@@ -395,7 +417,7 @@ def normalize(prof):
     p['connection'] = {'enabled': True, 'turns': 3, 'questions': '', **(p.get('connection') or {})}
     p.setdefault('gender', 'f'); p.setdefault('audience', 'homens')
     p['shadow'] = bool(p.get('shadow'))  # modo sombra: registra sugestão x enviado para medir a Alta Ajuda (nunca envia)
-    p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('telegram', {'mode': 'nao', 'how': ''}); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', '')
+    p.setdefault('limit_flags', ['encontro', 'contato']); p.setdefault('telegram', {'mode': 'nao', 'how': ''}); p.setdefault('promos', []); p.setdefault('objections', []); p.setdefault('custom_delivery', ''); p.setdefault('catalog', []); p.setdefault('delivery', {'hours': 2, 'custom_ok': '', 'notes': ''})
     return p
 
 def completeness(prof):
@@ -408,6 +430,7 @@ def completeness(prof):
         ('Frases de venda dela', bool(persona.get('frases_venda'))),
         ('Limites', bool(p.get('limits') or len(p.get('limit_flags') or []) > 2)),
         ('Tabela de preços (3+ itens)', len(p['prices']) >= 3),
+        ('Conteúdo disponível (3+ itens)', len(p.get('catalog') or []) >= 3),
         ('Roteiro de venda', bool((p['sales'] or {}).get('script') or ((p['sales'] or {}).get('plan') or {}).get('picks') or p.get('style'))),
         ('Respostas a objeções (2+)', len(p.get('objections') or []) >= 2),
     ]
@@ -455,6 +478,14 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
         if any(x['category'] == 'chamada_gravada' or re.search(r'gravad', x.get('item', ''), re.I) for x in p['prices']):
             L.append('ATENÇÃO: o item "chamada gravada" é NOME INTERNO. Para o fã é só "chamada" ou "videochamada", pelo valor desse item. Ofereça quando ele achar a chamada ao vivo cara ou pedir algo mais barato. NUNCA escreva "gravada" ou "gravação" ao fã.')
     else: L.append('TABELA DE PREÇOS: nenhuma cadastrada')
+    cat = p.get('catalog') or []; dl = p.get('delivery') or {}
+    if cat:
+        L.append('CONTEÚDO DISPONÍVEL (só ofereça ou cobre o que está aqui; é o que a equipe tem para entregar): ' + '; '.join(
+            f"{CATALOG_KINDS.get(x.get('kind'), 'Outro')}: {x.get('desc', '')}" + (f" ({x['detail']})" if x.get('detail') else '') + (f" → {x['price_item']}" if x.get('price_item') else '') for x in cat))
+        L.append('PEDIDO FORA DO CATÁLOGO: ' + (f"se for algo que {w['ela']} grava sob encomenda ({dl['custom_ok']}), ofereça como personalizado com o preço da tabela; " if dl.get('custom_ok') else '') + 'se não tiver e não fizer, diga com carinho que isso não tem e ofereça o mais parecido do catálogo. Pedido vago ("manda algo gostoso"): ofereça 2 ou 3 opções do catálogo pelo nome. Nunca invente cenário, roupa ou ato que não esteja descrito.')
+    else:
+        L.append('CONTEÚDO DISPONÍVEL: não cadastrado. Não prometa conteúdo específico (cenário, roupa, ato, duração) sem certeza; ofereça pelos itens da tabela de forma genérica.')
+    L.append(f"MÍDIA PAGA: a cobrança vem antes e quem envia é a equipe, em até {int(dl.get('hours') or 2)} h no horário de trabalho. Depois que o fã pagar, diga só que já vai mandar (\"já já te mando, amor\"), sem prometer prazo menor e sem fingir que está enviando agora." + (f" {dl['notes']}" if dl.get('notes') else ''))
     if p.get('objections'): L.append(f"RESPOSTAS {w['dela'].upper()} A OBJEÇÕES (use como base): " + ' | '.join(f"\"{o['q']}\" → {o['a']}" for o in p['objections']))
     if m['call']:
         c = p['call']; parts = []
