@@ -83,6 +83,7 @@ async def lifespan(app):
     await db.opportunities.create_index([('status', 1), ('due_at', 1)])
     await db.opportunities.create_index('expires_at', expireAfterSeconds=0)
     await db.creator_notes.create_index([('creator_id', 1), ('created_at', -1)])
+    await db.assist_blocked.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)  # lote 108
     import asyncio
     from shift_clock import sweep_loop
     clock = asyncio.create_task(sweep_loop())  # encerra turnos esquecidos (app fechado)

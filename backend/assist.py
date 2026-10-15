@@ -459,6 +459,9 @@ def fan_block(card):
 @router.post('/extension/assist/suggest')
 async def suggest(body: SuggestIn, user=Depends(extension_user)):
     creator = await can_see(user, body.creator_id)
+    # lote 108: fã bloqueado pela equipe — a IA não escreve nada para ele (automação e Sugerir resposta); só gestor desbloqueia
+    if body.fan_ref and await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 1}):
+        return {'alert': True, 'reason': 'Assinante bloqueado pela equipe: a IA não responde a ele. Só um gestor desbloqueia (painel → Sombra → Fãs bloqueados).', 'remaining': None, 'blocked': True}
     c = await config(); key = await xai_key()
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
@@ -521,6 +524,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _since = (now() - timedelta(hours=8)).isoformat()
     other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
     other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
+    _ops = PM.openings(other_texts)
+    if _ops: other_block += '\nABERTURAS JÁ USADAS COM OUTROS FÃS (não comece igual nem parecido): ' + ' | '.join(_ops) + '. Elogio do fã não pede sempre agradecimento: às vezes provoca, às vezes devolve com uma pergunta do que ele disse, às vezes responde curto com charme.'
     # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
     _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
     examples_block = await examples_for(body.creator_id, _lastfan)
@@ -528,6 +533,16 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
     else: goal = 'Se fizer sentido oferecer algo, preencha "produto" com o item exato da tabela; senão deixe vazio.'
+    # lote 107: 3 mensagens nossas sem oferta → esta vende (fã que só conversa não compra)
+    _n_off = PM.since_offer([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and body.style != 'vendedora' and items else 0
+    must_sell = _n_off >= 3
+    pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
+    if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
+    if must_sell:
+        goal = ("OBJETIVO: HORA DE VENDER. A criadora já mandou " + str(_n_off) + " mensagens a este fã sem oferecer nada, e fã que só conversa não compra. "
+                "Responda ao que ele disse em poucas palavras e, na mesma mensagem, ofereça UM item da tabela ligado ao assunto, com o valor (da lista do fã, se houver), "
+                "no tom dela, sem pressão e sem pedir desculpa. Preencha \"produto\" com o nome exato do item. Exceção: se a última do fã pede encontro/job ou indica menor, siga as regras fixas.")
+        if pend: goal += f' O fã já perguntou "{pend}" e ninguém respondeu com proposta: comece fechando isso (item exato e valor).'
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
     fan_msgs = [m for m in msgs if not m.ours]
@@ -631,8 +646,17 @@ FIM DA CONVERSA:
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
     tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo:
+    vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
+    nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
+    obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
+    scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold:
         why = []
+        if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso no tom dela, sem pressão: ofereça o item mais barato da tabela com o valor ou deixe a porta aberta para quando ele puder')
+        if scold: why.append(f'deu bronca/cobrou o fã ("{scold}"); ela pode provocar e se fazer de difícil, mas sem acusar nem cobrar: corte com charme e ofereça algo')
+        if nosale: why.append(f'não ofereceu nada, e já são {_n_off} mensagens da criadora sem oferta; responda curto ao que ele disse e ofereça UM item da tabela com o valor, ligado ao assunto, preenchendo "produto"')
+        if vibe and vibe[0] == 'abertura': why.append(f'começou com "{vibe[1]}", do mesmo jeito que várias mensagens a outros fãs hoje; comece de outro jeito (não agradeça de novo, reaja ao que ESTE fã disse)')
+        if vibe and vibe[0] == 'ideia': why.append(f'disse a mesma coisa que já foi dita a outro fã hoje, só trocando palavras ({vibe[1]}); responda com outra ideia, ligada ao que ESTE fã escreveu')
         if longo: why.append(f'ficou longa demais ({longo[0]} palavras) para o que o fã mandou; responda em no máximo {longo[1]} palavras, uma frase só, no ritmo dele')
         if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
         if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
@@ -907,4 +931,51 @@ async def list_examples(creator_id: str = '', user=Depends(manager)):
 async def del_example(ex_id: str, user=Depends(manager)):
     r = await db.assist_examples.delete_one({'id': ex_id})
     if not r.deleted_count: raise HTTPException(404, 'Exemplo não encontrado.')
+    return {'ok': True}
+
+
+# ---------- lote 108: fãs bloqueados (a IA não responde; só gestor bloqueia e desbloqueia) ----------
+class BlockIn(Strict):
+    creator_id: str = Field(min_length=1, max_length=80)
+    fan_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    fan_name: str = Field(default='', max_length=80)
+    reason: str = Field(default='', max_length=200)
+
+@router.get('/assist/blocked')
+async def blocked_list(creator_id: str = '', user=Depends(manager)):
+    q = {'creator_id': creator_id} if creator_id else {}
+    rows = await db.assist_blocked.find(q, {'_id': 0}).sort('at', -1).to_list(500)
+    names = {c['id']: c.get('name') async for c in db.creators.find({'id': {'$in': list({r['creator_id'] for r in rows})}}, {'_id': 0, 'id': 1, 'name': 1})}
+    for r in rows: r['creator_name'] = names.get(r['creator_id'], '?')
+    return rows
+
+@router.get('/assist/blocked/search')
+async def blocked_search(creator_id: str, name: str, user=Depends(manager)):
+    """Acha o fan_ref pelo nome do assinante (radar de fãs e log da automação) para bloquear."""
+    name = name.strip()[:80]
+    if len(name) < 2: return []
+    rx = {'$regex': '^' + re.escape(name), '$options': 'i'}
+    found = {}
+    async for f in db.fan_radar.find({'creator_id': creator_id, 'fan_name': rx}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1, 'cid': 1}).limit(20):
+        found.setdefault(f['fan_ref'], {'fan_ref': f['fan_ref'], 'fan_name': f.get('fan_name') or '', 'cid': str(f.get('cid') or '')})
+    async for f in db.auto_log.find({'creator_id': creator_id, 'fan_name': rx, 'fan_ref': {'$regex': '^[a-f0-9]{64}$'}}, {'_id': 0, 'fan_ref': 1, 'fan_name': 1}).sort('at', -1).limit(50):
+        found.setdefault(f['fan_ref'], {'fan_ref': f['fan_ref'], 'fan_name': f.get('fan_name') or '', 'cid': ''})
+    out = list(found.values())[:10]
+    for f in out:
+        if f['cid'] and not f['cid'].startswith(('n:', 'ff:')): f['chat_url'] = f"https://privacy.com.br/chat?cid={f['cid']}"
+    return out
+
+@router.post('/assist/blocked')
+async def blocked_add(body: BlockIn, user=Depends(manager)):
+    doc = {'id': uid(), 'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'fan_name': scrub(body.fan_name)[:80], 'reason': scrub(body.reason)[:200],
+           'by_id': user['id'], 'by_name': user['name'], 'at': iso()}
+    await db.assist_blocked.update_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'$setOnInsert': doc}, upsert=True)
+    await audit(user, 'Fã bloqueado para a IA', 'assist', {'creator_id': body.creator_id, 'fan_name': doc['fan_name'], 'reason': doc['reason']}, None)
+    return await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 0})
+
+@router.delete('/assist/blocked/{bid}')
+async def blocked_del(bid: str, user=Depends(manager)):
+    r = await db.assist_blocked.find_one_and_delete({'id': bid}, {'_id': 0})
+    if not r: raise HTTPException(404, 'Bloqueio não encontrado.')
+    await audit(user, 'Fã desbloqueado para a IA', 'assist', {'creator_id': r['creator_id'], 'fan_name': r.get('fan_name')}, None)
     return {'ok': True}

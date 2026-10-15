@@ -155,6 +155,7 @@ def natural_rules(prof):
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
          '- A maioria das mensagens é curta. Mensagem mais longa só na oferta com mídia, nas boas-vindas ou ao contar a história de um conteúdo.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
+         '- Venda faz parte da conversa: depois de 3 mensagens sem oferecer nada, a próxima oferece um item da tabela com valor, ligado ao que ele disse (sem pressão, sem textão).',
          '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
          '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
          '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
@@ -167,7 +168,9 @@ def natural_rules(prof):
          '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
          '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
-         '- Fã que puxa o próprio corpo no papo quente ("quero te mostrar", "tô duro", "gozei litros", "olha meu pau") é chance de venda: peça para ver, curto e provocante, e diga que é pela solicitação de mídia ("mostra pra mim, amor… é só pagar a solicitação e mandar"). O valor é o item Avaliação da tabela (campo "produto" = esse item). Nunca peça para ele mandar de graça no chat, e nunca faça isso no "oi" ou com fã que ainda está se conhecendo.',
+         '- Provocar pedindo para ver ("hoje você me mostra primeiro 😈") pode, com bom senso, no papo quente. Quando o fã topa ou diz que quer mostrar/mandar ("quero te mostrar", "vou mandar", "quer ver?", "olha meu pau"), aí é venda: "manda pela solicitação que eu avalio todinho", com o item Avaliação da tabela (campo "produto" = esse item). Nunca aceite a mídia dele de graça no chat, e nada disso no "oi" ou com fã que ainda está se conhecendo.',
+         '- Ela pode ser difícil e provocar, mas nunca cobra, acusa ou dá bronca no fã ("você só me usou", "tem que me valorizar", "que mentira", "quer de graça de novo", "não funciona assim"). Fã folgado leva corte com charme e uma oferta, não sermão.',
+         '- Fã que diz que não tem dinheiro, que está caro ou que compra depois: responda a isso (nunca ignore). Sem pressão: ofereça o item mais barato da tabela ou deixe a porta aberta ("quando der você me chama 😘").',
          '- Tamanho acompanha o fã: se ele mandou só um emoji, "kk", "rs" ou uma frase curta, responda com uma frase curta (até umas 15 palavras). Texto longo só quando ele escreveu longo, na oferta com valor ou nas boas-vindas.',
          '- Não termine toda mensagem com pergunta-fórmula ("me conta, o que mais te excita em mim?", "o que mais você faria comigo?"). Varie: às vezes só responda e provoque, às vezes comente o que ele disse, e quando perguntar, pergunte algo concreto da conversa.',
          '- Não repita uma pergunta que você já fez nesta conversa, nem com outras palavras ("o que mais te deixa louco…?" e depois "o que mais te excita…?" é a mesma pergunta). Se ele não respondeu, siga por outro caminho.',
@@ -287,8 +290,80 @@ def reused_elsewhere(text, other_texts):
         hit = mine & _shingles(o)
         if hit: return sorted(hit, key=len)[-1]
     return ''
+# lote 106: mesma ideia com outras palavras para vários fãs ("obrigada bb, fico molhadinha com esse elogio") e mesma abertura em série
+GENERIC = STOP | set('quero agora muito tambem assim fico aqui hoje esse essa isso tudo voce voces seu sua meu minha mim ta to tou estou esta sim nao bem bom boa vai vou ser ter tem fazer faz sabe saber gente coisa jeito ainda so'.split())
+def _content(text):
+    return {w for w in _norm(text) if len(w) >= 4 and w not in GENERIC}
+def same_vibe(text, other_texts):
+    """Devolve ('abertura', 'obrigada bb') se 2+ mensagens a outros fãs nas últimas horas começaram igual, ou ('ideia', 'palavras') se a sugestão
+    repete a mesma ideia de uma delas com outras palavras (3+ palavras de conteúdo em comum e 40%+ das palavras dela). Senão None."""
+    w = _norm(text)
+    if len(w) >= 2:
+        op = ' '.join(w[:2])
+        if sum(1 for o in (other_texts or [])[:12] if ' '.join(_norm(o)[:2]) == op) >= 2: return ('abertura', op)
+    mine = _content(text)
+    if len(mine) >= 3:
+        for o in (other_texts or [])[:12]:
+            sh = mine & _content(o)
+            if len(sh) >= 3 and len(sh) / len(mine) >= 0.4: return ('ideia', ' '.join(sorted(sh)[:5]))
+    return None
+def openings(other_texts, n=8):
+    """Primeiras palavras das mensagens recentes a outros fãs, para a IA não começar igual."""
+    seen = []
+    for o in other_texts or []:
+        op = ' '.join((o or '').split()[:3]).strip(' ,.!')
+        if op and op.lower() not in [x.lower() for x in seen]: seen.append(op)
+    return seen[:n]
+# lote 107: a cada 3 mensagens nossas sem oferta, a próxima vende (fã que só conversa e não compra)
+OFFER_WORDS = ['solicitacao', 'solicita', 'desbloquear', 'desbloqueia', 'desbloqueio', 'liberar', 'libero', 'pagar', 'pix']
+BOUGHT_WORDS = ['paguei', 'comprei', 'desbloqueei', 'liberei', 'ja paguei', 'acabei de pagar']
+def is_offer(text, items):
+    t = (text or '').lower()
+    if 'r$' in t or '[preço]' in t or '[preco]' in t: return True
+    tn = ' ' + ' '.join(_norm(text)) + ' '
+    if any(' ' + k + ' ' in tn for k in OFFER_WORDS): return True
+    return any(' ' + ' '.join(_norm(i)) + ' ' in tn for i in (items or []) if i and len(_norm(i)) >= 2)
+def since_offer(msgs, items):
+    """Quantas mensagens nossas desde a última oferta (nossa) ou compra (fã disse que pagou). msgs: [(ours, text)] em ordem."""
+    n = 0
+    for ours, text in reversed(msgs):
+        if ours and is_offer(text, items): break
+        if not ours and any(' ' + k + ' ' in ' ' + ' '.join(_norm(text)) + ' ' for k in BOUGHT_WORDS): break
+        if ours: n += 1
+    return n
+# lote 109: objeção ignorada, proposta pendente e bronca no fã
+OBJECTION = ['nao tenho dinheiro', 'nao tenho grana', 'sem dinheiro', 'sem grana', 'to liso', 'tou liso', 'estou liso', 'ta liso', 'duro de grana', 'ta caro', 'muito caro',
+             'caro demais', 'carinho demais', 'nao posso pagar', 'nao da pra pagar', 'nao consigo pagar', 'depois eu compro', 'depois compro', 'depois eu pago', 'fim do mes',
+             'quando receber', 'quando eu receber', 'sem condicoes', 'to sem', 'tou sem', 'estou sem', 'nao tenho como pagar', 'so tenho', 'nao vou pagar', 'nao pago']
+OBJ_OK = ['dinheiro', 'grana', 'caro', 'valor', 'preco', 'barato', 'baratinho', 'mais em conta', 'menor', 'tranquilo', 'sem pressa', 'quando der', 'quando puder', 'quando receber',
+          'fim do mes', 'entendo', 'relaxa', 'de boa', 'tudo bem', 'sem problema', 'depois', 'outra hora', 'te espero', 'fico esperando', 'me chama']
+def ignores_objection(text, fan_last):
+    """O fã deu objeção de dinheiro/preço/depois e a sugestão não trata disso. Devolve a objeção ou ''."""
+    f = ' ' + ' '.join(_norm(fan_last)) + ' '
+    o = next((k for k in OBJECTION if ' ' + k + ' ' in f), '')
+    if not o: return ''
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    if 'r$' in (text or '').lower() or any(' ' + k + ' ' in t for k in OBJ_OK): return ''
+    return o
+PROPOSAL_ASK = ['o que vc propoe', 'o que voce propoe', 'o que tu propoe', 'quanto e', 'quanto custa', 'quanto fica', 'quanto sai', 'qual o valor', 'qual valor', 'qual o preco',
+                'como funciona', 'como faco pra', 'como faco para', 'como eu faco', 'quanto voce cobra', 'quanto vc cobra', 'tem video', 'tem foto', 'vende video', 'vende foto']
+def pending_proposal(msgs, items):
+    """O fã pediu proposta/preço e nenhuma mensagem nossa depois disso ofereceu algo. msgs: [(ours, text)]. Devolve o pedido ou ''."""
+    for i in range(len(msgs) - 1, -1, -1):
+        ours, text = msgs[i]
+        if ours and is_offer(text, items): return ''
+        if not ours:
+            f = ' ' + ' '.join(_norm(text)) + ' '
+            k = next((k for k in PROPOSAL_ASK if ' ' + k + ' ' in f), '')
+            if k: return k
+    return ''
+SCOLD = ['so me usou', 'so me usa', 'me valorizar', 'me valoriza primeiro', 'que mentira', 'de graca de novo', 'nao funciona assim', 'vc so quer', 'voce so quer',
+         'aproveitador', 'ta achando que', 'quem voce pensa', 'nao sou boba', 'ja te dei demais', 'nem desbloqueou']
+def scolds(text):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return next((k for k in SCOLD if ' ' + k + ' ' in t), '')
 # lote 99: fã oferece mostrar o corpo e a sugestão pede para ver de graça (sem solicitação/pagamento)
-SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'meu pau', 'minha rola', 'to duro', 'tou duro', 'estou duro', 'gozei', 'gozando', 'foto minha', 'video meu', 'quer ver']
+SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'vou mandar', 'vou te mandar', 'posso mandar', 'posso te mandar', 'quer que eu mande', 'mando sim', 'te mando', 'foto minha', 'video meu', 'quer ver', 'olha meu', 'olha so']  # lote 109: só quando ele topa/quer mostrar; provocar antes pode
 SHOW_ASK = ['mostra', 'me mostra', 'manda', 'me manda', 'quero ver', 'deixa eu ver']
 SHOW_PAY = ['solicitacao', 'solicita', 'pagar', 'paga', 'pago', 'r', 'reais', 'avaliacao', 'valor']
 def free_show(text, fan_texts):
@@ -309,7 +384,7 @@ def catchphrase(text, recent_ours, other_texts):
     if not tic: return ''
     here = sum(1 for x in (recent_ours or [])[-6:] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
     there = sum(1 for x in (other_texts or [])[:12] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
-    return tic if here >= 1 or there >= 3 else ''
+    return tic if here >= 1 or there >= 2 else ''
 # lote 103: falou demais — fã mandou pouco (emoji, "kk", 1-3 palavras) e a sugestão veio longa
 def too_long(text, fan_last):
     """Devolve (palavras da sugestão, limite) quando passa do tamanho proporcional à última do fã; senão None."""
