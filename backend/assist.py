@@ -615,8 +615,10 @@ FIM DA CONVERSA:
     _lo = next((m.text for m in reversed(msgs[:-1]) if m.ours), '') if msgs else ''
     _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
     close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
-    if rep or rot or med or meet or close:
+    recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
+    if rep or rot or med or meet or close or recd:
         why = []
+        if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
         if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')
         if meet: why.append(f'o fã falou em "{meet}" (encontro presencial / programa pago) e a resposta não recusou com clareza; diga NÃO curto e no tom dela, sem preço e sem deixar no ar, e volte para o conteúdo ou a chamada ao vivo da plataforma')
         if rep: why.append('começou igual ou repete a mesma pergunta de uma mensagem recente da criadora; use abertura diferente e NÃO repita a pergunta (se ele já foi perguntado disso, siga a conversa sem perguntar de novo)')
