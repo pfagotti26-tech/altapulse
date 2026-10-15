@@ -453,62 +453,70 @@ function setFanFromChat(id, open, platform = 'privacy') {
 let lastAutoKey = '';
 
 // AUTO (Grok) — preenche modal de solicitação de mídia
-async function tryMediaRequest(view, creatorId, suggested, fanRef) {
-  if (!suggested || !/solicita[çc][aã]o|pagar pela|avalia[çc][aã]o|v[íi]deo/i.test(suggested)) return false;
-  const m = suggested.match(/(avalia[çc][aã]o|v[íi]deo\s*\([^)]+\)|foto\s*\([^)]+\))/i);
-  const item = m ? m[1].trim() : null;
-  if (!item) return false;
+async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
+  if (!product || !cents) return false;
   try {
-    const price = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(item)}&fan_ref=${encodeURIComponent(fanRef || '')}`);
-    if (!price || !price.ok) {
-      appLog('fila', `solicitação: ${price && price.motivo || 'item sem preço'} (${item})`);
-      return false;
-    }
-    // Check open request in conversation
+    const check = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(product)}&fan_ref=${encodeURIComponent(fanRef || '')}`);
+    if (!check || !check.ok) { appLog('fila', `solicitação: ${check && check.motivo}`); return false; }
+    if (cents < check.min_cents) { appLog('fila', 'solicitação: valor abaixo da tabela'); return false; }
     const hasOpen = await runJs(view, `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-      for (const root of roots) {
-        if ([...root.querySelectorAll('*')].some(el => /ainda n[aã]o pago/i.test(el.textContent || ''))) return true;
-      }
+      for (const root of roots) if ([...root.querySelectorAll('*')].some(el => /ainda n[aã]o pago/i.test(el.textContent || ''))) return true;
       return false;
     })()`, 2000).catch(() => false);
     if (hasOpen) { appLog('fila', 'solicitação: já existe uma em aberto'); return false; }
-    const st = await api('GET', '/auto/status');
-    if (st && st.essay) {
-      appLog('fila', `ensaio: solicitaria ${item} R$ ${(price.cents/100).toFixed(2)}`);
+    if (essay) {
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: true, result: 'ensaio' }).catch(() => {});
+      appLog('fila', `ensaio: solicitaria ${product} R$ ${(cents/100).toFixed(2)}`);
       return true;
     }
+    // Open modal
+    await runJs(view, `(() => {
+      const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+      for (const root of roots) {
+        const b = [...root.querySelectorAll('button')].find(x => /solicitar m[íi]dias/i.test(x.textContent || ''));
+        if (b) { b.click(); return true; }
+      }
+      return false;
+    })()`, 2000).catch(() => false);
+    await new Promise(res => setTimeout(res, 800));
+    // Type cents and confirm
     const script = `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-      let input = null, btn = null, cancel = null;
-      for (const root of roots) {
-        input = root.querySelector('input[placeholder*="valor" i], input[type="number"], input');
-        btn = [...root.querySelectorAll('button')].find(b => /confirmar|solicitar|ok/i.test(b.textContent || ''));
-        cancel = [...root.querySelectorAll('button')].find(b => /cancelar|fechar/i.test(b.textContent || ''));
-        if (input) break;
-      }
+      let modal = null;
+      for (const root of roots) { modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || '')); if (modal) break; }
+      if (!modal) return { ok: false };
+      const input = modal.querySelector('input');
+      const confirm = [...modal.querySelectorAll('button')].find(b => /confirmar|solicitar/i.test(b.textContent || ''));
+      const cancel = [...modal.querySelectorAll('button')].find(b => /cancelar|fechar/i.test(b.textContent || ''));
       if (!input) return { ok: false };
-      const cents = ${price.cents};
       input.focus();
-      input.value = String(cents);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      const got = parseInt(String(input.value).replace(/\D/g, ''), 10);
-      if (got !== cents) { if (cancel) cancel.click(); return { ok: false, mismatch: true, got }; }
-      if (btn) btn.click();
-      return { ok: true };
+      return { ok: true, hasConfirm: !!confirm, hasCancel: !!cancel };
     })()`;
-    const result = await runJs(view, script, 3000).catch(() => ({ ok: false }));
-    if (result && result.ok) {
-      appLog('fila', `solicitação criada: ${item} R$ ${(price.cents/100).toFixed(2)}`);
-    } else if (result && result.mismatch) {
-      appLog('fila', `solicitação cancelada: valor no campo (${result.got}) diferente do servidor (${price.cents})`);
+    const prep = await runJs(view, script, 2000).catch(() => ({ ok: false }));
+    if (!prep || !prep.ok) return false;
+    // Type via insertText
+    view.webContents.focus();
+    view.webContents.insertText(String(cents));
+    await new Promise(res => setTimeout(res, 300));
+    const checkVal = await runJs(view, `(() => {
+      const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+      for (const root of roots) {
+        const modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || ''));
+        if (modal) { const input = modal.querySelector('input'); return input ? input.value : ''; }
+      }
+      return '';
+    })()`, 1500).catch(() => '');
+    const shown = parseInt(String(checkVal).replace(/\D/g, ''), 10);
+    if (shown !== cents) {
+      await runJs(view, `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0); for (const root of roots) { const b = [...root.querySelectorAll('button')].find(x => /cancelar|fechar/i.test(x.textContent || '')); if (b) b.click(); } })()`, 1000).catch(() => {});
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'valor divergente' }).catch(() => {});
+      return false;
     }
-    return result && result.ok;
+    await runJs(view, `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0); for (const root of roots) { const modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || '')); if (modal) { const b = [...modal.querySelectorAll('button')].find(x => /confirmar|solicitar/i.test(x.textContent || '')); if (b) b.click(); } } })()`, 1000).catch(() => {});
+    await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'criada' }).catch(() => {});
+    return true;
   } catch (e) { appLog('fila', String(e)); return false; }
-}
-async function db_log_request(creatorId, fanRef, item, cents) {
-  // logged via a simple call; server can also log
-  appLog('fila', `log solicitação ${item} ${cents}`);
 }
 
 async function tryAutoDecide(view, creatorId, expectName) {
@@ -569,11 +577,14 @@ async function tryAutoDecide(view, creatorId, expectName) {
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
+            if (r.product && r.product_cents) await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
           } else {
             await api('POST', `/auto/failed/${r.log_id}`, {}).catch(() => {});
           }
         }
       }
+    } else if (r && r.essay && r.product && r.product_cents) {
+      await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, true);
     } else if (r && (r.suggested_text || r.reason)) {
       await view.webContents.executeJavaScript(
         `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify(r.reason || '')})`,

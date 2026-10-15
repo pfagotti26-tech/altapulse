@@ -38,6 +38,8 @@ class DecideOut(BaseModel):
     essay: bool = True
     suggested_text: Optional[str] = None
     log_id: Optional[str] = None
+    product: Optional[str] = None
+    product_cents: Optional[int] = None
 
 async def get_config():
     doc = await db.auto_config.find_one({"id": "main"}) or {}
@@ -260,8 +262,28 @@ async def request_price(creator_id: str, item: str, fan_ref: str = "", user=Depe
     item_low = item.strip().lower()
     for p in prices:
         if p.get("item", "").strip().lower() == item_low:
-            return {"ok": True, "item": p["item"], "cents": p.get("cents", 0)}
-    return {"ok": False, "motivo": "item sem preço", "item": item, "cents": None}
+            min_cents = p.get("cents", 0)
+            return {"ok": True, "item": p["item"], "min_cents": min_cents}
+    return {"ok": False, "motivo": "item sem preço", "item": item}
+
+
+class RequestLogIn(BaseModel):
+    creator_id: str
+    fan_ref: str
+    item: str
+    cents: int
+    essay: bool = True
+    result: str = "ensaio"
+
+@router.post("/request-log")
+async def request_log(body: RequestLogIn, user=Depends(extension_user)):
+    await db.auto_log.insert_one({
+        "id": uid(), "at": iso(), "day": today(),
+        "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+        "decision": "solicitação", "reason": body.result,
+        "item": body.item, "cents": body.cents, "essay": body.essay,
+    })
+    return {"ok": True}
 
 @router.get("/status")
 async def status(user=Depends(extension_user)):
