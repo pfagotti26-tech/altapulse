@@ -166,6 +166,8 @@ def natural_rules(prof):
          '- Na oferta com mídia, um desafio leve funciona ("será que aguenta?", "me prova que vale a pena"). Fã pede mais barato: ofereça um item menor da tabela em uma linha, sem baixar o preço do mesmo item.',
          '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
+         '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
+         '- Não repita uma pergunta que você já fez nesta conversa, nem com outras palavras ("o que mais te deixa louco…?" e depois "o que mais te excita…?" é a mesma pergunta). Se ele não respondeu, siga por outro caminho.',
          '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
          '- Videochamada é sempre AO VIVO. Nunca diga "videochamada gravada" nem trate chamada como vídeo gravado.',
@@ -183,6 +185,7 @@ AGENCY_EXAMPLES = ['bom dia, meu amor!', 'bem e vc?', 'tô aqui', 'cadê? rs', '
                    'quero você começando com esse aqui, será que aguenta, amor?', 'me prova que vale a pena 😈', 'quer ver o que eu aprontei dessa vez? 🔥',
                    'e você, gosta de uma buceta bem molhadinha?', 'o que mais te deixa louco em mim?', 'bom dia, safado rs', 'obrigada amor, e você, tá como hoje?']
 import unicodedata as _ud
+import difflib as _dl
 def _norm(t):
     t = _ud.normalize('NFD', (t or '').lower()); t = ''.join(c for c in t if _ud.category(c) != 'Mn')
     return re.sub(r'[^a-z0-9 ]+', ' ', t).split()
@@ -215,7 +218,10 @@ def invents_routine(text, convo_texts):
     return ''
 # reação a mídia que a IA tende a presumir (gostou do vídeo, continuar assistindo) sem o fã ter falado de mídia
 MEDIA_PRESUME = ['gostou do video', 'gostado do video', 'gostou da foto', 'gostado da foto', 'curte assim', 'curtiu', 'continuar assistindo', 'assistindo', 'assistiu',
-                 'o que mais te deixou excitado nele', 'excitado no video', 'excitado num video', 'deixou com tesao ai', 'do video que te mandei', 'viu o video', 'viu a foto', 'sua reacao']
+                 'o que mais te deixou excitado nele', 'excitado no video', 'excitado num video', 'deixou com tesao ai', 'do video que te mandei', 'viu o video', 'viu a foto', 'sua reacao',
+                 # lote 96: outras formas de presumir reação ("fico feliz que tenha gostado… nesse vídeo") ou pedido que o fã não fez ("claro que mandaria… quer que eu grave?")
+                 'tenha gostado', 'tenha curtido', 'que gostou', 'nesse video', 'naquele video', 'desse video', 'daquele video', 'nessa foto', 'naquela foto', 'achou do video', 'achou da foto',
+                 'claro que mandaria', 'claro que mando', 'claro que gravo', 'quer que eu grave', 'mandaria sim', 'gravaria sim']
 MEDIA_WORDS = ['video', 'videos', 'foto', 'fotos', 'midia', 'assist', 'vi ', 'gostei', 'curti', 'mandou', 'mandado', 'recebi', 'abri', 'post', 'conteudo', 'gozou', 'gozando']
 def presumes_media(text, fan_texts):
     """Devolve a expressão da sugestão que presume reação a mídia sem o fã ter citado vídeo/foto nas últimas mensagens (ou '')."""
@@ -239,15 +245,43 @@ def accepts_meeting(text, fan_texts):
     if not asked: return ''
     if any(' ' + k + ' ' in t or t.strip().endswith(' ' + k) for k in MEET_REFUSE): return ''
     return asked
+STOP = set('a o e de da do em um uma que vc voce você me te se ao na no com pra para por mais mas bb amor eu tu ele ela nos isso isto'.split())
+def _question(text):
+    """Última pergunta do texto (trecho que termina em '?'), normalizada em palavras de conteúdo."""
+    qs = [q for q in re.split(r'[?]', text or '') if q.strip()]
+    if '?' not in (text or ''): return []
+    q = qs[-1] if (text or '').rstrip().endswith('?') else (qs[-2] if len(qs) >= 2 else qs[-1])
+    q = re.split(r'[.!…\n]', q)[-1]
+    return [w for w in _norm(q) if w not in STOP and len(w) > 2]
 def repeats(text, recent_ours):
-    """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora ou é idêntica."""
+    """Sugestão começa igual (2 primeiras palavras) a uma das últimas mensagens da criadora, é idêntica, ou repete a mesma pergunta (lote 96)."""
     t = _norm(text)
     if not t: return False
+    q = set(_question(text))
     for x in [y for y in recent_ours if y][-6:]:
         r = _norm(x)
         if len(t) >= 2 and len(r) >= 2 and t[:2] == r[:2]: return True
         if t == r: return True
+        # mesma pergunta com outras palavras: "o que mais te deixa louco numa milf como eu?" ≈ "o que mais te excita quando pensa em uma milf como eu?"
+        rq = set(_question(x))
+        if len(q) >= 3 and len(rq) >= 3 and len(q & rq) >= 3 and len(q & rq) / min(len(q), len(rq)) >= 0.4: return True
+        # texto todo muito parecido (difflib)
+        if len(t) >= 6 and len(r) >= 6 and _dl.SequenceMatcher(None, t, r).ratio() >= 0.7: return True
     return False
+# lote 96: fã aceitou a oferta/convite e pediu a proposta → a resposta tem que fechar (item + valor)
+ACCEPT = ['quero', 'bora', 'vamos', 'topo', 'pode ser', 'claro', 'sim', 'fechado', 'o que vc propoe', 'o que voce propoe', 'o que propoe', 'quanto', 'como funciona', 'como e', 'como seria', 'me fala', 'como faz', 'como faco', 'quanto custa', 'qual o valor', 'manda ai']
+INVITE = ['quer', 'bora', 'topa', 'vamos', 'que tal', 'te mando', 'posso te mandar', 'chamada', 'video', 'foto', 'pack', 'ao vivo', 'gozar comigo']
+def misses_close(text, last_ours, fan_last, items):
+    """Devolve True se a criadora convidou/ofereceu, o fã aceitou ou pediu a proposta, e a sugestão não traz valor nem item da tabela."""
+    lo = ' ' + ' '.join(_norm(last_ours)) + ' '; fl = ' ' + ' '.join(_norm(fan_last)) + ' '
+    if '?' not in (last_ours or '') or not any(' ' + k + ' ' in lo for k in INVITE): return False
+    if not any(' ' + k + ' ' in fl for k in ACCEPT) or len(_norm(fan_last)) > 12: return False
+    t = (text or '').lower()
+    if 'r$' in t or '[preço]' in t or '[preco]' in t: return False
+    tn = ' ' + ' '.join(_norm(text)) + ' '
+    # item da tabela só conta como fechamento se tiver nome composto ('chamada ao vivo', 'pack de fotos'); 'vídeo'/'foto' soltos aparecem em qualquer papo
+    if any(' ' + ' '.join(_norm(i)) + ' ' in tn for i in items if i and len(_norm(i)) >= 2): return False
+    return True
 PRICE_CATS = {'foto': 'Foto', 'pack_fotos': 'Pack de fotos', 'video': 'Vídeo', 'pack_videos': 'Pack de vídeos', 'personalizado': 'Personalizado',
               'chamada': 'Videochamada', 'chamada_gravada': 'Chamada gravada', 'avaliacao': 'Avaliação', 'audio': 'Áudio', 'sexting': 'Sexting',
               'itens': 'Itens pessoais', 'outro': 'Outro'}
