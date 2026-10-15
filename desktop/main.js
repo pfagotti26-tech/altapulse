@@ -455,6 +455,7 @@ let lastAutoKey = '';
 // AUTO (Grok) — preenche modal de solicitação de mídia
 async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
   if (!product || !cents) return false;
+  if (!/avalia/i.test(product)) return false; // só Avaliação
   try {
     const check = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(product)}&fan_ref=${encodeURIComponent(fanRef || '')}`);
     if (!check || !check.ok) { appLog('fila', `solicitação: ${check && check.motivo}`); return false; }
@@ -470,12 +471,15 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
       appLog('fila', `ensaio: solicitaria ${product} R$ ${(cents/100).toFixed(2)}`);
       return true;
     }
-    // Open modal
+    // Open modal via 4th icon in footer
     await runJs(view, `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
       for (const root of roots) {
-        const b = [...root.querySelectorAll('button')].find(x => /solicitar m[íi]dias/i.test(x.textContent || ''));
-        if (b) { b.click(); return true; }
+        const footer = root.querySelector('privacy-web-contenteditor .vac-room-footer, .vac-room-footer');
+        if (footer) {
+          const icons = footer.querySelectorAll('button, [role="button"], svg');
+          if (icons[3]) { icons[3].click(); return true; }
+        }
       }
       return false;
     })()`, 2000).catch(() => false);
@@ -484,13 +488,15 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
     const script = `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
       let modal = null;
-      for (const root of roots) { modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || '')); if (modal) break; }
+      for (const root of roots) { modal = root.querySelector('.el-dialog.el-dialog-price'); if (modal) break; }
       if (!modal) return { ok: false };
-      const input = modal.querySelector('input');
-      const confirm = [...modal.querySelectorAll('button')].find(b => /confirmar|solicitar/i.test(b.textContent || ''));
-      const cancel = [...modal.querySelectorAll('button')].find(b => /cancelar|fechar/i.test(b.textContent || ''));
+      const input = modal.querySelector('input.el-input__inner');
+      const qty = modal.querySelector('input[role="spinbutton"]');
+      const confirm = modal.querySelector('.el-button--primary');
+      const cancel = modal.querySelector('.el-button--secondary');
       if (!input) return { ok: false };
       input.focus();
+      if (qty) qty.value = '1';
       return { ok: true, hasConfirm: !!confirm, hasCancel: !!cancel };
     })()`;
     const prep = await runJs(view, script, 2000).catch(() => ({ ok: false }));
