@@ -223,6 +223,11 @@ class ConfigIn(BaseModel):
     hour_start: Optional[int] = None
     hour_end: Optional[int] = None
 
+
+@router.get("/config")
+async def get_config_endpoint(user=Depends(manager)):
+    return await get_config()
+
 @router.put("/config")
 async def set_config(body: ConfigIn, user=Depends(manager)):
     upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
