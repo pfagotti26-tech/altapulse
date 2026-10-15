@@ -167,6 +167,7 @@ def natural_rules(prof):
          '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
          '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
+         '- Fã que puxa o próprio corpo no papo quente ("quero te mostrar", "tô duro", "gozei litros", "olha meu pau") é chance de venda: peça para ver, curto e provocante, e diga que é pela solicitação de mídia ("mostra pra mim, amor… é só pagar a solicitação e mandar"). O valor é o item Avaliação da tabela (campo "produto" = esse item). Nunca peça para ele mandar de graça no chat, e nunca faça isso no "oi" ou com fã que ainda está se conhecendo.',
          '- Não repita uma pergunta que você já fez nesta conversa, nem com outras palavras ("o que mais te deixa louco…?" e depois "o que mais te excita…?" é a mesma pergunta). Se ele não respondeu, siga por outro caminho.',
          '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
@@ -282,6 +283,17 @@ def reused_elsewhere(text, other_texts):
         hit = mine & _shingles(o)
         if hit: return sorted(hit, key=len)[-1]
     return ''
+# lote 99: fã oferece mostrar o corpo e a sugestão pede para ver de graça (sem solicitação/pagamento)
+SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'meu pau', 'minha rola', 'to duro', 'tou duro', 'estou duro', 'gozei', 'gozando', 'foto minha', 'video meu', 'quer ver']
+SHOW_ASK = ['mostra', 'me mostra', 'manda', 'me manda', 'quero ver', 'deixa eu ver']
+SHOW_PAY = ['solicitacao', 'solicita', 'pagar', 'paga', 'pago', 'r', 'reais', 'avaliacao', 'valor']
+def free_show(text, fan_texts):
+    """Pede ao fã para mostrar/mandar a mídia dele sem citar a solicitação paga."""
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in fan_texts if x) + ' '
+    if not any(' ' + k + ' ' in c for k in SHOW_FAN): return False
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    if not any(' ' + k + ' ' in t for k in SHOW_ASK): return False
+    return not any(' ' + k + ' ' in t for k in SHOW_PAY) and 'r$' not in (text or '').lower()
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '

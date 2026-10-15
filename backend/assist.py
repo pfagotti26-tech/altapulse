@@ -624,8 +624,10 @@ FIM DA CONVERSA:
     close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused:
+    free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
+    if rep or rot or med or meet or close or recd or reused or free:
         why = []
+        if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
         if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
         if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')
