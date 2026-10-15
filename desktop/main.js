@@ -459,41 +459,51 @@ async function tryMediaRequest(view, creatorId, suggested, fanRef) {
   const item = m ? m[1].trim() : null;
   if (!item) return false;
   try {
-    const price = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(item)}`);
-    if (!price || price.cents == null) {
-      await api('POST', '/auto/decide', { creator_id: creatorId, fan_ref: fanRef, messages: [], }).catch(() => {});
-      appLog('fila', `solicitação: item sem preço (${item})`);
+    const price = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(item)}&fan_ref=${encodeURIComponent(fanRef || '')}`);
+    if (!price || !price.ok) {
+      appLog('fila', `solicitação: ${price && price.motivo || 'item sem preço'} (${item})`);
       return false;
     }
-    // Essay mode: only log
+    // Check open request in conversation
+    const hasOpen = await runJs(view, `(() => {
+      const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+      for (const root of roots) {
+        if ([...root.querySelectorAll('*')].some(el => /ainda n[aã]o pago/i.test(el.textContent || ''))) return true;
+      }
+      return false;
+    })()`, 2000).catch(() => false);
+    if (hasOpen) { appLog('fila', 'solicitação: já existe uma em aberto'); return false; }
     const st = await api('GET', '/auto/status');
     if (st && st.essay) {
       appLog('fila', `ensaio: solicitaria ${item} R$ ${(price.cents/100).toFixed(2)}`);
       return true;
     }
-    // Fill modal (best effort)
     const script = `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-      let input = null, btn = null;
+      let input = null, btn = null, cancel = null;
       for (const root of roots) {
         input = root.querySelector('input[placeholder*="valor" i], input[type="number"], input');
         btn = [...root.querySelectorAll('button')].find(b => /confirmar|solicitar|ok/i.test(b.textContent || ''));
-        if (input && btn) break;
+        cancel = [...root.querySelectorAll('button')].find(b => /cancelar|fechar/i.test(b.textContent || ''));
+        if (input) break;
       }
-      if (!input) return false;
+      if (!input) return { ok: false };
       const cents = ${price.cents};
       input.focus();
       input.value = String(cents);
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      const got = parseInt(String(input.value).replace(/\D/g, ''), 10);
+      if (got !== cents) { if (cancel) cancel.click(); return { ok: false, mismatch: true, got }; }
       if (btn) btn.click();
-      return true;
+      return { ok: true };
     })()`;
-    const ok = await runJs(view, script, 3000).catch(() => false);
-    if (ok) {
-      await db_log_request(creatorId, fanRef, item, price.cents);
+    const result = await runJs(view, script, 3000).catch(() => ({ ok: false }));
+    if (result && result.ok) {
       appLog('fila', `solicitação criada: ${item} R$ ${(price.cents/100).toFixed(2)}`);
+    } else if (result && result.mismatch) {
+      appLog('fila', `solicitação cancelada: valor no campo (${result.got}) diferente do servidor (${price.cents})`);
     }
-    return ok;
+    return result && result.ok;
   } catch (e) { appLog('fila', String(e)); return false; }
 }
 async function db_log_request(creatorId, fanRef, item, cents) {
