@@ -451,6 +451,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
 
 // AUTO (Grok) — chama /auto/decide uma vez por mensagem nova do fã na Aline (só app de teste)
 let lastAutoKey = '';
+const autoInProgress = new Set(); // AUTO (Grok) — uma decisão por conversa
 
 // AUTO (Grok) — preenche modal de solicitação de mídia
 async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
@@ -534,14 +535,20 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
       await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'valor divergente' }).catch(() => {});
       return false;
     }
-    await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--primary'); if (b && !b.disabled) b.click(); } })()`, 1000).catch(() => {});
-    await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'criada' }).catch(() => {});
-    return true;
+    const clicked = await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--primary'); if (b && !b.disabled) { b.click(); return true; } } return false; })()`, 1000).catch(() => false);
+    if (clicked) {
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'criada' }).catch(() => {});
+      return true;
+    }
+    return false;
   } catch (e) { appLog('fila', String(e)); return false; }
 }
 
 async function tryAutoDecide(view, creatorId, expectName) {
   if (!ALTA_TESTE) return;
+  const key = creatorId + ':' + (expectName || '');
+  if (autoInProgress.has(key)) return;
+  autoInProgress.add(key);
   const p = (async () => {
   // Só na criadora configurada (id vem de /auto/status)
   if (!global.autoCreatorId) {
@@ -615,7 +622,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
   } catch (e) { appLog('fila', String(e)); }
   })();
   global.autoBusy = p;
-  try { return await p; } finally { if (global.autoBusy === p) global.autoBusy = null; }
+  try { return await p; } finally { autoInProgress.delete(key); if (global.autoBusy === p) global.autoBusy = null; }
 }
 
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)

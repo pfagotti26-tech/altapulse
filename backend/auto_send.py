@@ -3,7 +3,8 @@ Envio automático — teste Aline Fishborn (modo ensaio).
 O servidor só decide e registra. Quem envia é o app de teste.
 Desligador: auto_config.enabled no banco, lido a cada mensagem.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -21,6 +22,7 @@ MAX_PER_DAY = 300
 MAX_PER_FAN = 50
 HOUR_START = 9
 HOUR_END = 23
+_fan_locks = {}  # AUTO (Grok) — lock por fã
 
 class ChatMsg(BaseModel):
     ours: bool
@@ -109,69 +111,83 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         return DecideOut(should_send=False, reason="fã não falou por último", essay=cfg["essay"])
 
     last_text = body.messages[-1].text
-    if await count_today(body.creator_id) >= cfg['max_per_day']:
-        return DecideOut(should_send=False, reason="teto diário", essay=cfg["essay"])
-    if await count_today(body.creator_id, body.fan_ref) >= cfg['max_per_fan']:
-        return DecideOut(should_send=False, reason="teto por fã", essay=cfg["essay"])
-
-    # Distrust / robot
-    low = last_text.lower()
-    if any(x in low for x in ["robô", "robo", "é a aline", "quem tá falando", "automático", "é você mesmo"]):
-        await db.auto_log.insert_one({
-            "id": uid(), "at": iso(), "day": today(),
-            "creator_id": body.creator_id, "fan_ref": body.fan_ref,
-            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+    # Lock por fã + dedupe 10 min
+    lock_key = f"{body.creator_id}:{body.fan_ref}"
+    lock = _fan_locks.setdefault(lock_key, asyncio.Lock())
+    async with lock:
+        ten_min = (datetime.now(BR) - timedelta(minutes=10)).isoformat()
+        recent = await db.auto_log.find_one({
+            "creator_id": body.creator_id,
+            "fan_ref": body.fan_ref,
             "last_fan": scrub(last_text)[:500],
-            "decision": "travado", "reason": "desconfiança",
+            "decision": {"$in": ["aprovado", "enviado"]},
+            "at": {"$gte": ten_min},
         })
-        return DecideOut(should_send=False, reason="desconfiança", essay=cfg["essay"])
+        if recent:
+            return DecideOut(should_send=False, reason="já respondido", essay=cfg["essay"])
+        if await count_today(body.creator_id) >= cfg['max_per_day']:
+            return DecideOut(should_send=False, reason="teto diário", essay=cfg["essay"])
+        if await count_today(body.creator_id, body.fan_ref) >= cfg['max_per_fan']:
+            return DecideOut(should_send=False, reason="teto por fã", essay=cfg["essay"])
 
-    # Call existing suggest logic
-    try:
-        suggest_body = A.SuggestIn(
-            creator_id=body.creator_id,
-            fan_ref=body.fan_ref,
-            messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
-            mode='reply',
-        )
-        result = await A.suggest(suggest_body, user)
-        if isinstance(result, dict) and result.get("alert"):
+        # Distrust / robot
+        low = last_text.lower()
+        if any(x in low for x in ["robô", "robo", "é a aline", "quem tá falando", "automático", "é você mesmo"]):
             await db.auto_log.insert_one({
                 "id": uid(), "at": iso(), "day": today(),
                 "creator_id": body.creator_id, "fan_ref": body.fan_ref,
-            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+                "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
                 "last_fan": scrub(last_text)[:500],
-                "decision": "travado", "reason": result.get("reason", "alerta"),
+                "decision": "travado", "reason": "desconfiança",
             })
-            return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
-        suggested = result.get("text") if isinstance(result, dict) else None
-        prod = result.get("product") if isinstance(result, dict) else None
-        product_item = prod.get("item") if isinstance(prod, dict) else None
-        product_cents = prod.get("cents") if isinstance(prod, dict) else None
-    except Exception as e:
+            return DecideOut(should_send=False, reason="desconfiança", essay=cfg["essay"])
+
+        # Call existing suggest logic
+        try:
+            suggest_body = A.SuggestIn(
+                creator_id=body.creator_id,
+                fan_ref=body.fan_ref,
+                messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
+                mode='reply',
+            )
+            result = await A.suggest(suggest_body, user)
+            if isinstance(result, dict) and result.get("alert"):
+                await db.auto_log.insert_one({
+                    "id": uid(), "at": iso(), "day": today(),
+                    "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+                "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+                    "last_fan": scrub(last_text)[:500],
+                    "decision": "travado", "reason": result.get("reason", "alerta"),
+                })
+                return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
+            suggested = result.get("text") if isinstance(result, dict) else None
+            prod = result.get("product") if isinstance(result, dict) else None
+            product_item = prod.get("item") if isinstance(prod, dict) else None
+            product_cents = prod.get("cents") if isinstance(prod, dict) else None
+        except Exception as e:
+            await db.auto_log.insert_one({
+                "id": uid(), "at": iso(), "day": today(),
+                "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+                "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+                "last_fan": scrub(last_text)[:500],
+                "decision": "erro", "reason": "falha no suggest",
+                "error": str(e)[:300],
+            })
+            return DecideOut(should_send=False, reason="erro interno", essay=cfg["essay"])
+
+        should = not cfg["essay"]
+        decision = "ensaio" if cfg["essay"] else "aprovado"
+        reason = "modo ensaio — não envia" if cfg["essay"] else "aprovado"
+        lid = uid()
         await db.auto_log.insert_one({
-            "id": uid(), "at": iso(), "day": today(),
+            "id": lid, "at": iso(), "day": today(),
             "creator_id": body.creator_id, "fan_ref": body.fan_ref,
             "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
-            "decision": "erro", "reason": "falha no suggest",
-            "error": str(e)[:300],
+            "decision": decision, "reason": reason,
+            "suggested_text": suggested,
         })
-        return DecideOut(should_send=False, reason="erro interno", essay=cfg["essay"])
-
-    should = not cfg["essay"]
-    decision = "ensaio" if cfg["essay"] else "aprovado"
-    reason = "modo ensaio — não envia" if cfg["essay"] else "aprovado"
-    lid = uid()
-    await db.auto_log.insert_one({
-        "id": lid, "at": iso(), "day": today(),
-        "creator_id": body.creator_id, "fan_ref": body.fan_ref,
-        "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
-        "last_fan": scrub(last_text)[:500],
-        "decision": decision, "reason": reason,
-        "suggested_text": suggested,
-    })
-    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents)
+        return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents)
 
 
 @router.get("/report")
