@@ -19,7 +19,7 @@ import mailer
 router = APIRouter()
 log = logging.getLogger('media_requests')
 MEDIA_EMAIL = os.environ.get('MEDIA_EMAIL', 'contato@altaagencydigital.com').strip()
-FRESH = timedelta(hours=24)  # solicitação paga mais antiga que isso (lida pela 1ª vez agora) não abre pedido: é histórico
+FRESH = timedelta(hours=3)  # lote 111: solicitação paga mais antiga que isso (lida pela 1ª vez agora) não abre pedido: é histórico
 money = lambda c: 'R$ ' + f"{(c or 0) / 100:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
@@ -41,14 +41,14 @@ async def _email(req, late=False):
     agency = (await settings()).get('agency_name', 'Alta Pulse')
     e = html.escape
     what = f"{e(req.get('item') or 'Solicitação de mídia')} · <b>{e(money(req['amount_cents']))}</b>"
-    task = 'avaliar a mídia que o fã mandou' if req.get('category') == 'avaliacao' else 'entregar a mídia ao fã'
+    task = 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)'
     due = datetime.fromisoformat(req['due_at']).astimezone().strftime('%d/%m %H:%M')
-    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b>.<br>{what}<br><br>"
-             f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar entregue (app: oportunidade “Entregar mídia” → Feito; painel: Sombra → Mídias pagas).")
+    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b> e mandou a mídia dele.<br>{what}<br><br>"
+             f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar feito (app: oportunidade “Ver mídia paga do fã” → Feito; painel: Sombra → Mídias pagas).")
     if late: intro = '<b style="color:#c8102e">PASSOU DO PRAZO.</b> ' + intro
     link = req.get('chat_url') or (ORIGIN + '/sombra')
-    subject = f"{'ATRASADA · ' if late else ''}Mídia paga para entregar · {req['creator_name']} · {money(req['amount_cents'])}"
-    body = mailer.layout(agency, ('Entrega atrasada' if late else 'Fã pagou: entregar mídia'), intro, 'Abrir conversa' if req.get('chat_url') else 'Abrir painel', link,
+    subject = f"{'ATRASADA · ' if late else ''}Fã pagou e mandou mídia · {req['creator_name']} · {money(req['amount_cents'])}"
+    body = mailer.layout(agency, ('Resposta atrasada' if late else 'Fã pagou e mandou mídia'), intro, 'Abrir conversa' if req.get('chat_url') else 'Abrir painel', link,
                          'Aviso automático do Alta Pulse quando uma Solicitação de mídia é paga.')
     ok = await mailer.send(MEDIA_EMAIL, subject, body)
     if not ok: log.warning('e-mail de mídia paga não saiu (Resend desligado ou erro)')
@@ -57,7 +57,7 @@ async def _email(req, late=False):
 
 async def _opportunity(req, t, late=False):
     reason = (f"Pagou {money(req['amount_cents'])}" + (f" ({req['item']})" if req.get('item') else '') +
-              (' · avaliar a mídia dele' if req.get('category') == 'avaliacao' else ' · entregar a mídia') + ' e tocar em Feito.' + (' ATRASADA.' if late else ''))
+              ' e mandou a mídia dele · ver, responder e tocar em Feito.' + (' ATRASADA.' if late else ''))
     ref = f"entregar_midia:{req['id']}"
     await db.opportunities.update_one({'creator_id': req['creator_id'], 'fan_ref': req['fan_ref'], 'ref': ref},
         {'$set': {'status': 'open', 'hot': True, 'reason': reason, 'due_at': (t + timedelta(days=3)).isoformat()},
