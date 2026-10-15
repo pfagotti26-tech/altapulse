@@ -515,6 +515,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     else: seg_text = ''
     convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + scrub(m.text) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
     recent_ours = [scrub(m.text) for m in msgs[-14:] if m.ours]
+    # lote 97: o que esta criadora já mandou a OUTROS fãs nas últimas 8 h (frases e cenas não podem se repetir entre conversas)
+    _since = (now() - timedelta(hours=8)).isoformat()
+    other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
+    other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
     if body.style == 'vendedora':
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
@@ -584,6 +588,7 @@ O QUE SE SABE DO FÃ: {fan_block(card)}
 {FM.facts_block(facts)}
 {opener_block}
 {PM.avoid_now(recent_ours, prof)}
+{other_block}
 
 FIM DA CONVERSA:
 {convo}
@@ -616,8 +621,10 @@ FIM DA CONVERSA:
     _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
     close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
-    if rep or rot or med or meet or close or recd:
+    reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
+    if rep or rot or med or meet or close or recd or reused:
         why = []
+        if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
         if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
         if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')
         if meet: why.append(f'o fã falou em "{meet}" (encontro presencial / programa pago) e a resposta não recusou com clareza; diga NÃO curto e no tom dela, sem preço e sem deixar no ar, e volte para o conteúdo ou a chamada ao vivo da plataforma')
@@ -672,6 +679,9 @@ FIM DA CONVERSA:
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
+    # lote 97: guarda o texto por 24 h para a próxima sugestão (de outro fã) não repetir frase/cena
+    if text.strip():
+        await db.assist_recent.insert_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': scrub(text)[:400], 'at': iso(), 'expires_at': now() + timedelta(hours=24)})
     # Modo sombra (ficha da criadora): guarda a sugestão para comparar com o que o chatter enviar de verdade.
     # Só medição: nada muda no que o chatter vê, e nada é enviado pelo sistema.
     if PM.normalize(prof).get('shadow') and text.strip():
