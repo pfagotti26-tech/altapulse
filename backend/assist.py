@@ -630,8 +630,10 @@ FIM DA CONVERSA:
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
     tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic:
+    longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo:
         why = []
+        if longo: why.append(f'ficou longa demais ({longo[0]} palavras) para o que o fã mandou; responda em no máximo {longo[1]} palavras, uma frase só, no ritmo dele')
         if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
         if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
@@ -762,9 +764,19 @@ async def shadow_report(days: int = 7, creator_id: str = '', start: str = '', en
     # lote 102: o que a equipe já ensinou nessas linhas (para todos os gestores verem, não só quem salvou)
     taught = {e['ref_id']: e async for e in db.assist_examples.find({'source': 'sombra', 'ref_id': {'$in': [r.get('id') for r in rows if r.get('id')]}},
                                                                       {'_id': 0, 'ref_id': 1, 'kind': 1, 'good': 1, 'reason': 1, 'by_name': 1, 'at': 1, 'id': 1})}
+    # lote 103: nome do fã (se a agência permite guardar nomes) e id da conversa para o link
+    pairs = {(r.get('creator_id'), r.get('fan_ref')) for r in rows if r.get('fan_ref')}
+    radar = {}
+    if pairs:
+        async for f in db.fan_radar.find({'$or': [{'creator_id': c, 'fan_ref': f} for c, f in pairs]}, {'_id': 0, 'creator_id': 1, 'fan_ref': 1, 'fan_name': 1, 'cid': 1}):
+            radar[(f['creator_id'], f['fan_ref'])] = f
     for r in rows:
         r.pop('expires_at', None)
         if r.get('id') in taught: r['example'] = taught[r['id']]
+        f = radar.get((r.get('creator_id'), r.get('fan_ref'))) or {}
+        if f.get('fan_name'): r['fan_name'] = f['fan_name']
+        cid = str(f.get('cid') or '')
+        if cid and not cid.startswith(('n:', 'ff:')) and (r.get('platform') or 'privacy') == 'privacy': r['chat_url'] = f'https://privacy.com.br/chat?cid={cid}'
         if r.get('status') == 'pendente' and str(r.get('at') or '') < cut: r['status'] = 'sem_resposta'
         r['status'] = r.get('status') or 'pendente'
     def group(key):
@@ -858,7 +870,7 @@ class ExampleIn(Strict):
     fan_text: str = Field(default='', max_length=600)      # última mensagem do fã
     ai_text: str = Field(default='', max_length=1200)      # o que a IA sugeriu/enviou
     better_text: str = Field(default='', max_length=1200)  # como deveria ser (vazio = 👍 na sugestão da IA)
-    reason: Literal['', 'tom', 'contexto', 'repetiu', 'vender', 'inventou', 'outro'] = ''
+    reason: Literal['', 'tom', 'contexto', 'repetiu', 'vender', 'inventou', 'longo', 'outro'] = ''
     source: Literal['auto', 'sombra', 'manual'] = 'manual'
     ref_id: str = Field(default='', max_length=64)          # id do registro de origem (auto_log/shadow); um exemplo por origem
 

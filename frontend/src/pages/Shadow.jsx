@@ -21,7 +21,7 @@ function Table({ rows, first }) {
 
 // lote 100: ensinar a IA pelo exemplo. 👍 IA = a sugestão estava boa; 👍 enviado = o chatter fez melhor; ✏️ = escrever como deveria ser.
 // Vira exemplo aprovado da criadora (a IA imita o jeito nas próximas sugestões, sem copiar).
-const REASONS = [['', 'motivo (opcional)'], ['tom', 'tom errado'], ['contexto', 'fora de contexto'], ['repetiu', 'repetiu'], ['vender', 'devia vender'], ['inventou', 'inventou coisa'], ['outro', 'outro']];
+const REASONS = [['', 'motivo (opcional)'], ['tom', 'tom errado'], ['contexto', 'fora de contexto'], ['repetiu', 'repetiu'], ['vender', 'devia vender'], ['inventou', 'inventou coisa'], ['longo', 'falou demais'], ['outro', 'outro']];
 function Teach({ r }) {
   const [open, setOpen] = useState(false), [txt, setTxt] = useState(r.example && r.example.kind === 'corrigido' ? r.example.good : ''), [why, setWhy] = useState(''), [done, setDone] = useState(''), [busy, setBusy] = useState(false);
   const send = async (better, label) => {
@@ -84,11 +84,11 @@ export default function Shadow() {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {[['', 'Tudo'], ['diferente', 'Diferentes'], ['editado', 'Editadas'], ['igual', 'Iguais'], ['midia', 'Mídia'], ['sem_resposta', 'Sem resposta']].map(([k, l]) => <Button key={k} variant={only === k ? undefined : 'outline'} onClick={() => setOnly(k)}>{l}</Button>)}
           </div>
-          {!rows.length ? <p className="body-muted">Nada com esse filtro.</p> : <div className="table-scroll"><table className="shadow-table"><thead><tr><th>Quando</th><th>Criadora · chatter</th><th>Última do fã</th><th>Sugestão da IA</th><th>Enviado</th><th>Resultado</th><th>Ensinar a IA</th></tr></thead>
+          {!rows.length ? <p className="body-muted">Nada com esse filtro.</p> : <div className="table-scroll"><table className="shadow-table"><thead><tr><th>Quando</th><th>Criadora · chatter</th><th>Assinante · última do fã</th><th>Sugestão da IA</th><th>Enviado</th><th>Resultado</th><th>Ensinar a IA</th></tr></thead>
             <tbody>{rows.map((r) => <tr key={r.id} className={`st-${r.status}`}>
               <td className="tabular" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.at)}</td>
               <td><strong>{r.creator_name}</strong><br/><small className="body-muted">{r.user_name}{r.product ? ` · sugeriu ${r.product}${r.product_cents ? ' ' + money(r.product_cents) : ''}` : ''}</small></td>
-              <td className="shadow-txt muted">{r.last_fan || '—'}</td>
+              <td className="shadow-txt muted">{(r.fan_name || r.chat_url) && <div style={{ marginBottom: 4 }}><strong style={{ color: 'var(--text, inherit)' }}>{r.fan_name || 'Assinante'}</strong>{r.chat_url && <> · <a href={r.chat_url} target="_blank" rel="noreferrer">abrir conversa ↗</a></>}</div>}{r.last_fan || '—'}</td>
               <td className="shadow-txt">{r.proposed}</td>
               <td className="shadow-txt">{r.sent || <span className="body-muted">—</span>}{r.media_kind && <><br/><small className={r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? 'shadow-tag bad' : 'shadow-tag info'}>{r.media_kind} {r.media_free ? 'grátis' : r.media_cents != null ? money(r.media_cents) : 'paga'}{r.product_cents && r.media_cents != null && r.media_cents < r.product_cents ? ' · abaixo do sugerido' : ''}</small></>}</td>
               <td><Tag st={r.status}/>{r.similarity != null && r.status !== 'midia' && <><br/><small className="tabular">{Math.round(r.similarity * 100)}%</small></>}</td>
