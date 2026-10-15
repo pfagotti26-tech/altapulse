@@ -271,6 +271,10 @@ def repeats(text, recent_ours):
 # lote 96: fã aceitou a oferta/convite e pediu a proposta → a resposta tem que fechar (item + valor)
 ACCEPT = ['quero', 'bora', 'vamos', 'topo', 'pode ser', 'claro', 'sim', 'fechado', 'o que vc propoe', 'o que voce propoe', 'o que propoe', 'quanto', 'como funciona', 'como e', 'como seria', 'me fala', 'como faz', 'como faco', 'quanto custa', 'qual o valor', 'manda ai']
 INVITE = ['quer', 'bora', 'topa', 'vamos', 'que tal', 'te mando', 'posso te mandar', 'chamada', 'video', 'foto', 'pack', 'ao vivo', 'gozar comigo']
+def says_recorded(text):
+    """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return bool(re.search(r'\b(chamada|call|videochamada|video chamada)\b', t) and re.search(r'\bgrava(d[ao]s?|cao|coes)\b', t))
 def misses_close(text, last_ours, fan_last, items):
     """Devolve True se a criadora convidou/ofereceu, o fã aceitou ou pediu a proposta, e a sugestão não traz valor nem item da tabela."""
     lo = ' ' + ' '.join(_norm(last_ours)) + ' '; fl = ' ' + ' '.join(_norm(fan_last)) + ' '
@@ -436,6 +440,9 @@ def compile_block(creator, prof, money_br, persona_fields, day=None):
     else: L.append(f"TELEGRAM: {w['ela']} usa com fãs (conversa direta); \"tele\" = Telegram. " + (tg.get('how') or f"Se o fã falar do Telegram, confirme natural que é {w['ela']} mesmo lá."))
     if p['prices']:
         L.append('TABELA DE PREÇOS (mínimos): ' + '; '.join(f"{x['item']} [{PRICE_CATS.get(x['category'], 'Outro')}{', explícito' if x.get('explicit') else ''}]: {money_br(x['cents'])}" + (f" ({x['obs']})" if x.get('obs') else '') for x in p['prices']))
+        # "chamada gravada" é nome interno da agência (vídeo pronto entregue como chamada, para quem achou o ao vivo caro); o fã nunca sabe
+        if any(x['category'] == 'chamada_gravada' or re.search(r'gravad', x.get('item', ''), re.I) for x in p['prices']):
+            L.append('ATENÇÃO: o item "chamada gravada" é NOME INTERNO. Para o fã é só "chamada" ou "videochamada", pelo valor desse item. Ofereça quando ele achar a chamada ao vivo cara ou pedir algo mais barato. NUNCA escreva "gravada" ou "gravação" ao fã.')
     else: L.append('TABELA DE PREÇOS: nenhuma cadastrada')
     if p.get('objections'): L.append(f"RESPOSTAS {w['dela'].upper()} A OBJEÇÕES (use como base): " + ' | '.join(f"\"{o['q']}\" → {o['a']}" for o in p['objections']))
     if m['call']:
