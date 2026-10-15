@@ -168,6 +168,8 @@ def natural_rules(prof):
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
          '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
          '- Fã que puxa o próprio corpo no papo quente ("quero te mostrar", "tô duro", "gozei litros", "olha meu pau") é chance de venda: peça para ver, curto e provocante, e diga que é pela solicitação de mídia ("mostra pra mim, amor… é só pagar a solicitação e mandar"). O valor é o item Avaliação da tabela (campo "produto" = esse item). Nunca peça para ele mandar de graça no chat, e nunca faça isso no "oi" ou com fã que ainda está se conhecendo.',
+         '- Tamanho acompanha o fã: se ele mandou só um emoji, "kk", "rs" ou uma frase curta, responda com uma frase curta (até umas 15 palavras). Texto longo só quando ele escreveu longo, na oferta com valor ou nas boas-vindas.',
+         '- Não termine toda mensagem com pergunta-fórmula ("me conta, o que mais te excita em mim?", "o que mais você faria comigo?"). Varie: às vezes só responda e provoque, às vezes comente o que ele disse, e quando perguntar, pergunte algo concreto da conversa.',
          '- Não repita uma pergunta que você já fez nesta conversa, nem com outras palavras ("o que mais te deixa louco…?" e depois "o que mais te excita…?" é a mesma pergunta). Se ele não respondeu, siga por outro caminho.',
          '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
@@ -222,7 +224,9 @@ MEDIA_PRESUME = ['gostou do video', 'gostado do video', 'gostou da foto', 'gosta
                  'o que mais te deixou excitado nele', 'excitado no video', 'excitado num video', 'deixou com tesao ai', 'do video que te mandei', 'viu o video', 'viu a foto', 'sua reacao',
                  # lote 96: outras formas de presumir reação ("fico feliz que tenha gostado… nesse vídeo") ou pedido que o fã não fez ("claro que mandaria… quer que eu grave?")
                  'tenha gostado', 'tenha curtido', 'que gostou', 'nesse video', 'naquele video', 'desse video', 'daquele video', 'nessa foto', 'naquela foto', 'achou do video', 'achou da foto',
-                 'claro que mandaria', 'claro que mando', 'claro que gravo', 'quer que eu grave', 'mandaria sim', 'gravaria sim']
+                 'claro que mandaria', 'claro que mando', 'claro que gravo', 'quer que eu grave', 'mandaria sim', 'gravaria sim',
+                 # lote 105: fala do perfil/feed como se o fã já tivesse visto ('viu no meu perfil', 'aquela que postei')
+                 'no meu perfil', 'do meu perfil', 'la no perfil', 'no meu feed', 'do meu feed', 'que postei', 'que eu postei', 'que acabei de postar', 'minha ultima postagem', 'meu ultimo post']
 MEDIA_WORDS = ['video', 'videos', 'foto', 'fotos', 'midia', 'assist', 'vi ', 'gostei', 'curti', 'mandou', 'mandado', 'recebi', 'abri', 'post', 'conteudo', 'gozou', 'gozando']
 def presumes_media(text, fan_texts):
     """Devolve a expressão da sugestão que presume reação a mídia sem o fã ter citado vídeo/foto nas últimas mensagens (ou '')."""
@@ -294,6 +298,25 @@ def free_show(text, fan_texts):
     t = ' ' + ' '.join(_norm(text)) + ' '
     if not any(' ' + k + ' ' in t for k in SHOW_ASK): return False
     return not any(' ' + k + ' ' in t for k in SHOW_PAY) and 'r$' not in (text or '').lower()
+# lote 100: bordão de fim de mensagem ("me conta, o que mais te excita em mim?") repetido na conversa ou com outros fãs
+TICS = ['o que mais', 'me conta o que', 'me diz o que', 'o que voce faria', 'o que vc faria']
+def catchphrase(text, recent_ours, other_texts):
+    """Devolve o bordão se a sugestão termina numa pergunta-fórmula já usada nesta conversa ou em 3+ mensagens a outros fãs."""
+    q = (text or '').strip()
+    if not q.endswith('?'): return ''
+    tail = ' ' + ' '.join(_norm(re.split(r'[.!…\n]', q.rstrip('?'))[-1])) + ' '
+    tic = next((k for k in TICS if ' ' + k + ' ' in tail), '')
+    if not tic: return ''
+    here = sum(1 for x in (recent_ours or [])[-6:] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
+    there = sum(1 for x in (other_texts or [])[:12] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
+    return tic if here >= 1 or there >= 3 else ''
+# lote 103: falou demais — fã mandou pouco (emoji, "kk", 1-3 palavras) e a sugestão veio longa
+def too_long(text, fan_last):
+    """Devolve (palavras da sugestão, limite) quando passa do tamanho proporcional à última do fã; senão None."""
+    fw = len(_norm(fan_last)); tw = len(_norm(text))
+    lim = 18 if fw <= 3 else 32 if fw <= 10 else 60
+    if 'r$' in (text or '').lower(): lim += 12  # oferta com valor pode ser um pouco maior
+    return (tw, lim) if tw > lim else None
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '
