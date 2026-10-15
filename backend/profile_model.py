@@ -155,6 +155,7 @@ def natural_rules(prof):
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
          '- A maioria das mensagens é curta. Mensagem mais longa só na oferta com mídia, nas boas-vindas ou ao contar a história de um conteúdo.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
+         '- Venda faz parte da conversa: depois de 3 mensagens sem oferecer nada, a próxima oferece um item da tabela com valor, ligado ao que ele disse (sem pressão, sem textão).',
          '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
          '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
          '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
@@ -311,6 +312,23 @@ def openings(other_texts, n=8):
         op = ' '.join((o or '').split()[:3]).strip(' ,.!')
         if op and op.lower() not in [x.lower() for x in seen]: seen.append(op)
     return seen[:n]
+# lote 107: a cada 3 mensagens nossas sem oferta, a próxima vende (fã que só conversa e não compra)
+OFFER_WORDS = ['solicitacao', 'solicita', 'desbloquear', 'desbloqueia', 'desbloqueio', 'liberar', 'libero', 'pagar', 'pix']
+BOUGHT_WORDS = ['paguei', 'comprei', 'desbloqueei', 'liberei', 'ja paguei', 'acabei de pagar']
+def is_offer(text, items):
+    t = (text or '').lower()
+    if 'r$' in t or '[preço]' in t or '[preco]' in t: return True
+    tn = ' ' + ' '.join(_norm(text)) + ' '
+    if any(' ' + k + ' ' in tn for k in OFFER_WORDS): return True
+    return any(' ' + ' '.join(_norm(i)) + ' ' in tn for i in (items or []) if i and len(_norm(i)) >= 2)
+def since_offer(msgs, items):
+    """Quantas mensagens nossas desde a última oferta (nossa) ou compra (fã disse que pagou). msgs: [(ours, text)] em ordem."""
+    n = 0
+    for ours, text in reversed(msgs):
+        if ours and is_offer(text, items): break
+        if not ours and any(' ' + k + ' ' in ' ' + ' '.join(_norm(text)) + ' ' for k in BOUGHT_WORDS): break
+        if ours: n += 1
+    return n
 # lote 99: fã oferece mostrar o corpo e a sugestão pede para ver de graça (sem solicitação/pagamento)
 SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'meu pau', 'minha rola', 'to duro', 'tou duro', 'estou duro', 'gozei', 'gozando', 'foto minha', 'video meu', 'quer ver']
 SHOW_ASK = ['mostra', 'me mostra', 'manda', 'me manda', 'quero ver', 'deixa eu ver']
