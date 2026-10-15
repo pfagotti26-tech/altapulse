@@ -33,6 +33,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
         call: { days: [], hours: '', notice_hours: 0, confirm_first: true, notes: '', ...(p.call || {}) }, preview: { mode: 'parcial', gift: '', ...(p.preview || {}) },
         languages: { langs: ['pt'], foreign_price: 'brl', notes: '', ...(p.languages || {}) }, promos: (p.promos || []).map(x => ({ ...x })),
         objections: (p.objections || []).map(x => ({ ...x })), custom_delivery: p.custom_delivery || '',
+        catalog: (p.catalog || []).map(x => ({ kind: 'video', desc: '', detail: '', price_item: '', ...x })), delivery: { hours: 2, custom_ok: '', notes: '', ...(p.delivery || {}) },
         features: { assist: true, thermo: true, sell: true, content_read: true, content_capture: true, content_thumbs: true, ...(p.features || {}) },
         content_goals: { posts_day: 0, paid_day: 0, mass_day: 0, videos_week: 0, responsible_id: '', ...(p.content_goals || {}) },
         connection: { enabled: true, turns: 3, questions: '', ...(p.connection || {}) },
@@ -57,7 +58,7 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
       const body = { style: form.style, limits: form.limits, max_level: form.max_level, suggest_auto: !!form.suggest_auto, prices, persona: form.persona, fan_segments: segs,
         hot_terms: form.hot_terms || '', openers: form.openers || {}, modules: Object.fromEntries(Object.keys(meta.modules).map(k => [k, !!form.modules[k]])),
         voice: form.voice, sales, limit_flags: form.limit_flags, telegram: form.telegram, call: { ...form.call, notice_hours: Number(form.call.notice_hours) || 0 }, preview: form.preview,
-        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens', shadow: !!form.shadow };
+        languages: form.languages, promos: form.promos.filter(x => x.title.trim()), objections: form.objections.filter(x => x.q.trim() && x.a.trim()), custom_delivery: form.custom_delivery, catalog: form.catalog.filter(x => x.desc.trim()).map(x => ({ kind: x.kind || 'video', desc: x.desc.trim(), detail: (x.detail || '').trim(), price_item: x.price_item || '' })), delivery: { hours: Math.max(0, Math.min(72, Number(form.delivery.hours) || 0)), custom_ok: form.delivery.custom_ok || '', notes: form.delivery.notes || '' }, features: form.features, content_goals: Object.fromEntries(Object.entries(form.content_goals).map(([k, v]) => [k, k === 'responsible_id' ? v : Math.max(0, Number(v) || 0)])), connection: { ...form.connection, turns: Number(form.connection.turns) || 3 }, gender: form.gender || 'f', audience: form.audience || 'homens', shadow: !!form.shadow };
       const r = (await api.put(`/assist/profiles/${creatorId}`, body)).data;
       setComp(r.completeness || null); toast.success('Ficha salva.'); onSaved && onSaved(r);
     } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); }
@@ -125,6 +126,23 @@ export function CreatorProfileForm({ creatorId, onSaved }) {
           <td><Button variant="ghost" onClick={() => delRow('prices', i)}><Trash2 size={14}/></Button></td></tr>)}
       </tbody></table></div>
       <div className="pf-add">{Object.entries(meta.price_cats).filter(([k]) => k !== 'outro').map(([k, l]) => <Button key={k} variant="outline" onClick={() => up({ prices: [...form.prices, { item: l, value: '', obs: '', category: k, explicit: false }] })}><Plus size={13}/>{l}</Button>)}</div>
+    </section>}
+    {tab === 'precos' && <section className="profile-sec"><h3>📦 Conteúdo disponível</h3>
+      <p className="body-muted" style={{ fontSize: 12 }}>O que ela tem pronto para vender. A IA só oferece e cobra o que está aqui; pedido fora disso vira personalizado (se ela grava) ou "isso não tenho" com a opção mais parecida. Descreva como você contaria a um chatter novo.</p>
+      <div className="table-scroll"><table className="price-table"><thead><tr><th>Tipo</th><th>Descrição</th><th>Duração / quantidade</th><th>Item da tabela</th><th/></tr></thead><tbody>
+        {form.catalog.map((x, i) => <tr key={i}>
+          <td><Select value={x.kind} onChange={e => setRow('catalog', i, { kind: e.target.value })}>{Object.entries(meta.catalog_kinds || {}).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></td>
+          <td><Input value={x.desc} maxLength={200} placeholder="Ex.: vídeo com brinquedo no sofá" onChange={e => setRow('catalog', i, { desc: e.target.value })}/></td>
+          <td><Input value={x.detail} maxLength={60} placeholder="3 min · 10 fotos" onChange={e => setRow('catalog', i, { detail: e.target.value })} style={{ maxWidth: 140 }}/></td>
+          <td><Select value={x.price_item} onChange={e => setRow('catalog', i, { price_item: e.target.value })}><option value="">—</option>{form.prices.filter(p => p.item.trim()).map(p => <option key={p.item} value={p.item}>{p.item}</option>)}</Select></td>
+          <td><Button variant="ghost" onClick={() => delRow('catalog', i)}><Trash2 size={14}/></Button></td></tr>)}
+      </tbody></table></div>
+      <div className="pf-add"><Button variant="outline" onClick={() => up({ catalog: [...form.catalog, { kind: 'video', desc: '', detail: '', price_item: '' }] })}><Plus size={13}/>Conteúdo</Button></div>
+      <div className="profile-grid">
+        <Field id="pf-delivery-hours" label="Prazo de entrega da mídia paga (horas, no horário da equipe)"><Input id="pf-delivery-hours" type="number" min={0} max={72} value={form.delivery.hours} onChange={e => sub('delivery', { hours: e.target.value })} style={{ maxWidth: 110 }}/></Field>
+        <Field id="pf-delivery-custom" label="O que ela grava sob encomenda (personalizado)">{ta(form.delivery.custom_ok, v => sub('delivery', { custom_ok: v }), 2, 'Ex.: vídeo falando uma frase do fã (sem dizer o nome), lingerie que ele escolher', 400)}</Field>
+        <Field id="pf-delivery-notes" label="Observação para a IA sobre entrega">{ta(form.delivery.notes, v => sub('delivery', { notes: v }), 2, 'Ex.: à noite a entrega fica para a manhã seguinte', 300)}</Field>
+      </div>
     </section>}
 
     {tab === 'modulos' && <>
