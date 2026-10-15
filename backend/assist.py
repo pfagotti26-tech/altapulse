@@ -462,6 +462,14 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     # lote 108: fã bloqueado pela equipe — a IA não escreve nada para ele (automação e Sugerir resposta); só gestor desbloqueia
     if body.fan_ref and await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 1}):
         return {'alert': True, 'reason': 'Assinante bloqueado pela equipe: a IA não responde a ele. Só um gestor desbloqueia (painel → Sombra → Fãs bloqueados).', 'remaining': None, 'blocked': True}
+    # lote 110: fã pagou a solicitação de mídia e ainda não recebeu — a IA agradece uma vez e depois pausa até alguém marcar entregue
+    mreq = None
+    if body.fan_ref and body.mode == 'reply':
+        from media_requests import open_for
+        mreq = await open_for(body.creator_id, body.fan_ref)
+        if mreq and mreq.get('acked_at'):
+            return {'alert': True, 'remaining': None, 'waiting_delivery': True,
+                    'reason': f"Fã pagou a solicitação de mídia ({mreq.get('item') or 'mídia'}, R$ {(mreq.get('amount_cents') or 0) / 100:.2f}) e aguarda a entrega. A IA pausou este fã: entregue e toque em Feito na oportunidade “Entregar mídia” (ou Sombra → Mídias pagas)."}
     c = await config(); key = await xai_key()
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
@@ -543,6 +551,11 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
                 "Responda ao que ele disse em poucas palavras e, na mesma mensagem, ofereça UM item da tabela ligado ao assunto, com o valor (da lista do fã, se houver), "
                 "no tom dela, sem pressão e sem pedir desculpa. Preencha \"produto\" com o nome exato do item. Exceção: se a última do fã pede encontro/job ou indica menor, siga as regras fixas.")
         if pend: goal += f' O fã já perguntou "{pend}" e ninguém respondeu com proposta: comece fechando isso (item exato e valor).'
+    if mreq:
+        must_sell = False; pend = ''
+        goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
+                + ("diga que já vai olhar o que ele mandou com calma" if mreq.get('category') == 'avaliacao' else "diga que já já manda") +
+                ", sem prometer horário exato, sem oferecer nada novo e sem perguntar nada. \"produto\" vazio.")
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
     fan_msgs = [m for m in msgs if not m.ours]
@@ -640,7 +653,7 @@ FIM DA CONVERSA:
     # lote 96: a criadora convidou, o fã aceitou/pediu a proposta e a sugestão não fecha (sem item nem valor)
     _lo = next((m.text for m in reversed(msgs[:-1]) if m.ours), '') if msgs else ''
     _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
-    close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
+    close = bool(not mreq and out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
@@ -706,6 +719,7 @@ FIM DA CONVERSA:
     warning = str(out.get('aviso') or '')[:160]
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora antes de o fã pagar.'
+    if mreq: from media_requests import mark_acked; await mark_acked(mreq['id'])  # lote 110: agradeceu; daqui em diante pausa
     result = {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
             'warning': warning, 'price_fixed': fixed, 'remaining': remaining, 'usage_id': usage_id,
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,

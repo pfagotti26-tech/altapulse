@@ -86,6 +86,10 @@ async def sweep_loop():
                 from radar import sweep as radar_sweep
                 await radar_sweep()
             except Exception: logging.exception('radar de oportunidades')
+            try:
+                from media_requests import tick as media_tick
+                await media_tick()  # lote 110: mídia paga sem entrega depois do prazo
+            except Exception: logging.exception('mídia paga')
         try:
             from content import goal_tick
             await goal_tick()  # metas de posts: alertas às 14h e 19h, registro do dia às 23h50
