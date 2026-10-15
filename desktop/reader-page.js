@@ -97,7 +97,7 @@ module.exports = String.raw`(() => {
     // do outro lado é uma criadora se ela tem selo de verificada no cabeçalho ou se ELA mandou mídia paga para nós
     const headerVerified = !!(qs('.vac-room-header') && qs('.vac-room-header').querySelector(VERIFIED));
     const otherCreator = headerVerified || [...msgs, ...undated].some((m) => !m.ours && m.offer);
-    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub, otherCreator };
+    open = { cid, msgs, name: headerName, skeleton: !!(sk && sk.getClientRects().length), notSub, otherCreator, headerVerified }; // AUTO (Grok)
   }
   return { page: location.pathname.startsWith('/chat') ? 'chat' : 'other', rooms, open, loading: !!qs('.skeleton-messages'), roots: roots.length };
 })()`;

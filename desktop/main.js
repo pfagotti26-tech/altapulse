@@ -471,6 +471,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
     }
     if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return; }
     if (expectName && norm(read.name) !== norm(expectName)) { appLog('fila', `decide: conversa não trocou (esperado ${expectName})`); return 'retry'; }
+    if (read.headerVerified) { appLog('fila', 'decide: pulou criadora verificada'); return; }
     if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
     if (read.msgs[read.msgs.length - 1].ours) { appLog('fila', 'decide: última é nossa'); return; }
     const fan_ref = expectName ? (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '') : (fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : ''));
