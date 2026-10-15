@@ -304,6 +304,11 @@ def same_vibe(text, other_texts):
     if len(w) >= 2:
         op = ' '.join(w[:2])
         if sum(1 for o in (other_texts or [])[:12] if ' '.join(_norm(o)[:2]) == op) >= 2: return ('abertura', op)
+    # lote 114: apelido de abertura em série ("bb, …" em várias mensagens seguidas)
+    if w and w[0] in ('bb', 'amor', 'vida', 'gato', 'lindo', 'delicia') and sum(1 for o in (other_texts or [])[:6] if _norm(o)[:1] == [w[0]]) >= 2: return ('abertura', w[0])
+    # lote 114: palavra-muleta repetida entre fãs ("molhadinha")
+    for k in ('molhadinha', 'molhada', 'excita', 'excitado'):
+        if k in w and sum(1 for o in (other_texts or [])[:8] if k in _norm(o)) >= 2: return ('ideia', k)
     mine = _content(text)
     if len(mine) >= 3:
         for o in (other_texts or [])[:12]:
@@ -398,6 +403,7 @@ def catchphrase(text, recent_ours, other_texts):
     tail = ' ' + ' '.join(_norm(re.split(r'[.!…\n]', q.rstrip('?'))[-1])) + ' '
     tic = next((k for k in TICS if ' ' + k + ' ' in tail), '')
     if not tic: return ''
+    if tic.startswith('o que mais'): return tic  # lote 114: "o que mais te excita…" nunca
     here = sum(1 for x in (recent_ours or [])[-6:] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
     there = sum(1 for x in (other_texts or [])[:12] if ' ' + tic + ' ' in ' ' + ' '.join(_norm(x)) + ' ')
     return tic if here >= 1 or there >= 2 else ''
@@ -413,6 +419,19 @@ DUR = re.compile(r'\b\d+\s*(min|minutos?|seg|segundos?|s)\b', re.I)
 def says_duration(text, fan_last):
     m = DUR.search(text or '')
     return m.group(0) if m else ''  # Paulo: nunca dizer o tempo do vídeo
+# lote 114 (Paulo): família e a palavra "incesto" são proibidas em QUALQUER texto (mensagem ao fã e avisos do painel)
+FAMILY = ['incesto', 'incestuoso', 'familia', 'mae', 'mamae', 'pai', 'papai', 'irma', 'irmao', 'irmaozinho', 'irmazinha', 'filha', 'filho', 'filhinha', 'sogra', 'sogro',
+          'tia', 'tio', 'titia', 'titio', 'prima', 'primo', 'sobrinha', 'sobrinho', 'enteada', 'enteado', 'madrasta', 'padrasto', 'cunhada', 'cunhado', 'avo', 'vovo', 'neta', 'neto',
+          'nora', 'genro', 'parente', 'parentes']
+def family_word(text):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return next((k for k in FAMILY if ' ' + k + ' ' in t), '')
+def clean_reason(text):
+    """Aviso/motivo para o painel sem a palavra proibida."""
+    out = []
+    for w in (text or '').split():
+        out.append('[tema proibido]' if family_word(w) else w)
+    return ' '.join(out)
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '
