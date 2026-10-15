@@ -153,11 +153,12 @@ def natural_rules(prof):
     v = (normalize(prof) or {}).get('voice') or {}
     L = ['NATURALIDADE (é isto que faz parecer gente, siga sempre):',
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
-         '- Papo quente (sexting): quando o fã descreve o que faria, responda DENTRO da cena dele, curto, completando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história ("gravei pensando em momentos assim").',
-         '- Oferta no papo quente = uma legenda provocante ligada à cena + valor ("quer me ver engasgando assim? R$ 75"), não um anúncio do vídeo. NUNCA diga a duração (minutos/segundos) nem descreva o vídeo, mesmo se ele perguntar: diga só que ele vai gostar, que é gostoso, que vai deixar ele louco.',
+         '- PRIMEIRO CONVERSA. Reaja ao que ele disse com charme, curiosidade ou provocação curta ("Safado", "delícia", "sabe chupar direitinho?", "qual sua posição favorita, amor?"). Elogio ou mídia grátis: agradeça e puxe papo, sem oferecer nada na mesma mensagem.',
+         '- Papo quente (sexting): responda DENTRO da cena dele, continuando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"; fã: "banho agarradinho" → "final perfeito, amor"). Pode ser 2 linhas curtas na mesma mensagem ("gostei\nme deixou bem molhadinha aqui"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história.',
+         '- Oferta = uma LEGENDA que continua a cena, como se a mídia fosse o próximo passo da fantasia ("vem, amor? bem limpinha e cheirosinha pra você", "quer me ver engasgando assim?", "começa lambendo devagarinho…") + o valor no fim. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
-         '- Venda faz parte da conversa: depois de 3 mensagens sem oferecer nada, a próxima oferece um item da tabela com valor, ligado ao que ele disse (sem pressão, sem textão).',
+         '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
          '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
          '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
          '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
@@ -325,14 +326,27 @@ def is_offer(text, items):
     tn = ' ' + ' '.join(_norm(text)) + ' '
     if any(' ' + k + ' ' in tn for k in OFFER_WORDS): return True
     return any(' ' + ' '.join(_norm(i)) + ' ' in tn for i in (items or []) if i and len(_norm(i)) >= 2)
+def _mass(text):
+    """Mensagem em massa/boas-vindas/post com link: não é conversa (lote 113)."""
+    t = (text or '').lower()
+    return 'privacy.com.br/' in t or 'bem-vindo' in t or 'bem vindo' in t or len(t) > 220
 def since_offer(msgs, items):
-    """Quantas mensagens nossas desde a última oferta (nossa) ou compra (fã disse que pagou). msgs: [(ours, text)] em ordem."""
-    n = 0
+    """Trocas REAIS desde a última oferta (nossa) ou compra: min(mensagens nossas de conversa, mensagens do fã).
+    Lote 113: mensagem em massa, boas-vindas e post com link não contam (antes a IA vendia já na 1ª resposta)."""
+    ours_n = fan_n = 0
     for ours, text in reversed(msgs):
-        if ours and is_offer(text, items): break
+        if ours and is_offer(text, items) and not _mass(text): break
         if not ours and any(' ' + k + ' ' in ' ' + ' '.join(_norm(text)) + ' ' for k in BOUGHT_WORDS): break
-        if ours: n += 1
-    return n
+        if ours and not _mass(text): ours_n += 1
+        if not ours: fan_n += 1
+    return min(ours_n, fan_n)
+# lote 113: venda que descreve o conteúdo como catálogo ("tenho um vídeo meu transando com o marido")
+CATALOG_TALK = ['tenho um video', 'tenho um pack', 'tenho uns videos', 'tenho videos', 'video meu', 'videos meus', 'pack de videos', 'gravei', 'transando com',
+                'com o marido', 'com meu marido', 'com o meu marido', 'cara musculoso', 'exclusivos', 'exclusivo pra', 'video especial', 'video bem quente']
+def catalog_talk(text, fan_texts):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    c = ' ' + ' '.join(' '.join(_norm(x)) for x in fan_texts if x) + ' '
+    return next((k for k in CATALOG_TALK if ' ' + k + ' ' in t and ' ' + k + ' ' not in c), '')
 # lote 109: objeção ignorada, proposta pendente e bronca no fã
 OBJECTION = ['nao tenho dinheiro', 'nao tenho grana', 'sem dinheiro', 'sem grana', 'to liso', 'tou liso', 'estou liso', 'ta liso', 'duro de grana', 'ta caro', 'muito caro',
              'caro demais', 'carinho demais', 'nao posso pagar', 'nao da pra pagar', 'nao consigo pagar', 'depois eu compro', 'depois compro', 'depois eu pago', 'fim do mes',
@@ -347,7 +361,7 @@ def ignores_objection(text, fan_last):
     t = ' ' + ' '.join(_norm(text)) + ' '
     if 'r$' in (text or '').lower() or any(' ' + k + ' ' in t for k in OBJ_OK): return ''
     return o
-PROPOSAL_ASK = ['o que vc propoe', 'o que voce propoe', 'o que tu propoe', 'quanto e', 'quanto custa', 'quanto fica', 'quanto sai', 'qual o valor', 'qual valor', 'qual o preco',
+PROPOSAL_ASK = ['tem alguma coisa', 'tem algo pra mim', 'tem algo', 'o que voce tem', 'o que vc tem', 'o que vc propoe', 'o que voce propoe', 'o que tu propoe', 'quanto e', 'quanto custa', 'quanto fica', 'quanto sai', 'qual o valor', 'qual valor', 'qual o preco',
                 'como funciona', 'como faco pra', 'como faco para', 'como eu faco', 'quanto voce cobra', 'quanto vc cobra', 'tem video', 'tem foto', 'vende video', 'vende foto']
 def pending_proposal(msgs, items):
     """O fã pediu proposta/preço e nenhuma mensagem nossa depois disso ofereceu algo. msgs: [(ours, text)]. Devolve o pedido ou ''."""

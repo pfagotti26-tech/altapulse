@@ -547,10 +547,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
     if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
     if must_sell:
-        goal = ("OBJETIVO: HORA DE VENDER. A criadora já mandou " + str(_n_off) + " mensagens a este fã sem oferecer nada, e fã que só conversa não compra. "
-                "Responda ao que ele disse em poucas palavras e, na mesma mensagem, ofereça UM item da tabela ligado ao assunto, com o valor (da lista do fã, se houver), "
-                "no tom dela, sem pressão e sem pedir desculpa. Preencha \"produto\" com o nome exato do item. Exceção: se a última do fã pede encontro/job ou indica menor, siga as regras fixas.")
-        if pend: goal += f' O fã já perguntou "{pend}" e ninguém respondeu com proposta: comece fechando isso (item exato e valor).'
+        goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e escreva uma LEGENDA curta que continua a fantasia "
+                "dele, como se a mídia fosse o próximo passo (ex.: \"vem, amor? bem limpinha e cheirosinha pra você\"), terminando com o valor (da lista do fã, se houver). Não descreva o conteúdo, "
+                "não diga \"tenho um vídeo\", não cite duração nem parceiro. Preencha \"produto\" com o nome exato do item. Exceção: encontro/job ou menor, siga as regras fixas.")
+        if pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já ofereça, na legenda, com o valor.'
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
@@ -663,9 +663,11 @@ FIM DA CONVERSA:
     nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
+    cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat:
         why = []
+        if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
         if dur: why.append(f'falou a duração do vídeo ("{dur}"); nunca diga tempo nem descreva o vídeo: diga só que ele vai gostar, que é gostoso, ligado ao que ele disse, + o valor')
         if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso no tom dela, sem pressão: ofereça o item mais barato da tabela com o valor ou deixe a porta aberta para quando ele puder')
         if scold: why.append(f'deu bronca/cobrou o fã ("{scold}"); ela pode provocar e se fazer de difícil, mas sem acusar nem cobrar: corte com charme e ofereça algo')
