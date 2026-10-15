@@ -55,7 +55,7 @@ def today():
     return datetime.now(BR).strftime('%Y-%m-%d')
 
 async def count_today(creator_id: str, fan_ref: Optional[str] = None):
-    q = {"day": today(), "creator_id": creator_id, "decision": {"$in": ["aprovado", "enviado"]}}
+    q = {"day": today(), "creator_id": creator_id, "decision": {"$in": ["aprovado", "enviado", "falha_envio"]}}
     if fan_ref:
         q["fan_ref"] = fan_ref
     return await db.auto_log.count_documents(q)
@@ -242,6 +242,6 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
 @router.get("/status")
 async def status(user=Depends(extension_user)):
     cfg = await get_config()
-    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["aprovado", "enviado"]}}) if cfg.get("creator_id") else 0
+    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["aprovado", "enviado", "falha_envio"]}}) if cfg.get("creator_id") else 0
     remaining = max(0, cfg['max_per_day'] - today_count)
     return {**cfg, "today": today_count, "remaining": remaining, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}

@@ -453,6 +453,7 @@ function setFanFromChat(id, open, platform = 'privacy') {
 let lastAutoKey = '';
 async function tryAutoDecide(view, creatorId) {
   if (!ALTA_TESTE) return;
+  const p = (async () => {
   // Só na criadora configurada (id vem de /auto/status)
   if (!global.autoCreatorId) {
     try { const st = await api('GET', '/auto/status'); global.autoCreatorId = st && st.creator_id; } catch {}
@@ -517,6 +518,9 @@ async function tryAutoDecide(view, creatorId) {
       );
     }
   } catch (e) { appLog('fila', String(e)); }
+  })();
+  global.autoBusy = p;
+  try { return await p; } finally { if (global.autoBusy === p) global.autoBusy = null; }
 }
 
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
@@ -1902,6 +1906,7 @@ if (ALTA_TESTE) {
     openChat: async (creatorId, name, fanRef) => {
       await openConversation(creatorId, 'privacy', null, name, fanRef);
       await quickFan(creatorId);
+      if (global.autoBusy) await global.autoBusy.catch(() => {});
     },
     log: (msg) => appLog('fila', msg),
   });

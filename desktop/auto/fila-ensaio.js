@@ -5,6 +5,7 @@ module.exports = function createFila(deps) {
   const { api, getState, roomKey, openChat, getLastRooms, listAt, log } = deps;
   let running = false;
   let timer = null;
+  let ticking = false;
   let seen = new Set();
   let seenDay = '';
   const recentAuto = new Map(); // ref → timestamp
@@ -19,10 +20,11 @@ module.exports = function createFila(deps) {
   }
 
   async function tick() {
-    if (!running) return;
-    const day = todayBR();
-    if (day !== seenDay) { seen = new Set(); seenDay = day; }
+    if (!running || ticking) return;
+    ticking = true;
     try {
+      const day = todayBR();
+      if (day !== seenDay) { seen = new Set(); seenDay = day; }
       const st = await api('GET', '/auto/status');
       if (!st || !st.enabled || !st.creator_id || (st.remaining != null && st.remaining <= 0)) {
         stop(); return;
@@ -30,7 +32,6 @@ module.exports = function createFila(deps) {
       const creatorId = st.creator_id;
       let rooms = getLastRooms(creatorId) || [];
       const now = Date.now();
-      // prioriza quem a automação atendeu nos últimos 30 min
       rooms = rooms.slice().sort((a, b) => {
         const ra = recentAuto.get(roomKey(creatorId, a.name)) || 0;
         const rb = recentAuto.get(roomKey(creatorId, b.name)) || 0;
@@ -49,10 +50,12 @@ module.exports = function createFila(deps) {
         if (seen.has(key)) continue;
         seen.add(key);
         if (openChat) await openChat(creatorId, r.name, ref);
+        await new Promise(res => setTimeout(res, 3000));
         if (log) log(`abriu: ${r.name}`);
         break;
       }
     } catch (e) { if (log) log(String(e)); }
+    finally { ticking = false; }
   }
 
   function markRecent(ref) { recentAuto.set(ref, Date.now()); }
