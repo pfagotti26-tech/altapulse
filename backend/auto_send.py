@@ -17,8 +17,8 @@ router = APIRouter(prefix="/auto", tags=["auto"])
 BR = ZoneInfo('America/Sao_Paulo')
 
 CREATOR_NAME = "Aline Fishborn"
-MAX_PER_DAY = 40
-MAX_PER_FAN = 3
+MAX_PER_DAY = 300
+MAX_PER_FAN = 50
 HOUR_START = 9
 HOUR_END = 23
 
@@ -226,10 +226,10 @@ class ConfigIn(BaseModel):
 @router.put("/config")
 async def set_config(body: ConfigIn, user=Depends(manager)):
     upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
-    if "max_per_day" in upd and not (1 <= upd["max_per_day"] <= 40):
-        raise HTTPException(400, "max_per_day deve estar entre 1 e 40")
-    if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 3):
-        raise HTTPException(400, "max_per_fan deve estar entre 1 e 3")
+    if "max_per_day" in upd and not (1 <= upd["max_per_day"] <= 300):
+        raise HTTPException(400, "max_per_day deve estar entre 1 e 300")
+    if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 50):
+        raise HTTPException(400, "max_per_fan deve estar entre 1 e 50")
     if "hour_start" in upd and not (0 <= upd["hour_start"] <= 23):
         raise HTTPException(400, "hour_start deve estar entre 0 e 23")
     if "hour_end" in upd and not (0 <= upd["hour_end"] <= 23):
