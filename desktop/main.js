@@ -506,7 +506,11 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
       return { ok: true, hasConfirm: !!confirm, hasCancel: !!cancel };
     })()`;
     const prep = await runJs(view, script, 2000).catch(() => ({ ok: false }));
-    if (!prep || !prep.ok) return false;
+    if (!prep || !prep.ok) {
+      await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--secondary'); if (b) b.click(); } })()`, 1000).catch(() => {});
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'modal sem campo' }).catch(() => {});
+      return false;
+    }
     // Confirm focus is on price input
     const focused = await runJs(view, `(() => {
       let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a && a.classList && a.classList.contains('el-input__inner') && a.closest('.el-dialog-price');
@@ -520,20 +524,17 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
     view.webContents.insertText(String(cents));
     await new Promise(res => setTimeout(res, 300));
     const checkVal = await runJs(view, `(() => {
-      const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-      for (const root of roots) {
-        const modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || ''));
-        if (modal) { const input = modal.querySelector('input'); return input ? input.value : ''; }
-      }
-      return '';
+      const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price');
+      const input = m && m.querySelector('input.el-input__inner');
+      return input ? input.value : '';
     })()`, 1500).catch(() => '');
     const shown = parseInt(String(checkVal).replace(/\D/g, ''), 10);
     if (shown !== cents) {
-      await runJs(view, `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0); for (const root of roots) { const b = [...root.querySelectorAll('button')].find(x => /cancelar|fechar/i.test(x.textContent || '')); if (b) b.click(); } })()`, 1000).catch(() => {});
+      await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--secondary'); if (b) b.click(); } })()`, 1000).catch(() => {});
       await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'valor divergente' }).catch(() => {});
       return false;
     }
-    await runJs(view, `(() => { const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0); for (const root of roots) { const modal = [...root.querySelectorAll('div,section')].find(el => /solicitar m[íi]dias/i.test(el.textContent || '')); if (modal) { const b = [...modal.querySelectorAll('button')].find(x => /confirmar|solicitar/i.test(x.textContent || '')); if (b) b.click(); } } })()`, 1000).catch(() => {});
+    await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--primary'); if (b && !b.disabled) b.click(); } })()`, 1000).catch(() => {});
     await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'criada' }).catch(() => {});
     return true;
   } catch (e) { appLog('fila', String(e)); return false; }
