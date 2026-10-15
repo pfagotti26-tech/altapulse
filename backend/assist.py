@@ -536,10 +536,13 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     # lote 107: 3 mensagens nossas sem oferta → esta vende (fã que só conversa não compra)
     _n_off = PM.since_offer([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and body.style != 'vendedora' and items else 0
     must_sell = _n_off >= 3
+    pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
+    if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER. A criadora já mandou " + str(_n_off) + " mensagens a este fã sem oferecer nada, e fã que só conversa não compra. "
                 "Responda ao que ele disse em poucas palavras e, na mesma mensagem, ofereça UM item da tabela ligado ao assunto, com o valor (da lista do fã, se houver), "
                 "no tom dela, sem pressão e sem pedir desculpa. Preencha \"produto\" com o nome exato do item. Exceção: se a última do fã pede encontro/job ou indica menor, siga as regras fixas.")
+        if pend: goal += f' O fã já perguntou "{pend}" e ninguém respondeu com proposta: comece fechando isso (item exato e valor).'
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
     fan_msgs = [m for m in msgs if not m.ours]
@@ -645,8 +648,12 @@ FIM DA CONVERSA:
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
     nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale:
+    obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
+    scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold:
         why = []
+        if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso no tom dela, sem pressão: ofereça o item mais barato da tabela com o valor ou deixe a porta aberta para quando ele puder')
+        if scold: why.append(f'deu bronca/cobrou o fã ("{scold}"); ela pode provocar e se fazer de difícil, mas sem acusar nem cobrar: corte com charme e ofereça algo')
         if nosale: why.append(f'não ofereceu nada, e já são {_n_off} mensagens da criadora sem oferta; responda curto ao que ele disse e ofereça UM item da tabela com o valor, ligado ao assunto, preenchendo "produto"')
         if vibe and vibe[0] == 'abertura': why.append(f'começou com "{vibe[1]}", do mesmo jeito que várias mensagens a outros fãs hoje; comece de outro jeito (não agradeça de novo, reaja ao que ESTE fã disse)')
         if vibe and vibe[0] == 'ideia': why.append(f'disse a mesma coisa que já foi dita a outro fã hoje, só trocando palavras ({vibe[1]}); responda com outra ideia, ligada ao que ESTE fã escreveu')
