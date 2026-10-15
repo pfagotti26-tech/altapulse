@@ -287,6 +287,30 @@ def reused_elsewhere(text, other_texts):
         hit = mine & _shingles(o)
         if hit: return sorted(hit, key=len)[-1]
     return ''
+# lote 106: mesma ideia com outras palavras para vários fãs ("obrigada bb, fico molhadinha com esse elogio") e mesma abertura em série
+GENERIC = STOP | set('quero agora muito tambem assim fico aqui hoje esse essa isso tudo voce voces seu sua meu minha mim ta to tou estou esta sim nao bem bom boa vai vou ser ter tem fazer faz sabe saber gente coisa jeito ainda so'.split())
+def _content(text):
+    return {w for w in _norm(text) if len(w) >= 4 and w not in GENERIC}
+def same_vibe(text, other_texts):
+    """Devolve ('abertura', 'obrigada bb') se 2+ mensagens a outros fãs nas últimas horas começaram igual, ou ('ideia', 'palavras') se a sugestão
+    repete a mesma ideia de uma delas com outras palavras (3+ palavras de conteúdo em comum e 40%+ das palavras dela). Senão None."""
+    w = _norm(text)
+    if len(w) >= 2:
+        op = ' '.join(w[:2])
+        if sum(1 for o in (other_texts or [])[:12] if ' '.join(_norm(o)[:2]) == op) >= 2: return ('abertura', op)
+    mine = _content(text)
+    if len(mine) >= 3:
+        for o in (other_texts or [])[:12]:
+            sh = mine & _content(o)
+            if len(sh) >= 3 and len(sh) / len(mine) >= 0.4: return ('ideia', ' '.join(sorted(sh)[:5]))
+    return None
+def openings(other_texts, n=8):
+    """Primeiras palavras das mensagens recentes a outros fãs, para a IA não começar igual."""
+    seen = []
+    for o in other_texts or []:
+        op = ' '.join((o or '').split()[:3]).strip(' ,.!')
+        if op and op.lower() not in [x.lower() for x in seen]: seen.append(op)
+    return seen[:n]
 # lote 99: fã oferece mostrar o corpo e a sugestão pede para ver de graça (sem solicitação/pagamento)
 SHOW_FAN = ['mostrar', 'te mostrar', 'mostro', 'meu pau', 'minha rola', 'to duro', 'tou duro', 'estou duro', 'gozei', 'gozando', 'foto minha', 'video meu', 'quer ver']
 SHOW_ASK = ['mostra', 'me mostra', 'manda', 'me manda', 'quero ver', 'deixa eu ver']

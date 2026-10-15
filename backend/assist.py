@@ -521,6 +521,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _since = (now() - timedelta(hours=8)).isoformat()
     other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
     other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
+    _ops = PM.openings(other_texts)
+    if _ops: other_block += '\nABERTURAS JÁ USADAS COM OUTROS FÃS (não comece igual nem parecido): ' + ' | '.join(_ops) + '. Elogio do fã não pede sempre agradecimento: às vezes provoca, às vezes devolve com uma pergunta do que ele disse, às vezes responde curto com charme.'
     # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
     _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
     examples_block = await examples_for(body.creator_id, _lastfan)
@@ -631,8 +633,11 @@ FIM DA CONVERSA:
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
     tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo:
+    vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe:
         why = []
+        if vibe and vibe[0] == 'abertura': why.append(f'começou com "{vibe[1]}", do mesmo jeito que várias mensagens a outros fãs hoje; comece de outro jeito (não agradeça de novo, reaja ao que ESTE fã disse)')
+        if vibe and vibe[0] == 'ideia': why.append(f'disse a mesma coisa que já foi dita a outro fã hoje, só trocando palavras ({vibe[1]}); responda com outra ideia, ligada ao que ESTE fã escreveu')
         if longo: why.append(f'ficou longa demais ({longo[0]} palavras) para o que o fã mandou; responda em no máximo {longo[1]} palavras, uma frase só, no ritmo dele')
         if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
         if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
