@@ -462,7 +462,10 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
     if (cents < check.min_cents) { appLog('fila', 'solicitação: valor abaixo da tabela'); return false; }
     const hasOpen = await runJs(view, `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-      for (const root of roots) if ([...root.querySelectorAll('*')].some(el => /ainda n[aã]o pago/i.test(el.textContent || ''))) return true;
+      for (const root of roots) {
+        const reqs = root.querySelectorAll('.media-request-action');
+        for (const r of reqs) if (/ainda n[aã]o pago/i.test(r.textContent || '')) return true;
+      }
       return false;
     })()`, 2000).catch(() => false);
     if (hasOpen) { appLog('fila', 'solicitação: já existe uma em aberto'); return false; }
@@ -471,18 +474,21 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
       appLog('fila', `ensaio: solicitaria ${product} R$ ${(cents/100).toFixed(2)}`);
       return true;
     }
-    // Open modal via 4th icon in footer
+    // Open modal via required-upload icon
     await runJs(view, `(() => {
       const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
       for (const root of roots) {
-        const footer = root.querySelector('privacy-web-contenteditor .vac-room-footer, .vac-room-footer');
-        if (footer) {
-          const icons = footer.querySelectorAll('button, [role="button"], svg');
-          if (icons[3]) { icons[3].click(); return true; }
-        }
+        const svg = root.querySelector('svg[data-icon="required-upload"]');
+        if (svg) { const btn = svg.closest('.ce-button-svg'); if (btn) { btn.click(); return true; } }
       }
       return false;
     })()`, 2000).catch(() => false);
+    // Wait for modal
+    for (let i = 0; i < 6; i++) {
+      const shown = await runJs(view, `(() => !!document.querySelector('.el-dialog.el-dialog-price'))()`, 500).catch(() => false);
+      if (shown) break;
+      await new Promise(res => setTimeout(res, 500));
+    }
     await new Promise(res => setTimeout(res, 800));
     // Type cents and confirm
     const script = `(() => {
@@ -501,7 +507,16 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
     })()`;
     const prep = await runJs(view, script, 2000).catch(() => ({ ok: false }));
     if (!prep || !prep.ok) return false;
-    // Type via insertText
+    // Confirm focus is on price input
+    const focused = await runJs(view, `(() => {
+      const el = document.activeElement;
+      return el && el.classList && el.classList.contains('el-input__inner') && el.closest('.el-dialog-price');
+    })()`, 1000).catch(() => false);
+    if (!focused) {
+      await runJs(view, `(() => { const b = document.querySelector('.el-dialog-price .el-button--secondary'); if (b) b.click(); })()`, 1000).catch(() => {});
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'foco errado' }).catch(() => {});
+      return false;
+    }
     view.webContents.focus();
     view.webContents.insertText(String(cents));
     await new Promise(res => setTimeout(res, 300));

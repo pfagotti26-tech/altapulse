@@ -145,6 +145,9 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             })
             return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
         suggested = result.get("text") if isinstance(result, dict) else None
+        prod = result.get("product") if isinstance(result, dict) else None
+        product_item = prod.get("item") if isinstance(prod, dict) else None
+        product_cents = prod.get("cents") if isinstance(prod, dict) else None
     except Exception as e:
         await db.auto_log.insert_one({
             "id": uid(), "at": iso(), "day": today(),
@@ -168,7 +171,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         "decision": decision, "reason": reason,
         "suggested_text": suggested,
     })
-    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid)
+    return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents)
 
 
 @router.get("/report")
