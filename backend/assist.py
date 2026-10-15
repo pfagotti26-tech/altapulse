@@ -611,10 +611,15 @@ FIM DA CONVERSA:
     rot = PM.invents_routine(txt0, [m.text for m in msgs[-14:]]) if out and not out.get('alerta') else ''
     med = PM.presumes_media(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     meet = PM.accepts_meeting(txt0, [m.text for m in msgs[-6:] if not m.ours]) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet:
+    # lote 96: a criadora convidou, o fã aceitou/pediu a proposta e a sugestão não fecha (sem item nem valor)
+    _lo = next((m.text for m in reversed(msgs[:-1]) if m.ours), '') if msgs else ''
+    _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
+    close = bool(out and not out.get('alerta') and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
+    if rep or rot or med or meet or close:
         why = []
+        if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')
         if meet: why.append(f'o fã falou em "{meet}" (encontro presencial / programa pago) e a resposta não recusou com clareza; diga NÃO curto e no tom dela, sem preço e sem deixar no ar, e volte para o conteúdo ou a chamada ao vivo da plataforma')
-        if rep: why.append('começou igual a uma mensagem recente; use abertura e jeito diferentes')
+        if rep: why.append('começou igual ou repete a mesma pergunta de uma mensagem recente da criadora; use abertura diferente e NÃO repita a pergunta (se ele já foi perguntado disso, siga a conversa sem perguntar de novo)')
         if rot: why.append(f'falou "{rot}", mas a conversa não mostra essa rotina; responda só ao momento, sem citar frequência')
         if med: why.append(f'falou "{med}", mas o fã não citou vídeo, foto ou mídia; responda ao que ele disse e, se for perguntar, pergunte sobre você ("em mim"), não sobre vídeo ou perfil')
         try:
