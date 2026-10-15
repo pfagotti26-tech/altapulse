@@ -73,6 +73,26 @@ function Blocked({ creators, list, reload }) {
   </section>;
 }
 
+// lote 110: solicitações de mídia pagas esperando entrega (a IA pausa o fã até marcar entregue)
+function MediaPaid() {
+  const [rows, setRows] = useState([]), [st, setSt] = useState('aguardando'), [busy, setBusy] = useState(false);
+  const load = async () => { try { setRows((await api.get(`/media-requests?status=${st}`)).data); } catch (e) { /* sem acesso */ } };
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [st]); // eslint-disable-line react-hooks/exhaustive-deps
+  const done = async (r) => { setBusy(true); try { await api.post(`/media-requests/${r.id}/delivered`, {}); toast.success('Marcado como entregue: a IA volta a responder esse fã.'); load(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
+  const late = rows.filter((r) => r.late).length;
+  return <section className="panel ai-panel" id="shadow-media-paid">
+    <h2>📦 Mídias pagas {st === 'aguardando' && rows.length ? <small className={`shadow-tag ${late ? 'bad' : 'warn'}`}>{rows.length} para entregar{late ? ` · ${late} atrasada${late > 1 ? 's' : ''}` : ''}</small> : null}</h2>
+    <p className="body-muted">Fã pagou a Solicitação de mídia: chega e-mail em contato@altaagencydigital.com, aparece "Entregar mídia" no app e a IA pausa o fã depois de agradecer. Entregou? Toque em Feito no app ou em Entregue aqui.</p>
+    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>{[['aguardando', 'Para entregar'], ['entregue', 'Entregues'], ['todos', 'Todas']].map(([k, l]) => <Button key={k} variant={st === k ? undefined : 'outline'} onClick={() => setSt(k)}>{l}</Button>)}</div>
+    {!rows.length ? <p className="body-muted">{st === 'aguardando' ? 'Nada para entregar agora.' : 'Nada aqui.'}</p> : <div className="table-scroll"><table><thead><tr><th>Pago em</th><th>Criadora</th><th>Assinante</th><th>O quê</th><th>Prazo</th><th></th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={r.id}><td className="tabular" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.paid_seen_at)}</td><td><strong>{r.creator_name}</strong></td>
+        <td>{r.fan_name || 'Assinante'}{r.chat_url && <> · <a href={r.chat_url} target="_blank" rel="noreferrer">abrir conversa ↗</a></>}</td>
+        <td>{r.item || 'Solicitação'} · {money(r.amount_cents)}{r.category === 'avaliacao' ? <><br/><small className="body-muted">avaliar a mídia que ele mandou</small></> : null}</td>
+        <td>{r.status === 'entregue' ? <small className="shadow-tag ok">entregue · {r.delivered_name} · {dateTime(r.delivered_at)}</small> : <small className={`shadow-tag ${r.late ? 'bad' : 'muted'}`}>{r.late ? 'ATRASADA · ' : 'até '}{dateTime(r.due_at)}</small>}</td>
+        <td>{r.status === 'aguardando' && <Button disabled={busy} onClick={() => done(r)}>Entregue</Button>}</td></tr>)}</tbody></table></div>}
+  </section>;
+}
+
 export default function Shadow() {
   const [days, setDays] = useState(7), [creator, setCreator] = useState(''), [only, setOnly] = useState(''), [d, setD] = useState(null), [busy, setBusy] = useState(false);
   const [start, setStart] = useState(''), [end, setEnd] = useState('');
@@ -97,6 +117,7 @@ export default function Shadow() {
     {!d ? <p className="body-muted">Carregando…</p> : <>
       {!d.enabled.length && <Notice tone="danger" id="shadow-off">Nenhuma criadora está com o Modo sombra ligado. Ligue na ficha da criadora (aba Alta Ajuda) para começar a registrar.</Notice>}
       {!!d.enabled.length && <Notice id="shadow-on">Em sombra: {enabledNames.join(', ')}. Os registros duram 120 dias.</Notice>}
+      <MediaPaid/>
       <Blocked creators={d.creators} list={blocked} reload={loadBlocked}/>
       {!t.n ? <Empty title="Nenhuma sugestão registrada no período" description="Com o Modo sombra ligado, cada sugestão da Alta Ajuda aparece aqui junto com o que o chatter enviou." icon={ShieldCheck}/> : <>
         <div className="stats-grid">

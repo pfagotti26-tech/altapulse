@@ -22,9 +22,9 @@ from core import db, now, iso, uid, staff, is_staff, has_perm, settings, clean_t
 from schemas import Strict
 
 router = APIRouter()
-TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), 'novo_sem_compra': timedelta(days=3), 'esfriando': timedelta(days=4), 'voltou': timedelta(days=1)}
+TTL = {'pediu_preco': timedelta(hours=12), 'oferta_aberta': timedelta(days=3), 'novo_sem_compra': timedelta(days=3), 'esfriando': timedelta(days=4), 'voltou': timedelta(days=1), 'entregar_midia': timedelta(days=3)}
 LABEL = {'pediu_preco': 'Pediu preço / conteúdo', 'oferta_aberta': 'Oferta sem pagamento', 'novo_sem_compra': 'Assinante novo sem compra',
-         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar'}
+         'esfriando': 'Bom comprador esfriando', 'voltou': 'Voltou a falar', 'entregar_midia': 'Entregar mídia paga'}
 CONVERT_DAYS = 2
 OFFER_MAX_DAYS = 3
 MIN_RETURN_DAYS = 14
@@ -189,6 +189,7 @@ async def settle(creator_id=None, min_gap=45):
         return best or {}
     ops = []
     for o in opens:
+        if o['kind'] == 'entregar_midia': continue  # lote 110: só fecha com "Feito"/entregue (responder "já já te mando" não conta)
         evs = [e for e in acts.get((o['creator_id'], o['fan_ref']), []) if (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) and (e.get('responded_at') if e['kind'] == 'response' else e.get('offered_at')) >= o['created_at']]
         if evs:
             ev = min(evs, key=lambda e: e.get('responded_at') or e.get('offered_at')); when = ev.get('responded_at') or ev.get('offered_at'); who = who_at(o['creator_id'], when)
@@ -248,6 +249,9 @@ async def act(opp_id, body: OppAction, user):
     o = await db.opportunities.find_one({'id': opp_id}, {'_id': 0})
     if not o: raise HTTPException(404, 'Oportunidade não encontrada.')
     if not is_staff(user) and o['creator_id'] not in (user.get('creator_ids') or []): raise HTTPException(403, 'Criadora não autorizada.')
+    if o.get('kind') == 'entregar_midia' and o.get('media_request_id'):
+        from media_requests import deliver
+        if body.action == 'contacted': await deliver(o['media_request_id'], user, how='app'); return {'ok': True}
     await db.opportunities.update_one({'id': opp_id}, {'$set': {'status': body.action, f"{body.action}_at": iso(), 'contacted_by' if body.action == 'contacted' else 'dismissed_by': user['id'],
         'contacted_name' if body.action == 'contacted' else 'dismissed_name': user['name'], 'dismiss_reason': body.reason if body.action == 'dismissed' else None, 'contacted_how': 'manual' if body.action == 'contacted' else None}})
     return {'ok': True}

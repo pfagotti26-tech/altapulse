@@ -22,6 +22,7 @@ from team_live import router as team_live
 from radar import router as radar
 from password_reset import router as password_reset
 from plantao import router as plantao
+from media_requests import router as media_requests  # lote 110
 
 @asynccontextmanager
 async def lifespan(app):
@@ -84,6 +85,10 @@ async def lifespan(app):
     await db.opportunities.create_index('expires_at', expireAfterSeconds=0)
     await db.creator_notes.create_index([('creator_id', 1), ('created_at', -1)])
     await db.assist_blocked.create_index([('creator_id', 1), ('fan_ref', 1)], unique=True)  # lote 108
+    await db.media_requests.create_index([('creator_id', 1), ('event_ref', 1)], unique=True)  # lote 110
+    await db.media_requests.create_index([('status', 1), ('due_at', 1)])
+    await db.media_requests.create_index([('creator_id', 1), ('fan_ref', 1), ('status', 1)])
+    await db.media_requests.create_index('expires_at', expireAfterSeconds=0)
     import asyncio
     from shift_clock import sweep_loop
     clock = asyncio.create_task(sweep_loop())  # encerra turnos esquecidos (app fechado)
@@ -106,7 +111,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests]:
     app.include_router(router, prefix='/api')
 app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 

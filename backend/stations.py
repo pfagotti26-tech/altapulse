@@ -141,6 +141,13 @@ async def ingest(body: Observation, source: dict):
             if await db.events.find_one(twin, {'_id': 1}): return {'ok': True, 'deduplicated': True}
         await db.events.update_one({'creator_id': body.creator_id, 'event_ref': body.event_ref},
             {'$set': {**row, **source, 'observed_at': iso()}, '$setOnInsert': {'id': uid(), 'expires_at': await expiration()}}, upsert=True)
+    # lote 110: solicitação de mídia que acabou de ser paga → pedido de entrega, e-mail, oportunidade e pausa da IA para o fã
+    if body.kind == 'offer' and body.offer_status == 'paid' and body.offer_type == 'request':
+        try:
+            from media_requests import on_paid
+            await on_paid({**row, 'creator_id': body.creator_id, 'event_ref': body.event_ref}, old)
+        except Exception:
+            import logging; logging.exception('mídia paga')
     return {'ok': True}
 @router.get('/station/download')
 async def download_agent(user=Depends(manager)):
