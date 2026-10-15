@@ -746,11 +746,15 @@ async def shadow_sent(shadow_id: str, body: ShadowSentIn, user=Depends(extension
     return {'ok': True, 'status': st, 'similarity': sim}
 
 @router.get('/assist/shadow')
-async def shadow_report(days: int = 7, creator_id: str = '', user=Depends(manager)):
+async def shadow_report(days: int = 7, creator_id: str = '', start: str = '', end: str = '', user=Depends(manager)):
     """Painel Sombra (gestor): o que a IA sugeriu x o que o chatter enviou, por criadora e por chatter."""
     days = max(1, min(days, 90))
     since = (datetime.now(BR) - timedelta(days=days - 1)).strftime('%Y-%m-%d')
-    q = {'day': {'$gte': since}, 'status': {'$exists': True}}  # ignora registros de um teste antigo com outro formato
+    rng = {'$gte': since}
+    # período escolhido (De/Até, AAAA-MM-DD) vale no lugar dos atalhos de dias
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', start or ''): rng = {'$gte': start}
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', end or ''): rng['$lte'] = end
+    q = {'day': rng, 'status': {'$exists': True}}  # ignora registros de um teste antigo com outro formato
     if creator_id: q['creator_id'] = creator_id
     rows = await db.shadow_actions.find(q, {'_id': 0}).sort('at', -1).to_list(2000)
     # pendente há mais de 2 h = o chatter não respondeu depois da sugestão (ou fechou a conversa)

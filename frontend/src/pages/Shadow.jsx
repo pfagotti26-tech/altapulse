@@ -46,15 +46,18 @@ function Teach({ r }) {
 
 export default function Shadow() {
   const [days, setDays] = useState(7), [creator, setCreator] = useState(''), [only, setOnly] = useState(''), [d, setD] = useState(null), [busy, setBusy] = useState(false);
-  const load = async () => { setBusy(true); try { setD((await api.get(`/assist/shadow?days=${days}&creator_id=${encodeURIComponent(creator)}`)).data); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
-  useEffect(() => { load(); }, [days, creator]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [start, setStart] = useState(''), [end, setEnd] = useState('');  // período De/Até (vale no lugar dos atalhos de dias)
+  const load = async () => { setBusy(true); try { setD((await api.get(`/assist/shadow?days=${days}&creator_id=${encodeURIComponent(creator)}&start=${start}&end=${end}`)).data); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } };
+  useEffect(() => { load(); }, [days, creator, start, end]); // eslint-disable-line react-hooks/exhaustive-deps
   const t = d && d.total;
   const rows = d ? d.rows.filter((r) => !only || r.status === only) : [];
   const enabledNames = d ? d.creators.filter((c) => d.enabled.includes(c.id)).map((c) => c.name) : [];
   return <>
     <PageHeading eyebrow="ALTA AJUDA" title="Sombra" description="O que a IA sugeriu ao lado do que o chatter enviou de verdade. Serve para ver onde a Alta Ajuda acerta, onde o chatter corrige e o que vale ajustar na ficha. Nada aqui envia mensagem.">
       <Select id="shadow-creator" value={creator} onChange={(e) => setCreator(e.target.value)}><option value="">Todas as criadoras</option>{(d ? d.creators : []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
-      {[7, 30, 90].map((n) => <Button key={n} variant={days === n ? undefined : 'outline'} onClick={() => setDays(n)}>{n} dias</Button>)}
+      {[7, 30, 90].map((n) => <Button key={n} variant={days === n && !start && !end ? undefined : 'outline'} onClick={() => { setStart(''); setEnd(''); setDays(n); }}>{n} dias</Button>)}
+      <label className="body-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>De <input type="date" value={start} onChange={(e) => setStart(e.target.value)}/></label>
+      <label className="body-muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>Até <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}/></label>
       <Button variant="ghost" disabled={busy} onClick={load}><RefreshCw size={15}/>Atualizar</Button>
     </PageHeading>
     {!d ? <p className="body-muted">Carregando…</p> : <>
