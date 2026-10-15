@@ -42,6 +42,8 @@ class DecideOut(BaseModel):
     log_id: Optional[str] = None
     product: Optional[str] = None
     product_cents: Optional[int] = None
+    caption: Optional[str] = None
+    after: Optional[str] = None
 
 async def get_config():
     doc = await db.auto_config.find_one({"id": "main"}) or {}
@@ -187,7 +189,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             "decision": decision, "reason": reason,
             "suggested_text": suggested,
         })
-        return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents)
+        return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents, caption=caption, after=after)
 
 
 @router.get("/report")

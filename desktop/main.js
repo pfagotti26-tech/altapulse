@@ -605,7 +605,21 @@ async function tryAutoDecide(view, creatorId, expectName) {
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
-            if (r.product && r.product_cents) await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
+            if (r.product && r.product_cents) {
+              if (/avalia/i.test(r.product)) {
+                await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
+              } else if (/v[íi]deo|foto|pack/i.test(r.product)) {
+                await api('POST', '/assist/ppv-needed', {
+                  creator_id: creatorId,
+                  fan_ref,
+                  fan_name: fan.name || undefined,
+                  item: r.product,
+                  cents: r.product_cents,
+                  caption: r.caption || '',
+                  after: r.after || '',
+                }).catch(() => {});
+              }
+            }
           } else {
             await api('POST', `/auto/failed/${r.log_id}`, {}).catch(() => {});
           }
