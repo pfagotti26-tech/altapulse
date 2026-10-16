@@ -631,7 +631,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
            "uma provocação, uma curiosidade ou uma pergunta leve, ligada ao que se sabe dele (memória, anotações, o fim da conversa) quando houver. "
            "Não venda e não fale de preço, conteúdo, foto ou vídeo. Não diga que viu ele online, não cobre resposta, não repita nada do que " + w['ela'] + " já disse, "
-           "e nada de saudação genérica (\"oi, tudo bem?\"). Pode ser picante de leve.") if body.mode == 'puxada' else ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
+           "e nada de saudação genérica (\"oi, tudo bem?\"). Pode ser picante de leve. "
+           "Estilo (varie, não copie): \"hoje eu tô louca pra animar o seu dia…\", \"tô entediada… me distrai? 😈\", \"tava lembrando de você agora… 😏\", \"chegou quietinho, hein?\", \"pensando besteira aqui… quer saber?\".") if body.mode == 'puxada' else ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
            if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem ' + w['dela'] + '.')
     anchor = fan_anchor(card)
     fan_list = ''
