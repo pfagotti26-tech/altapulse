@@ -42,20 +42,20 @@ module.exports = function createFila(deps) {
         return 0;
       });
       for (const r of rooms) {
-        if (r.ours) continue;
+        if (r.ours) { firstUnanswered.delete(roomKey(creatorId, r.name)); continue; }
         if (r.typing) continue;
         if (r.verified) continue;
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
-        if (!at) continue;
-        const age = now - at.getTime();
-        if (!firstUnanswered.has(ref)) firstUnanswered.set(ref, at);
-        const firstAge = now - firstUnanswered.get(ref).getTime();
-        if (r.typing && firstAge < 60 * 1000) continue; // digitando e ainda dentro de 60s
-        if (age < 30 * 1000 && firstAge < 60 * 1000) continue; // espera 30s, mas no máximo 60s da primeira
+        const age = at ? (now - at.getTime()) : Infinity; // "Ontem"/data = antigo
+        if (at && !firstUnanswered.has(ref)) firstUnanswered.set(ref, at);
+        const firstAge = firstUnanswered.has(ref) ? (now - firstUnanswered.get(ref).getTime()) : Infinity;
+        if (r.typing && firstAge < 60 * 1000) continue;
+        if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
         const key = creatorId + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
         seen.add(key);
+        firstUnanswered.delete(ref);
         const result = openChat ? await openChat(creatorId, r.name, ref) : null;
         if (result === 'retry') { seen.delete(key); }
         await new Promise(res => setTimeout(res, 3000));
