@@ -9,6 +9,7 @@ module.exports = function createFila(deps) {
   let seen = new Set();
   let seenDay = '';
   const recentAuto = new Map(); // ref → timestamp
+  const firstUnanswered = new Map(); // ref → timestamp da primeira msg não respondida
 
   function todayBR() {
     return new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' });
@@ -46,7 +47,12 @@ module.exports = function createFila(deps) {
         if (r.verified) continue;
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
-        if (at && (now - at.getTime()) < 105 * 1000) continue;
+        if (!at) continue;
+        const age = now - at.getTime();
+        if (!firstUnanswered.has(ref)) firstUnanswered.set(ref, at);
+        const firstAge = now - firstUnanswered.get(ref).getTime();
+        if (r.typing && firstAge < 60 * 1000) continue; // digitando e ainda dentro de 60s
+        if (age < 30 * 1000 && firstAge < 60 * 1000) continue; // espera 30s, mas no máximo 60s da primeira
         const key = creatorId + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
         seen.add(key);
