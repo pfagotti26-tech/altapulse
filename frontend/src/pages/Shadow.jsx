@@ -82,7 +82,7 @@ function MediaPaid() {
   const late = rows.filter((r) => r.late).length;
   return <section className="panel ai-panel" id="shadow-media-paid">
     <h2>📦 Mídias pagas {st === 'aguardando' && rows.length ? <small className={`shadow-tag ${late ? 'bad' : 'warn'}`}>{rows.length} para responder{late ? ` · ${late} atrasada${late > 1 ? 's' : ''}` : ''}</small> : null}</h2>
-    <p className="body-muted">Fã pagou a Solicitação de mídia e mandou a mídia dele: chega e-mail em contato@altaagencydigital.com, aparece "Ver mídia paga do fã" no app e a IA pausa o fã depois de agradecer (ela não enxerga imagem). Respondeu? Toque em Feito no app ou em Feito aqui.</p>
+    <p className="body-muted">Fã pagou a Solicitação de mídia: chega e-mail em contato@altaagencydigital.com, aparece "Fã pagou" no app e a IA pausa o fã depois de agradecer. Avaliação: ver a mídia dele e responder · Chamada: combinar horário · Outros itens: mandar a mídia comprada. Feito? Toque em Feito no app ou aqui.</p>
     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>{[['aguardando', 'Para responder'], ['entregue', 'Feitas'], ['todos', 'Todas']].map(([k, l]) => <Button key={k} variant={st === k ? undefined : 'outline'} onClick={() => setSt(k)}>{l}</Button>)}</div>
     {!rows.length ? <p className="body-muted">{st === 'aguardando' ? 'Nada para responder agora.' : 'Nada aqui.'}</p> : <div className="table-scroll"><table><thead><tr><th>Pago em</th><th>Criadora</th><th>Assinante</th><th>O quê</th><th>Prazo</th><th></th></tr></thead>
       <tbody>{rows.map((r) => <tr key={r.id}><td className="tabular" style={{ whiteSpace: 'nowrap' }}>{dateTime(r.paid_seen_at)}</td><td><strong>{r.creator_name}</strong></td>

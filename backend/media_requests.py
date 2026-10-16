@@ -43,15 +43,18 @@ async def _email(req, late=False):
     agency = (await settings()).get('agency_name', 'Alta Pulse')
     e = html.escape
     what = f"{e(req.get('item') or 'Solicitação de mídia')} · <b>{e(money(req['amount_cents']))}</b>"
-    call = req.get('category') in ('chamada', 'chamada_gravada')  # lote 116: chamada é cobrada pela solicitação de mídia
-    task = 'combinar o horário da chamada com a criadora e avisar o fã' if call else 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)'
+    import profile_model as PM
+    kind = PM.req_kind(req.get('item'), req.get('category'))  # lote 124: toda venda vai por solicitação
+    task = {'chamada': 'combinar o horário da chamada com a criadora e avisar o fã', 'avaliacao': 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)',
+            'entrega': f"mandar para o fã a mídia comprada ({req.get('item') or 'item da tabela'})"}[kind]
     due = datetime.fromisoformat(req['due_at']).astimezone().strftime('%d/%m %H:%M')
-    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b>{'' if call else ' e mandou a mídia dele'}.<br>{what}<br><br>"
-             f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar feito (app: oportunidade “Ver mídia paga do fã” → Feito; painel: Sombra → Mídias pagas).")
+    intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b>{' e mandou a mídia dele' if kind == 'avaliacao' else ''}.<br>{what}<br><br>"
+             f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar feito (app: oportunidade “Fã pagou” → Feito; painel: Sombra → Mídias pagas).")
     if late: intro = '<b style="color:#c8102e">PASSOU DO PRAZO.</b> ' + intro
     link = req.get('chat_url') or (ORIGIN + '/sombra')
-    subject = f"{'ATRASADA · ' if late else ''}Fã pagou e mandou mídia · {req['creator_name']} · {money(req['amount_cents'])}"
-    body = mailer.layout(agency, ('Resposta atrasada' if late else 'Fã pagou e mandou mídia'), intro, 'Abrir conversa' if req.get('chat_url') else 'Abrir painel', link,
+    head = {'avaliacao': 'Fã pagou e mandou mídia', 'chamada': 'Fã pagou a chamada', 'entrega': f"Fã pagou {req.get('item') or 'mídia'}: entregar"}[kind]
+    subject = f"{'ATRASADA · ' if late else ''}{head} · {req['creator_name']} · {money(req['amount_cents'])}"
+    body = mailer.layout(agency, ('Resposta atrasada' if late else head), intro, 'Abrir conversa' if req.get('chat_url') else 'Abrir painel', link,
                          'Aviso automático do Alta Pulse quando uma Solicitação de mídia é paga.')
     ok = await mailer.send(MEDIA_EMAIL, subject, body)
     if not ok: log.warning('e-mail de mídia paga não saiu (Resend desligado ou erro)')
@@ -59,8 +62,11 @@ async def _email(req, late=False):
 
 
 async def _opportunity(req, t, late=False):
+    import profile_model as PM
+    kind = PM.req_kind(req.get('item'), req.get('category'))
     reason = (f"Pagou {money(req['amount_cents'])}" + (f" ({req['item']})" if req.get('item') else '') +
-              (' · CHAMADA: combinar horário com a criadora e tocar em Feito.' if req.get('category') in ('chamada', 'chamada_gravada') else ' e mandou a mídia dele · ver, responder e tocar em Feito.') + (' ATRASADA.' if late else ''))
+              {'chamada': ' · CHAMADA: combinar horário com a criadora e tocar em Feito.', 'avaliacao': ' e mandou a mídia dele · ver, responder e tocar em Feito.',
+               'entrega': ' · MANDAR A MÍDIA comprada para ele e tocar em Feito.'}[kind] + (' ATRASADA.' if late else ''))
     ref = f"entregar_midia:{req['id']}"
     await db.opportunities.update_one({'creator_id': req['creator_id'], 'fan_ref': req['fan_ref'], 'ref': ref},
         {'$set': {'status': 'open', 'hot': True, 'reason': reason, 'due_at': (t + timedelta(days=3)).isoformat()},
