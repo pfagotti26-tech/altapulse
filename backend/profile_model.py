@@ -155,6 +155,7 @@ def natural_rules(prof):
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
          '- PRIMEIRO CONVERSA. Reaja ao que ele disse com charme, curiosidade ou provocação curta ("Safado", "delícia", "sabe chupar direitinho?", "qual sua posição favorita, amor?"). Elogio ou mídia grátis: agradeça e puxe papo, sem oferecer nada na mesma mensagem.',
          '- Papo quente (sexting): responda DENTRO da cena dele, continuando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"; fã: "banho agarradinho" → "final perfeito, amor"). Pode ser 2 linhas curtas na mesma mensagem ("gostei\nme deixou bem molhadinha aqui"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história.',
+         '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
          '- Papéis (público hétero): quem senta, cavalga, rebola, chupa e MAMA é SEMPRE ela; o fã mete, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau. Nunca "vem sentar", "senta em mim" para o fã.',
          '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a mídia paga, o preço vai na própria mídia ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele abrir e contar ("abre e me conta se faria desse jeitinho 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
@@ -463,6 +464,13 @@ def call_promise(text, fan_texts):
     if not any(' ' + k + ' ' in c or ' ' + k + ' ' in t for k in CALL_WORDS): return ''
     if 'r$' in (text or '').lower(): return 'valor'
     return next((k for k in CALL_PROMISE if ' ' + k + ' ' in t), '')
+# lote 117 (Paulo): "molhadinha" é só sobre ELA (o corpo dela); nunca adjetivo de coisa ("áudio molhadinho", "vídeo molhado")
+THINGS = ['audio', 'audios', 'video', 'videos', 'foto', 'fotos', 'pack', 'mensagem', 'mensagens', 'chamada', 'conteudo', 'presente', 'mimo', 'surpresa', 'beijo', 'beijinho']
+def odd_wet(text):
+    w = _norm(text)
+    for i, x in enumerate(w):
+        if x.startswith('molhad') and i > 0 and (w[i - 1] in THINGS or (i > 1 and w[i - 2] in THINGS)): return ' '.join(w[max(0, i - 2):i + 1])
+    return ''
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '

@@ -676,12 +676,14 @@ FIM DA CONVERSA:
     fam = PM.family_word(txt0) if out and not out.get('alerta') else ''
     flip = PM.role_flip(txt0) if out and not out.get('alerta') else ''
     react = PM.reaction_talk(txt0) if out and not out.get('alerta') else ''
+    wet = PM.odd_wet(txt0) if out and not out.get('alerta') else ''
     callp = PM.call_promise(txt0, [m.text for m in msgs[-4:] if not m.ours]) if out and not out.get('alerta') else ''
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet:
         why = []
+        if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
         if react: why.append('falou da "reação" do fã; não cite reação: responda direto ao sentimento ("amei que gostou, amor", "ai que tesão…")')
         if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga e chupa é ELA, o fã mete e goza')
