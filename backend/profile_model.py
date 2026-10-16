@@ -158,7 +158,7 @@ def natural_rules(prof):
          '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
          '- Papéis (público hétero): quem senta, cavalga, rebola, chupa, MAMA e DÁ é SEMPRE ela; o fã mete, come, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau nem se ele gosta de dar (ex. certo: "você gosta de me comer de quatro?"). Nunca "vem sentar", "senta em mim" para o fã.',
-         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a mídia paga, o preço vai na própria mídia ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele abrir e contar ("abre e me conta se faria desse jeitinho 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
+         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a Solicitação de mídia, o preço vai na própria solicitação ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele pagar e receber ("paga que eu te mando agorinha 😏", "libera aí que já é seu 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
@@ -459,6 +459,13 @@ def paid_request_in(msgs_texts):
 def unpaid_request_in(msgs_texts):
     """Há Solicitação de mídia nossa na conversa ainda não paga (lote 120b)."""
     return any(re.search(r'solicita[çc][aã]o de m[ií]dia', t or '', re.I) and not re.search(r'(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def req_kind(item, category=''):
+    """Lote 124 (Paulo): toda venda vai como Solicitação de mídia. 'avaliacao' = o fã paga e manda a dele; 'chamada' = combinar horário;
+    'entrega' = o fã paga e a equipe manda a mídia comprada depois."""
+    i = (item or '').lower()
+    if category == 'avaliacao' or 'avalia' in i: return 'avaliacao'
+    if category in ('chamada', 'chamada_gravada') or 'chamada' in i: return 'chamada'
+    return 'entrega'
 def is_request_item(p):
     """Itens que vão como Solicitação de mídia (o fã paga e manda a dele / chamada), não como mídia paga (PPV)."""
     return (p.get('category') in ('avaliacao', 'chamada', 'chamada_gravada')) or any(k in (p.get('item') or '').lower() for k in ('avalia', 'chamada'))

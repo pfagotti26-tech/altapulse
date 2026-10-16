@@ -478,7 +478,7 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
         mreq = await open_for(body.creator_id, body.fan_ref)
         if mreq and mreq.get('acked_at'):
             return {'alert': True, 'remaining': None, 'waiting_delivery': True,
-                    'reason': f"Fã pagou a solicitação (R$ {(mreq.get('amount_cents') or 0) / 100:.2f}) e mandou a mídia dele. A IA não enxerga imagem e pausou este fã: veja, responda e toque em Feito na oportunidade “Ver mídia paga do fã” (ou Sombra → Mídias pagas)."}
+                    'reason': (f"Fã pagou {mreq.get('item') or 'a solicitação'} (R$ {(mreq.get('amount_cents') or 0) / 100:.2f}). " + {'avaliacao': 'Ele mandou a mídia dele: a IA não enxerga imagem. Veja e responda', 'chamada': 'Combine o horário da chamada com a criadora e avise o fã', 'entrega': 'Mande a mídia comprada para ele'}[PM.req_kind(mreq.get('item'), mreq.get('category'))] + " e toque em Feito na oportunidade (ou Sombra → Mídias pagas). A IA pausou este fã até lá.")}
     c = await config(); key = await xai_key()
     if not c['enabled'] or not key: raise HTTPException(409, 'A Alta Ajuda está desligada. O gestor liga em Configurações.')
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
@@ -558,14 +558,16 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
-                "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai com a mídia paga "
-                "(ex.: \"olha aqui como eu imaginei…\"); \"depois\" = chamada curta para abrir e contar (ex.: \"abre e me conta se faria desse jeitinho 🔥\"). Preencha \"produto\" com o nome exato do item. "
+                "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
+                "(ex.: \"olha aqui como eu imaginei…\"); \"depois\" = chamada curta para ele pagar e receber (ex.: \"paga que eu te mando agorinha 😏\"). Preencha \"produto\" com o nome exato do item. "
                 "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
         if pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
-                + ("diga que vai preparar algo bem especial pra ele e que já já combina certinho (sem prometer horário)" if mreq.get('category') in ('chamada', 'chamada_gravada') else "diga que já vai olhar o que ele mandou com calma (você NÃO vê a mídia: não descreva nem elogie detalhes dela)") +
+                + {'chamada': "diga que vai preparar algo bem especial pra ele e que já já combina certinho (sem prometer horário)",
+                   'avaliacao': "diga que já vai olhar o que ele mandou com calma (você NÃO vê a mídia: não descreva nem elogie detalhes dela)",
+                   'entrega': "diga que já já te manda, que ele vai amar (sem prometer horário exato e sem descrever o conteúdo)"}[PM.req_kind(mreq.get('item'), mreq.get('category'))] +
                 ", sem prometer horário exato, sem oferecer nada novo e sem perguntar nada. \"produto\" vazio.")
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
@@ -731,7 +733,7 @@ FIM DA CONVERSA:
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
         if react: why.append('falou da "reação" do fã; não cite reação: responda direto ao sentimento ("amei que gostou, amor", "ai que tesão…")')
         if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga, chupa e dá é ELA, o fã mete, come e goza')
-        if pricetxt: why.append('escreveu o valor no texto; o valor vai na mídia paga: o "texto" é só a provocação, a "legenda" vai com a mídia e o "depois" chama para abrir')
+        if pricetxt: why.append('escreveu o valor no texto; o valor vai na Solicitação de mídia: o "texto" é só a provocação, a "legenda" vai com a solicitação e o "depois" chama para abrir')
         if fam: why.append('usou palavra de família ou de tema proibido; é PROIBIDO citar qualquer parente ou esse tema, nem para recusar: mude de assunto com charme sem mencionar nada disso')
         if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
         if dur: why.append(f'falou a duração do vídeo ("{dur}"); nunca diga tempo nem descreva o vídeo: diga só que ele vai gostar, que é gostoso, ligado ao que ele disse, + o valor')
@@ -794,10 +796,8 @@ FIM DA CONVERSA:
     after = PM.PRICE_STRIP(scrub(str(out.get('depois') or '')).strip())[:200] if prod else ''
     if prod:
         text = PM.PRICE_STRIP(text)
-        if PM.is_request_item(prod):  # lote 120b: avaliação/chamada vão como Solicitação de mídia, não como mídia paga
-            ppv = f"📩 Mandar a Solicitação de mídia: {prod['item']} {money_br(fan_price(prod['cents'], anchor))}"
-        else:
-            ppv = f"💰 Mandar {prod['item']} {money_br(fan_price(prod['cents'], anchor))} como mídia paga" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
+        # lote 124 (Paulo): toda venda vai como Solicitação de mídia com o valor do item; pagou → a equipe entrega a mídia
+        ppv = f"📩 Mandar a Solicitação de mídia: {prod['item']} {money_br(fan_price(prod['cents'], anchor))}" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
         warning = (warning + ' · ' if warning else '') + ppv
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora e mandar a Solicitação de mídia com o valor (nunca escrever o preço).'
