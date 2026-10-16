@@ -462,6 +462,20 @@ def unpaid_request_in(msgs_texts):
 def is_request_item(p):
     """Itens que vão como Solicitação de mídia (o fã paga e manda a dele / chamada), não como mídia paga (PPV)."""
     return (p.get('category') in ('avaliacao', 'chamada', 'chamada_gravada')) or any(k in (p.get('item') or '').lower() for k in ('avalia', 'chamada'))
+# lote 121 (Paulo): elogio do fã. Neutro ("você é demais") → agradece curto, sem pergunta. Picante ("caraio vc é muito safada")
+# → brinca e devolve UMA pergunta curta que explora o desejo dele. Nunca o agradecimento-padrão ("fico feliz que gostou bb").
+COMP_NEUTRAL = re.compile(r'\b(demais|de mais|perfeita|linda|lindinha|maravilhosa|incr[ií]vel|top|show|deusa|princesa|apaixonad\w*|encantador\w*|maravilha|muito bonita|bonita)\b', re.I)
+COMP_SPICY = re.compile(r'\b(safad\w*|gostos\w*|del[ií]cia|tesud\w*|tes[aã]o|putinha|puta|rabuda|bunduda|peituda|gata|gatinha|caralho|caraio|carai|porra|que corpo|que bunda|que peit\w*)\b', re.I)
+def compliment_kind(fan_last):
+    t = (fan_last or '').strip()
+    if not t or '?' in t or len(_norm(t)) > 8: return ''
+    if COMP_SPICY.search(t): return 'picante'
+    if COMP_NEUTRAL.search(t): return 'neutro'
+    return ''
+MECH = re.compile(r'fico (bem |muito |t[aã]o )?feliz (de saber|que|em saber)|^\W*(que bom que (voc[eê]|vc) gost|obrigad[ao] por)|o que (mais )?te chamou (a )?aten[çc][aã]o', re.I)
+def mechanical(text):
+    m = MECH.search(text or '')
+    return m.group(0).strip() if m else ''
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''

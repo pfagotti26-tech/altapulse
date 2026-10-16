@@ -612,6 +612,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         opener_block += ('\nO FÃ PEDIU PARA ELA FALAR DE SI: escolha UM jeito (varie entre fãs): (a) fale um pouco dela em primeira pessoa, com o que a ficha mostra (jeito, gostos), sem dado pessoal; '
                          'ou (b) devolva com charme para ele escolher, sem deixar tão aberto ("hum, o que você quer saber de mim? 😏", "depende… o que te deixou curioso?").')
     _pq = PM.asks_personal(_lastfan) if body.mode == 'reply' else ''
+    _ck = PM.compliment_kind(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''
+    if _ck == 'neutro': opener_block += '\nO FÃ SÓ ELOGIOU: agradeça CURTO, no máximo 6 palavras, sem pergunta e sem "fico feliz que gostou" (ex.: "obrigada amor! 😘", "ai, assim eu fico boba 🙈", "você que é, amor 😏"). Se ele não continuar, a próxima mensagem puxa assunto dele.'
+    if _ck == 'picante': opener_block += '\nO FÃ PROVOCOU/ELOGIOU PICANTE: brinque e devolva com UMA pergunta curta que explore o desejo dele, no tamanho da mensagem dele (ex.: "você acha mesmo amor? rs", "safada só com quem merece… você merece? 😏", "e você gosta assim, né? 😈"). Nada de "fico feliz que gostou".'
     # lote 120: fã diz que mandou foto/vídeo sem Solicitação de mídia paga na conversa → nada chegou; ela não viu
     _sent_claim = PM.fan_says_sent([m.text for m in msgs[-6:] if not m.ours]) if body.mode == 'reply' and not mreq else ''
     _paid_req = PM.paid_request_in([m.text for m in msgs])
@@ -694,6 +697,10 @@ FIM DA CONVERSA:
     if longo and PM.asks_about_her(_fl) and longo[0] <= 22: longo = None  # lote 119: falar de si pede um pouco mais de texto
     dodge = PM.dodges_about_her(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     claim = PM.personal_claim(txt0, profile_block(creator, prof)) if out and not out.get('alerta') else ''
+    mech = PM.mechanical(txt0) if out and not out.get('alerta') and body.mode == 'reply' else ''
+    if out and not out.get('alerta') and _ck == 'neutro' and not mech:
+        if len(PM._norm(txt0)) > 6: longo = (len(PM._norm(txt0)), 6)
+        elif txt0.strip().endswith('?'): mech = 'pergunta depois de elogio simples'
     seen = PM.claims_seen(txt0) if out and not out.get('alerta') and not _paid_req and not mreq else ''
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
@@ -709,8 +716,9 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
         why = []
+        if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
