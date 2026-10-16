@@ -476,6 +476,16 @@ MECH = re.compile(r'fico (bem |muito |t[aã]o )?feliz (de saber|que|em saber)|^\
 def mechanical(text):
     m = MECH.search(text or '')
     return m.group(0).strip() if m else ''
+# lote 123 (Paulo): fã só cumprimentou ("oi bb", "boa noite") → cumprimenta de volta e pergunta dele; nada de "gostou do que viu?"
+GREET_ONLY = re.compile(r'^\W*(oi+e?|ol[aá]|opa|eae|e a[ií]|hey|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|blz|beleza)\b', re.I)
+GREET_FILL = {'oi', 'oii', 'oiii', 'oie', 'ola', 'opa', 'eae', 'e', 'ai', 'hey', 'bom', 'boa', 'dia', 'tarde', 'noite', 'tudo', 'bem', 'td', 'bom', 'blz', 'beleza',
+              'bb', 'bebe', 'amor', 'gata', 'gatinha', 'linda', 'lindinha', 'gostosa', 'princesa', 'vida', 'minha', 'meu', 'flor', 'querida', 'ta', 'como', 'vai', 'voce', 'vc', 'contigo', 'com', 'ai', 'aí'}
+def greeting_only(fan_last):
+    t = (fan_last or '').strip(); w = _norm(t)
+    return bool(t) and 0 < len(w) <= 6 and bool(GREET_ONLY.search(t)) and all(x in GREET_FILL for x in w)
+GREET_BACK = re.compile(r'\b(oi+|ol[aá]|tudo bem|tudo bom|td bem|e voc[eê]|e vc|e tu|bom dia|boa tarde|boa noite|como (voc[eê]|vc) t[aá]|como t[aá])', re.I)
+def misses_greeting(text):
+    return not GREET_BACK.search(text or '')
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''
