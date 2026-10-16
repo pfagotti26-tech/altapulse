@@ -371,6 +371,10 @@ def ignores_objection(text, fan_last):
     return o
 PROPOSAL_ASK = ['tem alguma coisa', 'tem algo pra mim', 'tem algo', 'o que voce tem', 'o que vc tem', 'o que vc propoe', 'o que voce propoe', 'o que tu propoe', 'quanto e', 'quanto custa', 'quanto fica', 'quanto sai', 'qual o valor', 'qual valor', 'qual o preco',
                 'como funciona', 'como faco pra', 'como faco para', 'como eu faco', 'quanto voce cobra', 'quanto vc cobra', 'tem video', 'tem foto', 'vende video', 'vende foto']
+# lote 125 (Paulo): fã pede para ser cobrado ("só licita aí") → manda a Solicitação na hora
+PAY_ASK = ['licita', 'licita ai', 'so licita', 'solicita ai', 'manda a solicitacao', 'manda solicitacao', 'manda a licitacao', 'pode mandar a solicitacao', 'manda o valor', 'manda o preco',
+           'como pago', 'como eu pago', 'quero pagar', 'quero comprar', 'manda que eu pago', 'eu pago', 'pode cobrar', 'me cobra', 'cobra ai', 'manda ai que eu pago', 'manda a cobranca']
+PROPOSAL_ASK = PROPOSAL_ASK + PAY_ASK
 def pending_proposal(msgs, items):
     """O fã pediu proposta/preço e nenhuma mensagem nossa depois disso ofereceu algo. msgs: [(ours, text)]. Devolve o pedido ou ''."""
     for i in range(len(msgs) - 1, -1, -1):

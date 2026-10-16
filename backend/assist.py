@@ -561,7 +561,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
                 "(ex.: \"olha aqui como eu imaginei…\"); \"depois\" = chamada curta para ele pagar e receber (ex.: \"paga que eu te mando agorinha 😏\"). Preencha \"produto\" com o nome exato do item. "
                 "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
-        if pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
+        if pend and pend in PM.PAY_ASK: goal += f' O fã PEDIU PARA SER COBRADO ("{pend}"): confirme curto e com charme ("mando agora, amor 😈"), sem nova pergunta, e preencha "produto" com o item da conversa (o que ele pediu ou o último oferecido; se nenhum, o que combina com a cena).'
+        elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
