@@ -36,6 +36,7 @@ const OF_CHAT_SCRIPT = require('./onlyfans-chat-page.js');
 const FF_CHAT_SCRIPT = require('./fatalfans-chat-page.js');
 const { PLATFORMS, platformOf, allowedUrl, fillScript, LOGIN_PROBE } = require('./platforms.js');
 const plantaoApp = require('./plantao-app.js');
+const puxadaApp = require('./puxada-app.js');
 const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------
@@ -1033,7 +1034,7 @@ async function readAllNow() {
     // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
     if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
-    if (data && data.page === 'chat') { lastRooms[id] = data.rooms || []; plantao.onRooms(id, data.rooms); } // AUTO (Grok)
+    if (data && data.page === 'chat') { lastRooms[id] = data.rooms || []; plantao.onRooms(id, data.rooms); puxada.onRooms(id, data.rooms); } // AUTO (Grok) + lote 118
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary, radar;
@@ -2047,6 +2048,47 @@ ipcMain.handle('plantao:prepare', async (_e, { creator_id, fan_ref, name, rid, t
 });
 ipcMain.handle('plantao:cancel', (_e, { creator_id, fan_ref }) => { plantao.cancel(creator_id, fan_ref); return plantao.queue(); });
 // (módulo autônomo removido — o plantão funciona só como copiloto: a pessoa é quem envia)
+// ---------- Lote 118 — Puxar conversa: quem está online agora; abre a conversa, a IA escreve a frase (o servidor confere as travas) e
+// deixa na caixa. Quem envia é a pessoa. Separado do plantão e da automação de resposta ----------
+const puxada = puxadaApp.create({ api, log: (...a) => console.log('[puxada]', ...a), getState: () => state, roomKey: (id, name) => readerFor(id).reader.roomKey(name) });
+const pxName = (s) => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+ipcMain.handle('puxada:queue', async (_e, refresh) => { if (refresh || Date.now() - (puxada.fetchedAt || 0) > 60000) await puxada.fetchConfigs(); return puxada.queue(); });
+ipcMain.handle('puxada:prepare', async (_e, { creator_id, fan_ref, name, rid }) => {
+  if (!creator_id || !/^[a-f0-9]{64}$/.test(String(fan_ref || '')) || !name) return { ok: false, reason: 'fã inválido' };
+  const r = await openConversation(creator_id, 'privacy', rid || null, name, fan_ref).catch((e) => ({ found: false, how: e.message }));
+  if (!r || !['ja', 'ok', 'clicou'].includes(r.how)) return { ok: false, reason: (r && r.how) === 'login' ? 'Privacy na tela de login' : 'não consegui abrir a conversa' };
+  await sleep(1500);
+  const view = views.get(creator_id); if (!view || view.webContents.isDestroyed()) return { ok: false, reason: 'aba da Privacy fechada' };
+  let read = null;
+  for (let i = 0; i < 5; i++) { read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null); if (read && read.name && pxName(read.name) === pxName(name)) break; await sleep(900); }
+  if (!read || !read.msgs) return { ok: false, reason: 'não consegui ler a conversa' };
+  if (pxName(read.name) !== pxName(name)) return { ok: false, reason: 'abriu outra conversa — tente de novo' };
+  const out = await api('POST', '/extension/puxada/line', { creator_id, fan_ref, fan_name: state.fan_names_allowed ? String(name).slice(0, 80) : '', platform: 'privacy', messages: read.msgs.slice(-14) })
+    .catch((e) => ({ ok: false, reason: e.message }));
+  if (!out || !out.ok) { await puxada.fetchConfigs().catch(() => {}); return { ok: false, reason: (out && out.reason) || 'sem frase' }; }
+  let filled = false;
+  try { filled = !!(await runJs(view, FILL_SCRIPT(out.text), 4000)); if (filled) view.webContents.focus(); } catch {}
+  if (!filled) { api('POST', '/extension/puxada/cancel', { token: out.token, detail: 'caixa não encontrada' }).catch(() => {}); return { ok: false, reason: 'caixa de mensagem não encontrada' }; }
+  const lastOurs = [...read.msgs].reverse().find((m) => m.ours);
+  puxada.prepared(creator_id, fan_ref, name, out.text, out.token, lastOurs ? lastOurs.text : '');
+  return { ok: true, text: out.text };
+});
+ipcMain.handle('puxada:cancel', (_e, key) => { puxada.cancel(String(key || ''), 'desfeito pelo chatter'); return puxada.queue(); });
+// envio: com puxada preparada, olha a conversa aberta da criadora; quando aparece mensagem NOVA nossa nela, registra (com o texto real).
+// A autorização vale 10 min: passou disso sem enviar, desiste (a vaga volta para a hora).
+let pxBusy = false;
+setInterval(async () => {
+  if (!token || !puxada.pending.size || pxBusy) return;
+  pxBusy = true;
+  try { for (const [key, p] of [...puxada.pending.entries()]) {
+    if (Date.now() - p.at > 9.5 * 60000) { puxada.cancel(key, 'não enviada em 10 min'); continue; }
+    const view = views.get(key.split('|')[0]); if (!view || view.webContents.isDestroyed()) continue;
+    const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+    if (!read || !read.msgs || !read.msgs.length || pxName(read.name) !== pxName(p.name)) continue;
+    const last = read.msgs[read.msgs.length - 1];
+    if (last.ours && last.text !== p.lastOurs) puxada.markSent(key, last.text);
+  } } finally { pxBusy = false; }
+}, 3000);
 ipcMain.handle('fan:note:add', async (_e, text) => {
   if (!fan.creatorId || !fan.fanRef) throw new Error('Abra uma conversa primeiro.');
   await api('POST', '/extension/fan/notes', { creator_id: fan.creatorId, fan_ref: fan.fanRef, text: String(text || '').slice(0, 300) });
@@ -2443,6 +2485,7 @@ app.whenReady().then(async () => {
   if (pendingLink) setTimeout(() => { handleDeepLink(pendingLink); pendingLink = null; }, 8000); // app aberto pelo link do painel
   setInterval(() => loadOpportunities().catch(() => {}), 60000); setInterval(() => radarFatalFans().catch(() => {}), 90000); setTimeout(() => loadOpportunities().catch(() => {}), 8000);
   setInterval(readAll, READ_MS);
+  setTimeout(() => puxada.fetchConfigs().catch(() => {}), 14000); setInterval(() => puxada.fetchConfigs().catch(() => {}), 2 * 60000);
   setTimeout(() => plantao.fetchConfigs().catch(() => {}), 12000); setInterval(() => plantao.fetchConfigs().catch(() => {}), 5 * 60000);
 });
 

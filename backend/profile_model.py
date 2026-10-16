@@ -155,6 +155,7 @@ def natural_rules(prof):
          '- Responda do tamanho e no clima do momento. Fã que manda uma palavra, "kkk" ou emoji recebe resposta curta (2 a 6 palavras serve) ou só uma reação ("kkkk para 🙈"). Fã que conta algo recebe resposta que comenta o que ele disse.',
          '- PRIMEIRO CONVERSA. Reaja ao que ele disse com charme, curiosidade ou provocação curta ("Safado", "delícia", "sabe chupar direitinho?", "qual sua posição favorita, amor?"). Elogio ou mídia grátis: agradeça e puxe papo, sem oferecer nada na mesma mensagem.',
          '- Papo quente (sexting): responda DENTRO da cena dele, continuando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"; fã: "banho agarradinho" → "final perfeito, amor"). Pode ser 2 linhas curtas na mesma mensagem ("gostei\nme deixou bem molhadinha aqui"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história.',
+         '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
          '- Papéis (público hétero): quem senta, cavalga, rebola, chupa e MAMA é SEMPRE ela; o fã mete, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau. Nunca "vem sentar", "senta em mim" para o fã.',
          '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a mídia paga, o preço vai na própria mídia ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele abrir e contar ("abre e me conta se faria desse jeitinho 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
@@ -416,6 +417,73 @@ def too_long(text, fan_last):
     lim = 10 if fw <= 3 else 14  # lote 112 (Paulo): padrão UMA linha de chat; no máximo duas
     if 'r$' in (text or '').lower(): lim = 22  # oferta com valor: até duas linhas
     return (tw, lim) if tw > lim else None
+# lote 119 (Paulo): fã pediu para ela falar de si ("fala um pouco de você") e a resposta devolveu pergunta sobre ele
+ABOUT_HER = re.compile(r'(fal[ae]|cont[ae]|conta|me diz|me fala)\w*\s+(um\s+)?(pouco\s+)?(mais\s+)?(de|sobre)\s+(voc[eê]|vc|tu|ti)\b|quem [eé] voc[eê]|quem [eé] vc|como voc[eê] [eé]|como vc [eé]|se apresenta|o que voc[eê] (gosta|curte|faz)|o que vc (gosta|curte|faz)', re.I)
+ME_WORDS = {'eu', 'sou', 'gosto', 'adoro', 'amo', 'curto', 'minha', 'meu', 'meus', 'minhas', 'tenho', 'faco', 'vivo', 'chamo', 'me'}
+def asks_about_her(fan_last):
+    return bool(ABOUT_HER.search(fan_last or ''))
+def dodges_about_her(text, fan_last):
+    """O fã pediu para ela falar dela e a sugestão não fala de si (só pergunta dele). Devolve o pedido do fã ou ''."""
+    m = ABOUT_HER.search(fan_last or '')
+    if not m: return ''
+    w = _norm(text); j = ' '.join(w)
+    if re.search(r'chamou (sua )?aten|achou (o )?meu perfil|como (voce|vc) me achou|como me (achou|encontrou)', j): return m.group(0)
+    if NARROW.search(j): return ''  # lote 119b: devolveu com charme ("o que você quer saber de mim?") — vale
+    if sum(1 for x in w if x in ME_WORDS) >= 2: return ''
+    return m.group(0)
+NARROW = re.compile(r'(o )?que (voce|vc|tu) quer saber|te deixou curios|pergunta (o que|oq|qualquer)|o que (voce|vc) quer (descobrir|conhecer)|quer saber o que')
+# lote 119b (Paulo): pergunta pessoal que a ficha não responde → ela desvia brincando, nunca inventa
+PERSONAL_Q = re.compile(r'(quantos anos|qual (a )?(sua|tua) idade|sua idade|onde (voce|vc|tu) mora|de onde (voce|vc|tu) [eé]|(voce|vc|tu) mora (onde|em)|qual (sua|tua) cidade|(voce|vc|tu) (namora|[eé] casada|tem namorado|tem marido|[eé] solteira)|(voce|vc|tu) trabalha|qual (sua|tua) profiss|o que (voce|vc|tu) faz da vida|(seu|teu) nome (verdadeiro|real)|como (voce|vc|tu) se chama de verdade|(voce|vc|tu) estuda|faculdade)', re.I)
+def asks_personal(fan_last):
+    m = PERSONAL_Q.search(fan_last or '')
+    return m.group(0) if m else ''
+CLAIM = re.compile(r'\b(tenho \d{2} anos|\d{2} aninhos|moro (em|no|na|perto)\s+\w+|trabalho (como|de|em|numa?|no|na)\s+\w+|estudo (na|no|em)\s+\w+|me chamo \w+|sou (casada|solteira|noiva|enfermeira|professora|advogada|estudante|m[eé]dica)|tenho (namorado|marido))', re.I)
+def personal_claim(text, ficha_text):
+    """A sugestão afirma idade/cidade/trabalho/estado civil/nome que a ficha não traz. Devolve o trecho ou ''."""
+    m = CLAIM.search(text or '')
+    if not m: return ''
+    frag = ' '.join(_norm(m.group(0))); f = ' ' + ' '.join(_norm(ficha_text or '')) + ' '
+    key = [x for x in frag.split() if x not in ('tenho', 'moro', 'sou', 'de', 'em', 'no', 'na', 'trabalho', 'como', 'estudo', 'me', 'chamo', 'perto', 'anos', 'aninhos')]
+    return '' if key and all(' ' + k + ' ' in f for k in key) else m.group(0)
+# lote 120 (Paulo): fã diz que mandou foto/vídeo. Fã só manda mídia pagando a Solicitação de mídia; sem ela paga na conversa,
+# nada chegou — e a IA nunca enxerga imagem: não pode dizer que viu nem elogiar
+FAN_SENT = re.compile(r'(te )?(mandei|enviei|mando agora|mandei agora)\b.{0,20}\b(foto|fotinha|pic|nude|nudes|video|v[ií]deo|imagem|print|mídia|midia)|\bviu (a |minha |o meu |meu )?(foto|video|v[ií]deo|nude)|olha (a |minha )(foto|nude)|(foto|video|v[ií]deo|nude)s? que (te )?(mandei|enviei)|te mandei (uma|um|a|o)\b', re.I)
+SEEN = re.compile(r'\b(j[aá] vi|eu vi|vi sim|vi a|vi sua|vi tua|vi o seu|vi teu|vi seu|que foto|adorei (a|sua|tua) (foto|pic|imagem|v[ií]deo)|amei (a|sua|tua) (foto|pic|imagem|v[ií]deo)|del[ií]cia (de|a|essa|sua) (foto|pic|imagem)|que (pau|rola|pica|cacete) (lindo|gostoso|grande|grosso)|seu (pau|pinto) (é|e|t[aá]) (lindo|gostoso|grande|grosso))', re.I)
+def fan_says_sent(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-3:]):
+        m = FAN_SENT.search(t)
+        if m: return m.group(0)
+    return ''
+def paid_request_in(msgs_texts):
+    return any(re.search(r'solicita[çc][aã]o de m[ií]dia[^\]]*(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def unpaid_request_in(msgs_texts):
+    """Há Solicitação de mídia nossa na conversa ainda não paga (lote 120b)."""
+    return any(re.search(r'solicita[çc][aã]o de m[ií]dia', t or '', re.I) and not re.search(r'(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def is_request_item(p):
+    """Itens que vão como Solicitação de mídia (o fã paga e manda a dele / chamada), não como mídia paga (PPV)."""
+    return (p.get('category') in ('avaliacao', 'chamada', 'chamada_gravada')) or any(k in (p.get('item') or '').lower() for k in ('avalia', 'chamada'))
+# lote 121 (Paulo): elogio do fã. Neutro ("você é demais") → agradece curto, sem pergunta. Picante ("caraio vc é muito safada")
+# → brinca e devolve UMA pergunta curta que explora o desejo dele. Nunca o agradecimento-padrão ("fico feliz que gostou bb").
+COMP_NEUTRAL = re.compile(r'\b(demais|de mais|perfeita|linda|lindinha|maravilhosa|incr[ií]vel|top|show|deusa|princesa|apaixonad\w*|encantador\w*|maravilha|muito bonita|bonita)\b', re.I)
+COMP_SPICY = re.compile(r'\b(safad\w*|gostos\w*|del[ií]cia|tesud\w*|tes[aã]o|putinha|puta|rabuda|bunduda|peituda|gata|gatinha|caralho|caraio|carai|porra|que corpo|que bunda|que peit\w*)\b', re.I)
+def compliment_kind(fan_last):
+    t = (fan_last or '').strip()
+    if not t or '?' in t or len(_norm(t)) > 8: return ''
+    if COMP_SPICY.search(t): return 'picante'
+    if COMP_NEUTRAL.search(t): return 'neutro'
+    return ''
+MECH = re.compile(r'fico (bem |muito |t[aã]o )?feliz (de saber|que|em saber)|^\W*(que bom que (voc[eê]|vc) gost|obrigad[ao] por)|o que (mais )?te chamou (a )?aten[çc][aã]o', re.I)
+def mechanical(text):
+    m = MECH.search(text or '')
+    return m.group(0).strip() if m else ''
+def claims_seen(text):
+    m = SEEN.search(text or '')
+    return m.group(0) if m else ''
+# lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
+ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
+def says_online(text):
+    m = ONLINE_TALK.search(text or '')
+    return m.group(0) if m else ''
 # lote 112: oferta nunca fala a duração do vídeo
 DUR = re.compile(r'\b\d+\s*(min|minutos?|seg|segundos?|s)\b', re.I)
 def says_duration(text, fan_last):
@@ -463,6 +531,13 @@ def call_promise(text, fan_texts):
     if not any(' ' + k + ' ' in c or ' ' + k + ' ' in t for k in CALL_WORDS): return ''
     if 'r$' in (text or '').lower(): return 'valor'
     return next((k for k in CALL_PROMISE if ' ' + k + ' ' in t), '')
+# lote 117 (Paulo): "molhadinha" é só sobre ELA (o corpo dela); nunca adjetivo de coisa ("áudio molhadinho", "vídeo molhado")
+THINGS = ['audio', 'audios', 'video', 'videos', 'foto', 'fotos', 'pack', 'mensagem', 'mensagens', 'chamada', 'conteudo', 'presente', 'mimo', 'surpresa', 'beijo', 'beijinho']
+def odd_wet(text):
+    w = _norm(text)
+    for i, x in enumerate(w):
+        if x.startswith('molhad') and i > 0 and (w[i - 1] in THINGS or (i > 1 and w[i - 2] in THINGS)): return ' '.join(w[max(0, i - 2):i + 1])
+    return ''
 def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '

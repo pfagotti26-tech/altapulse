@@ -769,6 +769,45 @@ async function plantaoDialog() {
   return p;
 }
 $('my-plantao').onclick = () => plantaoDialog();
+// ---------- Lote 118 — Puxar conversa: quem está online agora nas criadoras ligadas; a IA escreve a frase e deixa na caixa, o envio é seu ----------
+let pxQ = null;
+function renderPuxada() {
+  const b = $('my-puxada'); if (!b) return;
+  if (!pxQ || !pxQ.enabled) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  const ready = pxQ.creators.reduce((a, c) => a + (c.in_window && !c.paused_reason && c.left_hour > 0 ? c.items.length : 0), 0);
+  const pend = pxQ.pending.length;
+  b.innerHTML = `💬 <b>Puxar conversa</b> · ${ready ? `<span class="pl-on">● ${ready} online pra puxar</span>` : 'ninguém pra puxar agora'}${pend ? ` · <span style="color:#ffcf7a">${pend} aguardando envio</span>` : ''}`;
+}
+async function pxLoad(refresh) { try { pxQ = await window.pulse.puxadaQueue(refresh); } catch (e) { pxQ = null; } renderPuxada(); return pxQ; }
+async function puxadaDialog() {
+  const q = await pxLoad(true); if (!q) return toast('Não consegui carregar o Puxar conversa.');
+  const money = (c) => c ? `gastou ${fmtBRL(c)}` : 'nunca gastou';
+  const groups = q.creators.map((c) => {
+    const st = c.paused_reason ? `⏸ pausado: ${c.paused_reason}` : !c.in_window ? `fora do horário (${c.window})` : c.left_hour <= 0 ? `limite da hora atingido (${c.per_hour}/h)` : !c.open ? 'abra o Chat da Privacy desta criadora no app para ver quem está online' : `${c.online} online · ${c.left_hour} de ${c.per_hour} restantes nesta hora`;
+    const can = !c.paused_reason && c.in_window && c.left_hour > 0;
+    const items = !c.open || !can ? '' : c.items.length ? c.items.map((it) => `<div class="pl-item online" data-c="${esc(c.creator_id)}" data-f="${esc(it.fan_ref)}" data-n="${esc(it.name)}" data-r="${esc(it.rid || '')}"><div class="who"><b><span class="pl-on">●</span> ${esc(it.name)}</b><small>${esc(money(it.spent_cents))}${it.when ? ` · última: ${esc(it.when)}` : ''}</small></div><button class="primary" data-px="1">Puxar conversa</button></div>`).join('') : '<small style="color:#9a9ab0">ninguém online pra puxar agora (quem já recebeu, está conversando ou esperando resposta fica de fora).</small>';
+    return `<div class="pl-group"><b>${esc(c.creator_name)}</b><span class="st">${esc(st)}</span></div>${items}`;
+  }).join('');
+  const pend = q.pending.map((p) => `<div class="pl-item pend" data-k="${esc(p.key)}"><div class="who"><b>${esc(p.name)}</b><small>frase na caixa, aguardando você enviar (vale 10 min)</small><span class="txt" title="${esc(p.text)}">${esc(p.text)}</span></div><button class="ghost" data-pxcancel="1">Desfazer</button></div>`).join('');
+  const sent = q.sent.slice(-15).reverse().map((p) => `<div class="pl-item sent"><div class="who"><b>${esc(p.name)}</b><small>${p.replied ? '✅ respondeu: continue a conversa' : 'enviada · aguardando resposta'}</small><span class="txt">${esc(p.text)}</span></div></div>`).join('');
+  const body = `<p style="margin:0 0 6px;font-size:12px;color:#9a9ab0">Assinantes <b>online agora</b>, com a conversa parada. "Puxar conversa" abre a conversa, a IA escreve uma frase curtinha com o contexto dele e deixa na caixa: <b>confira e envie</b>. Se ele responder, siga com o Sugerir resposta.</p>
+    ${pend ? `<div class="pl-group"><b>Aguardando envio</b></div>${pend}` : ''}
+    ${groups || '<small>Nenhuma criadora com Puxar conversa ligado. O gestor liga no painel → Puxar conversa.</small>'}
+    ${sent ? `<div class="pl-group"><b>Enviadas</b></div>${sent}` : ''}`;
+  const p = dialog({ title: 'Puxar conversa', body, hideOk: true });
+  const B = $('dialog-body');
+  B.querySelectorAll('[data-px]').forEach((btn) => btn.onclick = async () => {
+    const it = btn.closest('.pl-item'); B.querySelectorAll('[data-px]').forEach((x) => { x.disabled = true; }); btn.textContent = 'Escrevendo…';
+    const r = await window.pulse.puxadaPrepare({ creator_id: it.dataset.c, fan_ref: it.dataset.f, name: it.dataset.n, rid: it.dataset.r || null }).catch((e) => ({ ok: false, reason: e.message }));
+    if (r && r.ok) { toast(`Frase pronta na conversa de ${it.dataset.n}. Confira e envie.`); $('dialog-cancel').onclick(); pxLoad(false); }
+    else { toast(`Não deu: ${(r && r.reason) || 'erro'}`, 5000); $('dialog-cancel').onclick(); puxadaDialog(); }
+  });
+  B.querySelectorAll('[data-pxcancel]').forEach((btn) => btn.onclick = async () => { await window.pulse.puxadaCancel(btn.closest('.pl-item').dataset.k); $('dialog-cancel').onclick(); puxadaDialog(); });
+  return p;
+}
+$('my-puxada').onclick = () => puxadaDialog();
+setInterval(() => pxLoad(false), 30000); setTimeout(() => pxLoad(false), 16000);
 setInterval(() => { if (plHasPerm()) plLoad(false); }, 60000); setTimeout(() => { if (plHasPerm()) plLoad(false); }, 15000);
 $('btn-focus-off').onclick = () => toggleFocus();
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); toggleFocus(); } });

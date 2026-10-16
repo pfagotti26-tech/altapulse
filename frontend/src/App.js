@@ -18,6 +18,7 @@ import Team from './pages/Team';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import Plantao, { canPlantao } from './pages/Plantao';
+import Puxada from './pages/Puxada';
 import InstallExtension from './pages/InstallExtension';
 import Shadow from './pages/Shadow';
 import Auto from './pages/Auto'; // AUTO (Grok)
@@ -66,6 +67,7 @@ export default function App() {
       <Route path="/relatorios" element={staff ? <Reports/> : <Navigate to="/"/>}/>
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
+      <Route path="/puxar-conversa" element={user.role === 'manager' ? <Puxada/> : <Navigate to="/"/>}/>
       <Route path="/sombra" element={user.role === 'manager' ? <Shadow/> : <Navigate to="/"/>}/>
       {/* AUTO (Grok) */}
       <Route path="/auto" element={user.role === 'manager' ? <Auto/> : <Navigate to="/"/>}/>

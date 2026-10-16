@@ -17,6 +17,7 @@ from assist import router as assist
 from auto_send import router as auto_send  # AUTO (Grok)
 from fan_memory import router as fan_memory
 from content import router as content
+from puxada import router as puxada
 from scorecard import router as scorecard
 from team_live import router as team_live
 from radar import router as radar
@@ -89,6 +90,13 @@ async def lifespan(app):
     await db.media_requests.create_index([('status', 1), ('due_at', 1)])
     await db.media_requests.create_index([('creator_id', 1), ('fan_ref', 1), ('status', 1)])
     await db.media_requests.create_index('expires_at', expireAfterSeconds=0)
+    await db.puxada_configs.create_index('creator_id', unique=True)  # lote 118
+    await db.puxada_log.create_index([('creator_id', 1), ('sent_at', -1)])
+    await db.puxada_log.create_index([('creator_id', 1), ('fan_ref', 1), ('sent_at', -1)])
+    await db.puxada_log.create_index('expires_at', expireAfterSeconds=0)
+    await db.puxada_claims.create_index('token', unique=True)
+    await db.puxada_claims.create_index([('creator_id', 1), ('status', 1), ('expires_at', 1)])
+    await db.puxada_claims.create_index('expires_at', expireAfterSeconds=86400)
     import asyncio
     from shift_clock import sweep_loop
     clock = asyncio.create_task(sweep_loop())  # encerra turnos esquecidos (app fechado)
@@ -111,7 +119,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada]:
     app.include_router(router, prefix='/api')
 app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 
