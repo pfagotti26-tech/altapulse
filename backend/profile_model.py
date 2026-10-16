@@ -456,6 +456,12 @@ def fan_says_sent(fan_texts):
     return ''
 def paid_request_in(msgs_texts):
     return any(re.search(r'solicita[çc][aã]o de m[ií]dia[^\]]*(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def unpaid_request_in(msgs_texts):
+    """Há Solicitação de mídia nossa na conversa ainda não paga (lote 120b)."""
+    return any(re.search(r'solicita[çc][aã]o de m[ií]dia', t or '', re.I) and not re.search(r'(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def is_request_item(p):
+    """Itens que vão como Solicitação de mídia (o fã paga e manda a dele / chamada), não como mídia paga (PPV)."""
+    return (p.get('category') in ('avaliacao', 'chamada', 'chamada_gravada')) or any(k in (p.get('item') or '').lower() for k in ('avalia', 'chamada'))
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''

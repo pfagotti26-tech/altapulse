@@ -617,8 +617,12 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _paid_req = PM.paid_request_in([m.text for m in msgs])
     _aval = next((p['item'] for p in prices if 'avalia' in p['item'].lower()), '')
     if _sent_claim and not _paid_req:
-        opener_block += (f'\nO FÃ DISSE QUE MANDOU MÍDIA ("{_sent_claim}"), mas NÃO há Solicitação de mídia paga nesta conversa: nada chegou para ela (o fã só consegue mandar foto/vídeo pagando a solicitação, e você nunca enxerga imagem). '
-                         'NUNCA diga que viu nem elogie a foto. Diga com charme que não chegou nada e que, pra ela ver, é pela solicitação' + (f' (preencha "produto" com "{_aval}")' if _aval else '') + ', ex.: "hum, aqui não chegou nada amor 🙈 pra eu ver é pela solicitação, quer que eu te mande?"')
+        _base = (f'\nO FÃ DISSE QUE MANDOU MÍDIA ("{_sent_claim}"), mas NÃO há Solicitação de mídia paga nesta conversa: nada chegou para ela (o fã só consegue mandar foto/vídeo pagando a solicitação, e você nunca enxerga imagem). '
+                 'NUNCA diga que viu nem elogie a foto. ')
+        if PM.unpaid_request_in([m.text for m in msgs if m.ours]):
+            opener_block += _base + 'Já existe uma solicitação nossa ainda NÃO paga: diga com charme que é só pagar a que ela mandou, ex.: "amor, é só pagar a solicitação que te mandei que eu vejo todinho 😈". "produto" vazio.'
+        else:
+            opener_block += _base + ('Ainda não mandamos solicitação: diga com charme que é por aqui, ex.: "amor, pra me mandar esse pau gostoso manda por aqui 😈"' + (f' e preencha "produto" com "{_aval}" (a equipe manda a Solicitação de mídia com o valor; nunca escreva o valor no texto).' if _aval else '.'))
     if _pq: opener_block += (f'\nO FÃ PERGUNTOU ALGO PESSOAL ("{_pq}"): se a ficha não traz essa informação, NÃO invente nada (idade, cidade, trabalho, namoro, nome): desvie brincando e puxe para os dois, '
                              'ex.: "hum, você é bem curioso, né? rs mas antes vamos curtir um pouquinho eu e você…", "segredinho meu 🤭 me conta você primeiro". Se a ficha traz, pode responder.')
     sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
@@ -778,7 +782,10 @@ FIM DA CONVERSA:
     after = PM.PRICE_STRIP(scrub(str(out.get('depois') or '')).strip())[:200] if prod else ''
     if prod:
         text = PM.PRICE_STRIP(text)
-        ppv = f"💰 Mandar {prod['item']} {money_br(fan_price(prod['cents'], anchor))} como mídia paga" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
+        if PM.is_request_item(prod):  # lote 120b: avaliação/chamada vão como Solicitação de mídia, não como mídia paga
+            ppv = f"📩 Mandar a Solicitação de mídia: {prod['item']} {money_br(fan_price(prod['cents'], anchor))}"
+        else:
+            ppv = f"💰 Mandar {prod['item']} {money_br(fan_price(prod['cents'], anchor))} como mídia paga" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
         warning = (warning + ' · ' if warning else '') + ppv
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora e mandar a Solicitação de mídia com o valor (nunca escrever o preço).'
