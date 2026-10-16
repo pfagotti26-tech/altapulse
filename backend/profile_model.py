@@ -417,6 +417,18 @@ def too_long(text, fan_last):
     lim = 10 if fw <= 3 else 14  # lote 112 (Paulo): padrão UMA linha de chat; no máximo duas
     if 'r$' in (text or '').lower(): lim = 22  # oferta com valor: até duas linhas
     return (tw, lim) if tw > lim else None
+# lote 119 (Paulo): fã pediu para ela falar de si ("fala um pouco de você") e a resposta devolveu pergunta sobre ele
+ABOUT_HER = re.compile(r'(fal[ae]|cont[ae]|conta|me diz|me fala)\w*\s+(um\s+)?(pouco\s+)?(mais\s+)?(de|sobre)\s+(voc[eê]|vc|tu|ti)\b|quem [eé] voc[eê]|quem [eé] vc|como voc[eê] [eé]|como vc [eé]|se apresenta|o que voc[eê] (gosta|curte|faz)|o que vc (gosta|curte|faz)', re.I)
+ME_WORDS = {'eu', 'sou', 'gosto', 'adoro', 'amo', 'curto', 'minha', 'meu', 'meus', 'minhas', 'tenho', 'faco', 'vivo', 'chamo', 'me'}
+def asks_about_her(fan_last):
+    return bool(ABOUT_HER.search(fan_last or ''))
+def dodges_about_her(text, fan_last):
+    """O fã pediu para ela falar dela e a sugestão não fala de si (só pergunta dele). Devolve o pedido do fã ou ''."""
+    m = ABOUT_HER.search(fan_last or '')
+    if not m: return ''
+    w = _norm(text)
+    if sum(1 for x in w if x in ME_WORDS) >= 2 and not re.search(r'chamou (sua )?aten|achou (o )?meu perfil|como (voce|vc) me achou|como me (achou|encontrou)', ' '.join(w)): return ''
+    return m.group(0)
 # lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
 ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
 def says_online(text):

@@ -598,7 +598,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         opener_block = (f"FASE DE CONEXÃO ({phase['turn']}/{phase['of']}): fã sem histórico de compra (novo ou ex-assinante voltando). Objetivo agora é ele se sentir próximo e conhecido: "
                         f"demonstre interesse genuíno pelo fã, no tom {w['dela']}; faça UMA pergunta sobre o fã por mensagem (como gosta de ser chamado, como achou o perfil, o que chamou atenção, como foi o dia dele, do que gosta) "
                         "e comente o que ele já contou. NÃO ofereça nada e não fale de preço. Nunca pergunte telefone, rede social, cidade exata ou trabalho. "
-                        "Se ele responder seco duas vezes ou pedir conteúdo, encerre a conexão e siga o roteiro normal.")
+                        "Se ele responder seco duas vezes ou pedir conteúdo, encerre a conexão e siga o roteiro normal. "
+                        "Se o fã PERGUNTOU ou PEDIU algo (ex.: \"fala um pouco de você\"), responda isso PRIMEIRO, falando dela com o que a ficha permite (jeito, gostos, o que curte fazer, sem dado pessoal); a pergunta sobre ele só vem depois, se couber, e nunca \"o que chamou atenção no meu perfil\".")
         if conn.get('questions'): opener_block += '\nPERGUNTAS DE CONEXÃO (use como base): ' + conn['questions']
         if segs and not seg: opener_block += '\nO perfil do fã ainda não é conhecido: as perguntas podem ajudar a revelar qual ele é (' + ', '.join(x['label'] for x in segs) + ').'
     elif situation:
@@ -607,6 +608,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         if base_lines: opener_block += f"\nABERTURAS DA CRIADORA PARA ESTA SITUAÇÃO (use uma como base, variando levemente; não copie igual sempre):\n{base_lines}"
         if segs and not seg:
             opener_block += '\nO perfil do fã ainda não é conhecido: termine com UMA pergunta curta, no tom ' + w['dela'] + ', cuja resposta revele qual perfil ele é (' + ', '.join(x['label'] for x in segs) + ').'
+    if body.mode == 'reply' and PM.asks_about_her(_lastfan): opener_block += '\nO FÃ PEDIU PARA ELA FALAR DE SI: responda isso primeiro, em primeira pessoa, com o que a ficha mostra (jeito, gostos), sem dado pessoal.'
     sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
            "uma provocação, uma curiosidade ou uma pergunta leve, ligada ao que se sabe dele (memória, anotações, o fim da conversa) quando houver. "
            "Não venda e não fale de preço, conteúdo, foto ou vídeo. Não diga que viu ele online, não cobre resposta, não repita nada do que " + w['ela'] + " já disse, "
@@ -673,6 +675,8 @@ FIM DA CONVERSA:
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
     tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
+    if longo and PM.asks_about_her(_fl) and longo[0] <= 22: longo = None  # lote 119: falar de si pede um pouco mais de texto
+    dodge = PM.dodges_about_her(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
@@ -687,8 +691,9 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge:
         why = []
+        if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; responda o pedido PRIMEIRO falando dela em primeira pessoa (jeito, gostos, o que curte, pela ficha, sem dado pessoal), curto e no tom dela; se perguntar algo depois, que não seja "o que chamou atenção no meu perfil"')
         if onl: why.append(f'falou "{onl}"; nunca diga que viu ele online nem cobre resposta: só provoque ou pergunte algo leve')
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
