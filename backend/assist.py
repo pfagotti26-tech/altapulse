@@ -612,6 +612,13 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         opener_block += ('\nO FÃ PEDIU PARA ELA FALAR DE SI: escolha UM jeito (varie entre fãs): (a) fale um pouco dela em primeira pessoa, com o que a ficha mostra (jeito, gostos), sem dado pessoal; '
                          'ou (b) devolva com charme para ele escolher, sem deixar tão aberto ("hum, o que você quer saber de mim? 😏", "depende… o que te deixou curioso?").')
     _pq = PM.asks_personal(_lastfan) if body.mode == 'reply' else ''
+    # lote 120: fã diz que mandou foto/vídeo sem Solicitação de mídia paga na conversa → nada chegou; ela não viu
+    _sent_claim = PM.fan_says_sent([m.text for m in msgs[-6:] if not m.ours]) if body.mode == 'reply' and not mreq else ''
+    _paid_req = PM.paid_request_in([m.text for m in msgs])
+    _aval = next((p['item'] for p in prices if 'avalia' in p['item'].lower()), '')
+    if _sent_claim and not _paid_req:
+        opener_block += (f'\nO FÃ DISSE QUE MANDOU MÍDIA ("{_sent_claim}"), mas NÃO há Solicitação de mídia paga nesta conversa: nada chegou para ela (o fã só consegue mandar foto/vídeo pagando a solicitação, e você nunca enxerga imagem). '
+                         'NUNCA diga que viu nem elogie a foto. Diga com charme que não chegou nada e que, pra ela ver, é pela solicitação' + (f' (preencha "produto" com "{_aval}")' if _aval else '') + ', ex.: "hum, aqui não chegou nada amor 🙈 pra eu ver é pela solicitação, quer que eu te mande?"')
     if _pq: opener_block += (f'\nO FÃ PERGUNTOU ALGO PESSOAL ("{_pq}"): se a ficha não traz essa informação, NÃO invente nada (idade, cidade, trabalho, namoro, nome): desvie brincando e puxe para os dois, '
                              'ex.: "hum, você é bem curioso, né? rs mas antes vamos curtir um pouquinho eu e você…", "segredinho meu 🤭 me conta você primeiro". Se a ficha traz, pode responder.')
     sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
@@ -683,6 +690,7 @@ FIM DA CONVERSA:
     if longo and PM.asks_about_her(_fl) and longo[0] <= 22: longo = None  # lote 119: falar de si pede um pouco mais de texto
     dodge = PM.dodges_about_her(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     claim = PM.personal_claim(txt0, profile_block(creator, prof)) if out and not out.get('alerta') else ''
+    seen = PM.claims_seen(txt0) if out and not out.get('alerta') and not _paid_req and not mreq else ''
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
@@ -697,8 +705,9 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen:
         why = []
+        if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
         if onl: why.append(f'falou "{onl}"; nunca diga que viu ele online nem cobre resposta: só provoque ou pergunte algo leve')
@@ -741,6 +750,8 @@ FIM DA CONVERSA:
                 if o2 and str(o2.get('texto') or '').strip(): out = o2
         except httpx.HTTPError: pass
         # ainda aceitando encontro/programa depois da segunda tentativa: não sai sugestão nenhuma (vira alerta, nunca vai para o fã)
+        if seen and out and not out.get('alerta') and PM.claims_seen(str(out.get('texto') or '')):
+            out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}
         if meet and out and not out.get('alerta') and PM.accepts_meeting(str(out.get('texto') or ''), [m.text for m in msgs[-6:] if not m.ours]):
             out = {'alerta': True, 'motivo': f'o fã pediu encontro/programa ("{meet}") e a sugestão não recusou; responda à mão com um não claro'}
     cost, pt, ct, ot = cost_of(model, usage)

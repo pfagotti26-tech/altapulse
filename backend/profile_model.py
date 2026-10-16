@@ -445,6 +445,20 @@ def personal_claim(text, ficha_text):
     frag = ' '.join(_norm(m.group(0))); f = ' ' + ' '.join(_norm(ficha_text or '')) + ' '
     key = [x for x in frag.split() if x not in ('tenho', 'moro', 'sou', 'de', 'em', 'no', 'na', 'trabalho', 'como', 'estudo', 'me', 'chamo', 'perto', 'anos', 'aninhos')]
     return '' if key and all(' ' + k + ' ' in f for k in key) else m.group(0)
+# lote 120 (Paulo): fã diz que mandou foto/vídeo. Fã só manda mídia pagando a Solicitação de mídia; sem ela paga na conversa,
+# nada chegou — e a IA nunca enxerga imagem: não pode dizer que viu nem elogiar
+FAN_SENT = re.compile(r'(te )?(mandei|enviei|mando agora|mandei agora)\b.{0,20}\b(foto|fotinha|pic|nude|nudes|video|v[ií]deo|imagem|print|mídia|midia)|\bviu (a |minha |o meu |meu )?(foto|video|v[ií]deo|nude)|olha (a |minha )(foto|nude)|(foto|video|v[ií]deo|nude)s? que (te )?(mandei|enviei)|te mandei (uma|um|a|o)\b', re.I)
+SEEN = re.compile(r'\b(j[aá] vi|eu vi|vi sim|vi a|vi sua|vi tua|vi o seu|vi teu|vi seu|que foto|adorei (a|sua|tua) (foto|pic|imagem|v[ií]deo)|amei (a|sua|tua) (foto|pic|imagem|v[ií]deo)|del[ií]cia (de|a|essa|sua) (foto|pic|imagem)|que (pau|rola|pica|cacete) (lindo|gostoso|grande|grosso)|seu (pau|pinto) (é|e|t[aá]) (lindo|gostoso|grande|grosso))', re.I)
+def fan_says_sent(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-3:]):
+        m = FAN_SENT.search(t)
+        if m: return m.group(0)
+    return ''
+def paid_request_in(msgs_texts):
+    return any(re.search(r'solicita[çc][aã]o de m[ií]dia[^\]]*(?<!n[ãa]o )\bpago', t or '', re.I) for t in msgs_texts)
+def claims_seen(text):
+    m = SEEN.search(text or '')
+    return m.group(0) if m else ''
 # lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
 ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
 def says_online(text):
