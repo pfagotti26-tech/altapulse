@@ -549,7 +549,6 @@ const autoInProgress = new Set(); // AUTO (Grok) — uma decisão por conversa
 // AUTO (Grok) — preenche modal de solicitação de mídia
 async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
   if (!product || !cents) return false;
-  if (!/avalia/i.test(product)) return false; // só Avaliação
   try {
     const check = await api('GET', `/auto/request-price?creator_id=${encodeURIComponent(creatorId)}&item=${encodeURIComponent(product)}&fan_ref=${encodeURIComponent(fanRef || '')}`);
     if (!check || !check.ok) { appLog('fila', `solicitação: ${check && check.motivo}`); return false; }
@@ -596,10 +595,23 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
       const cancel = modal.querySelector('.el-button--secondary');
       if (!input) return { ok: false };
       input.focus();
-      if (qty) qty.value = '1';
-      return { ok: true, hasConfirm: !!confirm, hasCancel: !!cancel };
+      if (qty) {
+        const isAval = /avalia/i.test(${JSON.stringify(product)});
+        let want = isAval ? 1 : 0;
+        qty.value = String(want);
+        qty.dispatchEvent(new Event('input', { bubbles: true }));
+        qty.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!isAval && qty.value !== '0') {
+          qty.value = '1';
+          qty.dispatchEvent(new Event('input', { bubbles: true }));
+          qty.dispatchEvent(new Event('change', { bubbles: true }));
+          want = 1;
+        }
+      }
+      return { ok: true, hasConfirm: !!confirm, hasCancel: !!cancel, qty: qty ? qty.value : null };
     })()`;
     const prep = await runJs(view, script, 2000).catch(() => ({ ok: false }));
+    if (prep && prep.qty != null) appLog('fila', `qtd ficou: ${prep.qty}`);
     if (!prep || !prep.ok) {
       await runJs(view, `(() => { const m = (function deepFind(sel, root=document){ const el=root.querySelector(sel); if(el)return el; for(const e of root.querySelectorAll('*')) if(e.shadowRoot){const f=deepFind(sel,e.shadowRoot);if(f)return f;} return null; })('.el-dialog.el-dialog-price'); if (m) { const b = m.querySelector('.el-button--secondary'); if (b) b.click(); } })()`, 1000).catch(() => {});
       await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item: product, cents, essay: false, result: 'modal sem campo' }).catch(() => {});
