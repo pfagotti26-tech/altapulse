@@ -157,7 +157,7 @@ def natural_rules(prof):
          '- Papo quente (sexting): responda DENTRO da cena dele, continuando a fantasia (fã: "gozar na tua cara" → "nessa boquinha bem aberta pra receber tudo?"; fã: "banho agarradinho" → "final perfeito, amor"). Pode ser 2 linhas curtas na mesma mensagem ("gostei\nme deixou bem molhadinha aqui"). Sem pergunta genérica ("o que mais te excita em mim?") e sem inventar história.',
          '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
-         '- Papéis (público hétero): quem senta, cavalga, rebola, chupa e MAMA é SEMPRE ela; o fã mete, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau. Nunca "vem sentar", "senta em mim" para o fã.',
+         '- Papéis (público hétero): quem senta, cavalga, rebola, chupa, MAMA e DÁ é SEMPRE ela; o fã mete, come, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau nem se ele gosta de dar (ex. certo: "você gosta de me comer de quatro?"). Nunca "vem sentar", "senta em mim" para o fã.',
          '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a mídia paga, o preço vai na própria mídia ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele abrir e contar ("abre e me conta se faria desse jeitinho 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
@@ -506,7 +506,9 @@ def clean_reason(text):
 ROLE_FLIP = ['vem sentar', 'senta em mim', 'senta gostoso em mim', 'sentar em cima de mim', 'senta em cima de mim', 'sentar gostoso em mim', 'vem cavalgar', 'cavalga em mim',
              'rebola em mim', 'me chupa', 'chupa minha', 'chupar minha',
              # lote 116 (Paulo): quem mama é sempre ela
-             'gosta de mamar', 'voce mama', 'vc mama', 'me mama', 'mama em mim', 'quer mamar', 'vai mamar', 'sabe mamar', 'mamar devagar', 'mamar com forca', 'voce mamando', 'vc mamando', 'te ver mamando']
+             'gosta de mamar', 'voce mama', 'vc mama', 'me mama', 'mama em mim', 'quer mamar', 'vai mamar', 'sabe mamar', 'mamar devagar', 'mamar com forca', 'voce mamando', 'vc mamando', 'te ver mamando',
+             # lote 122 (Paulo): quem dá é sempre ela
+             'gosta de dar', 'curte dar', 'gosta de dar o', 'gosta de dar a', 'dar pra mim', 'da pra mim', 'quer dar pra mim', 'vai dar pra mim', 'voce dando', 'vc dando', 'te ver dando']
 def PRICE_STRIP(text):
     """Tira 'R$ 75', 'por R$ 75,00', '75 reais' do texto (o valor vai na mídia paga)."""
     t = re.sub(r'\s*(,|\.|-|—)?\s*(por|só|so|apenas)?\s*R\$\s*\d+(?:[.,]\d{2})?\s*', ' ', text or '', flags=re.I)

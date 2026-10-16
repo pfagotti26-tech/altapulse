@@ -727,7 +727,7 @@ FIM DA CONVERSA:
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
         if react: why.append('falou da "reação" do fã; não cite reação: responda direto ao sentimento ("amei que gostou, amor", "ai que tesão…")')
-        if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga e chupa é ELA, o fã mete e goza')
+        if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga, chupa e dá é ELA, o fã mete, come e goza')
         if pricetxt: why.append('escreveu o valor no texto; o valor vai na mídia paga: o "texto" é só a provocação, a "legenda" vai com a mídia e o "depois" chama para abrir')
         if fam: why.append('usou palavra de família ou de tema proibido; é PROIBIDO citar qualquer parente ou esse tema, nem para recusar: mude de assunto com charme sem mencionar nada disso')
         if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
