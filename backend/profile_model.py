@@ -417,6 +417,11 @@ def too_long(text, fan_last):
     lim = 10 if fw <= 3 else 14  # lote 112 (Paulo): padrão UMA linha de chat; no máximo duas
     if 'r$' in (text or '').lower(): lim = 22  # oferta com valor: até duas linhas
     return (tw, lim) if tw > lim else None
+# lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
+ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
+def says_online(text):
+    m = ONLINE_TALK.search(text or '')
+    return m.group(0) if m else ''
 # lote 112: oferta nunca fala a duração do vídeo
 DUR = re.compile(r'\b\d+\s*(min|minutos?|seg|segundos?|s)\b', re.I)
 def says_duration(text, fan_last):

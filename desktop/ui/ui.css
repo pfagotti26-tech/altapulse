@@ -383,3 +383,7 @@ header .tools { flex: 0 0 auto; }
 .queue.wait-link { cursor: pointer; }
 .queue.wait-link:hover { text-decoration: underline; }
 .pl-on { color: #4ade80; font-weight: 600; }
+
+/* Puxar conversa (lote 118) */
+.work.puxada { background: #14261c; border-color: #2f7a4d; }
+.work.puxada b { color: #86efac; }

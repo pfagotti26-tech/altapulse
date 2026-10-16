@@ -437,7 +437,7 @@ class SuggestIn(Strict):
     style: Literal['normal', 'vendedora'] = 'normal'
     product: str = Field(default='', max_length=80)  # item da tabela escolhido no botão Vender (vazio = a IA escolhe)
     temp: Optional[int] = Field(default=None, ge=0, le=100)  # nota do termômetro no app quando o chatter pediu
-    mode: Literal['reply', 'followup'] = 'reply'  # followup: a última é nossa (puxar conversa, reativar)
+    mode: Literal['reply', 'followup', 'puxada'] = 'reply'  # followup: a última é nossa (puxar conversa, reativar); puxada (lote 118): fã online, conversa parada — só via /extension/puxada/line
     level: Optional[Literal['leve', 'picante', 'explicito']] = None
     platform: Literal['privacy', 'fatalfans', 'onlyfans'] = 'privacy'  # onde está a conversa aberta
 
@@ -550,6 +550,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
     else: goal = 'Se fizer sentido oferecer algo, preencha "produto" com o item exato da tabela; senão deixe vazio.'
+    if body.mode == 'puxada': goal = 'NÃO ofereça nada: "produto" vazio, sem preço, sem falar de conteúdo, foto ou vídeo.'
     # lote 107: 3 mensagens nossas sem oferta → esta vende (fã que só conversa não compra)
     _n_off = PM.since_offer([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and body.style != 'vendedora' and items else 0
     must_sell = _n_off >= 3
@@ -606,7 +607,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         if base_lines: opener_block += f"\nABERTURAS DA CRIADORA PARA ESTA SITUAÇÃO (use uma como base, variando levemente; não copie igual sempre):\n{base_lines}"
         if segs and not seg:
             opener_block += '\nO perfil do fã ainda não é conhecido: termine com UMA pergunta curta, no tom ' + w['dela'] + ', cuja resposta revele qual perfil ele é (' + ', '.join(x['label'] for x in segs) + ').'
-    sit = ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
+    sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
+           "uma provocação, uma curiosidade ou uma pergunta leve, ligada ao que se sabe dele (memória, anotações, o fim da conversa) quando houver. "
+           "Não venda e não fale de preço, conteúdo, foto ou vídeo. Não diga que viu ele online, não cobre resposta, não repita nada do que " + w['ela'] + " já disse, "
+           "e nada de saudação genérica (\"oi, tudo bem?\"). Pode ser picante de leve.") if body.mode == 'puxada' else ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
            if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem ' + w['dela'] + '.')
     anchor = fan_anchor(card)
     fan_list = ''
@@ -669,6 +673,8 @@ FIM DA CONVERSA:
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
     tic = PM.catchphrase(txt0, recent_ours, other_texts) if out and not out.get('alerta') else ''
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
+    if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
+    onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
     nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
@@ -681,8 +687,9 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl:
         why = []
+        if onl: why.append(f'falou "{onl}"; nunca diga que viu ele online nem cobre resposta: só provoque ou pergunte algo leve')
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
         if react: why.append('falou da "reação" do fã; não cite reação: responda direto ao sentimento ("amei que gostou, amor", "ai que tesão…")')
@@ -771,7 +778,7 @@ FIM DA CONVERSA:
         await db.assist_recent.insert_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': scrub(text)[:400], 'at': iso(), 'expires_at': now() + timedelta(hours=24)})
     # Modo sombra (ficha da criadora): guarda a sugestão para comparar com o que o chatter enviar de verdade.
     # Só medição: nada muda no que o chatter vê, e nada é enviado pelo sistema.
-    if PM.normalize(prof).get('shadow') and text.strip():
+    if PM.normalize(prof).get('shadow') and text.strip() and body.mode != 'puxada':
         last_fan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
         sid = uid()
         await db.shadow_actions.insert_one({'id': sid, 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
