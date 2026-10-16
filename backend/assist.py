@@ -608,7 +608,12 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         if base_lines: opener_block += f"\nABERTURAS DA CRIADORA PARA ESTA SITUAÇÃO (use uma como base, variando levemente; não copie igual sempre):\n{base_lines}"
         if segs and not seg:
             opener_block += '\nO perfil do fã ainda não é conhecido: termine com UMA pergunta curta, no tom ' + w['dela'] + ', cuja resposta revele qual perfil ele é (' + ', '.join(x['label'] for x in segs) + ').'
-    if body.mode == 'reply' and PM.asks_about_her(_lastfan): opener_block += '\nO FÃ PEDIU PARA ELA FALAR DE SI: responda isso primeiro, em primeira pessoa, com o que a ficha mostra (jeito, gostos), sem dado pessoal.'
+    if body.mode == 'reply' and PM.asks_about_her(_lastfan):
+        opener_block += ('\nO FÃ PEDIU PARA ELA FALAR DE SI: escolha UM jeito (varie entre fãs): (a) fale um pouco dela em primeira pessoa, com o que a ficha mostra (jeito, gostos), sem dado pessoal; '
+                         'ou (b) devolva com charme para ele escolher, sem deixar tão aberto ("hum, o que você quer saber de mim? 😏", "depende… o que te deixou curioso?").')
+    _pq = PM.asks_personal(_lastfan) if body.mode == 'reply' else ''
+    if _pq: opener_block += (f'\nO FÃ PERGUNTOU ALGO PESSOAL ("{_pq}"): se a ficha não traz essa informação, NÃO invente nada (idade, cidade, trabalho, namoro, nome): desvie brincando e puxe para os dois, '
+                             'ex.: "hum, você é bem curioso, né? rs mas antes vamos curtir um pouquinho eu e você…", "segredinho meu 🤭 me conta você primeiro". Se a ficha traz, pode responder.')
     sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
            "uma provocação, uma curiosidade ou uma pergunta leve, ligada ao que se sabe dele (memória, anotações, o fim da conversa) quando houver. "
            "Não venda e não fale de preço, conteúdo, foto ou vídeo. Não diga que viu ele online, não cobre resposta, não repita nada do que " + w['ela'] + " já disse, "
@@ -677,6 +682,7 @@ FIM DA CONVERSA:
     longo = PM.too_long(txt0, _fl) if out and not out.get('alerta') and _fl else None
     if longo and PM.asks_about_her(_fl) and longo[0] <= 22: longo = None  # lote 119: falar de si pede um pouco mais de texto
     dodge = PM.dodges_about_her(txt0, _fl) if out and not out.get('alerta') and _fl else ''
+    claim = PM.personal_claim(txt0, profile_block(creator, prof)) if out and not out.get('alerta') else ''
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
@@ -691,9 +697,10 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge:
+    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim:
         why = []
-        if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; responda o pedido PRIMEIRO falando dela em primeira pessoa (jeito, gostos, o que curte, pela ficha, sem dado pessoal), curto e no tom dela; se perguntar algo depois, que não seja "o que chamou atenção no meu perfil"')
+        if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
+        if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
         if onl: why.append(f'falou "{onl}"; nunca diga que viu ele online nem cobre resposta: só provoque ou pergunte algo leve')
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')

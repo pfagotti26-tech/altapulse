@@ -426,9 +426,25 @@ def dodges_about_her(text, fan_last):
     """O fã pediu para ela falar dela e a sugestão não fala de si (só pergunta dele). Devolve o pedido do fã ou ''."""
     m = ABOUT_HER.search(fan_last or '')
     if not m: return ''
-    w = _norm(text)
-    if sum(1 for x in w if x in ME_WORDS) >= 2 and not re.search(r'chamou (sua )?aten|achou (o )?meu perfil|como (voce|vc) me achou|como me (achou|encontrou)', ' '.join(w)): return ''
+    w = _norm(text); j = ' '.join(w)
+    if re.search(r'chamou (sua )?aten|achou (o )?meu perfil|como (voce|vc) me achou|como me (achou|encontrou)', j): return m.group(0)
+    if NARROW.search(j): return ''  # lote 119b: devolveu com charme ("o que você quer saber de mim?") — vale
+    if sum(1 for x in w if x in ME_WORDS) >= 2: return ''
     return m.group(0)
+NARROW = re.compile(r'(o )?que (voce|vc|tu) quer saber|te deixou curios|pergunta (o que|oq|qualquer)|o que (voce|vc) quer (descobrir|conhecer)|quer saber o que')
+# lote 119b (Paulo): pergunta pessoal que a ficha não responde → ela desvia brincando, nunca inventa
+PERSONAL_Q = re.compile(r'(quantos anos|qual (a )?(sua|tua) idade|sua idade|onde (voce|vc|tu) mora|de onde (voce|vc|tu) [eé]|(voce|vc|tu) mora (onde|em)|qual (sua|tua) cidade|(voce|vc|tu) (namora|[eé] casada|tem namorado|tem marido|[eé] solteira)|(voce|vc|tu) trabalha|qual (sua|tua) profiss|o que (voce|vc|tu) faz da vida|(seu|teu) nome (verdadeiro|real)|como (voce|vc|tu) se chama de verdade|(voce|vc|tu) estuda|faculdade)', re.I)
+def asks_personal(fan_last):
+    m = PERSONAL_Q.search(fan_last or '')
+    return m.group(0) if m else ''
+CLAIM = re.compile(r'\b(tenho \d{2} anos|\d{2} aninhos|moro (em|no|na|perto)\s+\w+|trabalho (como|de|em|numa?|no|na)\s+\w+|estudo (na|no|em)\s+\w+|me chamo \w+|sou (casada|solteira|noiva|enfermeira|professora|advogada|estudante|m[eé]dica)|tenho (namorado|marido))', re.I)
+def personal_claim(text, ficha_text):
+    """A sugestão afirma idade/cidade/trabalho/estado civil/nome que a ficha não traz. Devolve o trecho ou ''."""
+    m = CLAIM.search(text or '')
+    if not m: return ''
+    frag = ' '.join(_norm(m.group(0))); f = ' ' + ' '.join(_norm(ficha_text or '')) + ' '
+    key = [x for x in frag.split() if x not in ('tenho', 'moro', 'sou', 'de', 'em', 'no', 'na', 'trabalho', 'como', 'estudo', 'me', 'chamo', 'perto', 'anos', 'aninhos')]
+    return '' if key and all(' ' + k + ' ' in f for k in key) else m.group(0)
 # lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
 ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
 def says_online(text):
