@@ -699,18 +699,19 @@ async function tryAutoDecide(view, creatorId, expectName) {
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
             if (r.product && r.product_cents) {
-              if (/avalia/i.test(r.product)) {
-                await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
-              } else if (/v[íi]deo|foto|pack/i.test(r.product)) {
-                await api('POST', '/assist/ppv-needed', {
-                  creator_id: creatorId,
-                  fan_ref,
-                  fan_name: read.name || undefined,
-                  item: r.product,
-                  cents: r.product_cents,
-                  caption: r.caption || '',
-                  after: r.after || '',
-                }).catch(() => {});
+              const mediaOk = await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
+              if (!mediaOk) {
+                appLog('fila', `solicitação falhou: ${r.product}`);
+              } else {
+                if (r.caption) {
+                  await runJs(tg.view, tg.fill(r.caption), 4000).catch(() => false);
+                  await runJs(tg.view, enterScript, 2000).catch(() => false);
+                  await new Promise(res => setTimeout(res, 1000));
+                }
+                if (r.after) {
+                  await runJs(tg.view, tg.fill(r.after), 4000).catch(() => false);
+                  await runJs(tg.view, enterScript, 2000).catch(() => false);
+                }
               }
             }
           } else {
@@ -719,6 +720,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
         }
       }
     } else if (r && r.essay && r.product && r.product_cents) {
+      appLog('fila', `ensaio: ${r.product} R$ ${(r.product_cents/100).toFixed(2)} · legenda: ${r.caption || '-'} · depois: ${r.after || '-'}`);
       await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, true);
     } else if (r && (r.suggested_text || r.reason)) {
       await view.webContents.executeJavaScript(
