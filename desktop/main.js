@@ -40,6 +40,7 @@ const puxadaApp = require('./puxada-app.js');
 
 // AUTO (Grok) — disparador automático do Puxar conversa (só app de teste)
 let puxadaBusy = false;
+const puxadaSkip = new Map(); // fan_ref -> timestamp
 async function autoPuxadaTick() {
   if (!ALTA_TESTE || puxadaBusy || autoInProgress.size) return;
   puxadaBusy = true;
@@ -48,66 +49,80 @@ async function autoPuxadaTick() {
     const essay = !st || st.essay !== false; // padrão ligado
     const overview = await api('GET', '/extension/puxada').catch(() => null);
     if (!overview || !overview.configs) return;
+    const now = Date.now();
     for (const cfg of overview.configs) {
       if (!cfg.auto || !cfg.in_window || cfg.paused_reason || !(cfg.left_hour > 0)) continue;
       const rooms = lastRooms[cfg.creator_id] || [];
-      const candidates = rooms.filter(r => r.name && r.online && !r.verified && r.ours && !(cfg.excluded || {})[readerFor(cfg.creator_id).reader.roomKey(r.name)]);
-      if (!candidates.length) continue;
-      const fan = candidates[0];
-      const ref = readerFor(cfg.creator_id).reader.roomKey(fan.name);
-      const view = (tabs.get(cfg.creator_id) || new Map()).get('privacy');
-      if (!view) continue;
-      await openConversation(cfg.creator_id, 'privacy', null, fan.name, ref);
-      await new Promise(res => setTimeout(res, 2000));
-      const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
-      if (!read || !read.msgs || !read.name || read.name.toLowerCase() !== fan.name.toLowerCase()) continue;
-      const line = await api('POST', '/extension/puxada/line', {
-        creator_id: cfg.creator_id,
-        fan_ref: ref,
-        fan_name: fan.name,
-        platform: 'privacy',
-        messages: read.msgs.slice(-14).map(m => ({ ours: !!m.ours, text: m.text || '' })),
-        auto: true,
-      }).catch(() => null);
-      if (!line || !line.ok) continue;
-      const after = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
-      if (after && after.msgs && after.msgs.length && !after.msgs[after.msgs.length - 1].ours) {
-        await api('POST', '/extension/puxada/cancel', { token: line.token, detail: 'fã falou por último' }).catch(() => {});
-        continue;
-      }
-      if (essay) {
-        appLog('puxada', `puxada ensaio: ${fan.name} → ${line.text}`);
-        await api('POST', '/extension/puxada/cancel', { token: line.token, detail: 'ensaio' }).catch(() => {});
-        continue;
-      }
-      const filled = await runJs(view, FILL_SCRIPT(line.text), 4000).catch(() => false);
-      if (!filled) {
-        await api('POST', '/extension/puxada/error', { token: line.token, detail: 'falha ao preencher' }).catch(() => {});
-        continue;
-      }
-      view.webContents.focus();
-      view.webContents.insertText(line.text);
-      await new Promise(res => setTimeout(res, 500));
-      const enterScript = `(() => {
-        const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-        let ta = null;
-        for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
-        if (!ta) return false;
-        const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
-        ta.dispatchEvent(new KeyboardEvent('keydown', ev));
-        ta.dispatchEvent(new KeyboardEvent('keyup', ev));
+      const candidates = rooms.filter(r => {
+        if (!r.name || !r.online || r.verified || !r.ours) return false;
+        const ref = readerFor(cfg.creator_id).reader.roomKey(r.name);
+        if ((cfg.excluded || {})[ref]) return false;
+        const skip = puxadaSkip.get(ref);
+        if (skip && now - skip < 30 * 60 * 1000) return false;
         return true;
-      })()`;
-      await runJs(view, enterScript, 2000).catch(() => false);
-      await new Promise(res => setTimeout(res, 1500));
-      const confirm = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
-      const last = confirm && confirm.msgs && confirm.msgs[confirm.msgs.length - 1];
-      if (last && last.ours && last.text && last.text.includes(line.text.slice(0, 30))) {
-        await api('POST', '/extension/puxada/sent', { token: line.token, text: line.text }).catch(() => {});
-      } else {
-        await api('POST', '/extension/puxada/error', { token: line.token, detail: 'mensagem não apareceu' }).catch(() => {});
+      });
+      let sent = 0;
+      for (const fan of candidates.slice(0, 3)) {
+        if (sent) break;
+        const ref = readerFor(cfg.creator_id).reader.roomKey(fan.name);
+        const view = (tabs.get(cfg.creator_id) || new Map()).get('privacy');
+        if (!view) continue;
+        await openConversation(cfg.creator_id, 'privacy', null, fan.name, ref);
+        await new Promise(res => setTimeout(res, 2000));
+        const read = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+        if (!read || !read.msgs || !read.name || read.name.toLowerCase() !== fan.name.toLowerCase()) {
+          puxadaSkip.set(ref, now);
+          continue;
+        }
+        const line = await api('POST', '/extension/puxada/line', {
+          creator_id: cfg.creator_id,
+          fan_ref: ref,
+          fan_name: state.fan_names_allowed ? fan.name : '',
+          platform: 'privacy',
+          messages: read.msgs.slice(-14).map(m => ({ ours: !!m.ours, text: m.text || '' })),
+          auto: true,
+        }).catch(() => null);
+        if (!line || !line.ok) { puxadaSkip.set(ref, now); continue; }
+        const after = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+        if (after && after.msgs && after.msgs.length && !after.msgs[after.msgs.length - 1].ours) {
+          await api('POST', '/extension/puxada/cancel', { token: line.token, detail: 'fã falou por último' }).catch(() => {});
+          puxadaSkip.set(ref, now);
+          continue;
+        }
+        if (essay) {
+          appLog('puxada', `puxada ensaio: ${fan.name} → ${line.text}`);
+          await api('POST', '/extension/puxada/cancel', { token: line.token, detail: 'ensaio' }).catch(() => {});
+          puxadaSkip.set(ref, now);
+          continue;
+        }
+        const filled = await runJs(view, FILL_SCRIPT(line.text), 4000).catch(() => false);
+        if (!filled) {
+          await api('POST', '/extension/puxada/error', { token: line.token, detail: 'falha ao preencher' }).catch(() => {});
+          puxadaSkip.set(ref, now);
+          continue;
+        }
+        const enterScript = `(() => {
+          const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+          let ta = null;
+          for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
+          if (!ta) return false;
+          const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
+          ta.dispatchEvent(new KeyboardEvent('keydown', ev));
+          ta.dispatchEvent(new KeyboardEvent('keyup', ev));
+          return true;
+        })()`;
+        await runJs(view, enterScript, 2000).catch(() => false);
+        await new Promise(res => setTimeout(res, 1500));
+        const confirm = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+        const last = confirm && confirm.msgs && confirm.msgs[confirm.msgs.length - 1];
+        if (last && last.ours && last.text && last.text.includes(line.text.slice(0, 30))) {
+          await api('POST', '/extension/puxada/sent', { token: line.token, text: line.text }).catch(() => {});
+          sent = 1;
+        } else {
+          await api('POST', '/extension/puxada/error', { token: line.token, detail: 'mensagem não apareceu' }).catch(() => {});
+          puxadaSkip.set(ref, now);
+        }
       }
-      break; // uma por tick
     }
   } catch (e) { appLog('puxada', String(e)); }
   finally { puxadaBusy = false; }
