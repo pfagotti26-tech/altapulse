@@ -553,12 +553,18 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if body.mode == 'puxada': goal = 'NÃO ofereça nada: "produto" vazio, sem preço, sem falar de conteúdo, foto ou vídeo.'
     # lote 107: 3 mensagens nossas sem oferta → esta vende (fã que só conversa não compra)
     _n_off = PM.since_offer([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and body.style != 'vendedora' and items else 0
-    must_sell = _n_off >= 3
+    must_sell = _n_off >= 2  # lote 130 (Paulo): 2 trocas de papo e a 3ª mensagem dela já oferece com a Solicitação de mídia (antes só na 4ª)
     pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
     if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
     # lote 127: fã quente (disse "quero", "tem sido minha"…) depois de pelo menos 1 troca → oferta agora
     _hot = PM.hot_signal([m.text for m in msgs[-6:] if not m.ours]) if body.mode == 'reply' and items and not must_sell else ''
     if _hot and _n_off >= 1: must_sell = True
+    # lote 130: pediu chamada → fecha com o item de chamada; primeira compra → item barato
+    _call = PM.asks_call([m.text for m in msgs[-3:] if not m.ours]) if body.mode == 'reply' and items and msgs and not msgs[-1].ours else ''
+    _call_item = next((p['item'] for p in prices if 'chamada' in p['item'].lower()), '') if _call else ''
+    if _call_item: must_sell = True; _n_off = max(_n_off, 1)
+    _first = not (card or {}).get('purchases')
+    _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
@@ -566,6 +572,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
                 "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
         if pend and pend in PM.PAY_ASK: goal += f' O fã PEDIU PARA SER COBRADO ("{pend}"): confirme curto e com charme ("mando agora, amor 😈"), sem nova pergunta, e preencha "produto" com o item da conversa (o que ele pediu ou o último oferecido; se nenhum, o que combina com a cena).'
         elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
+        if _call_item: goal += f' O FÃ PEDIU CHAMADA ("{_call}"): diga com charme que faz, sem combinar horário e sem valor no texto, e preencha "produto" com "{_call_item}" (a Solicitação de mídia leva o valor). Nunca diga "gravada".'
+        elif _first and _cheap: goal += ' O fã AINDA NÃO COMPROU nada: na primeira compra ofereça um item BARATO (' + ', '.join(p['item'] for p in _cheap[:3]) + '), para ele começar.'
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
@@ -622,6 +630,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _gr = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.greeting_only(_lastfan))
     _talked = any(m.ours and not PM._mass(m.text) for m in msgs[:-1])  # lote 127: já havia conversa de verdade antes deste "oi"
     _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked))
+    _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
+    if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
+                              'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
     _cb = PM.fan_calls_back(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 129
     if _cb: _gr = False; must_sell = False
     if _cb: opener_block += (f'\nO FÃ COBROU / SENTIU FALTA ("{_cb}"): responda a ISSO primeiro, com carinho e charme, sem se justificar demais (ex.: "tô aqui sim, amor… senti sua falta 😏", "sumi nada, bb, tava te esperando… e você, onde tava?"). '
@@ -631,7 +642,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     elif _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
     if _bye:
         opener_block += '\nO FÃ ESTÁ SE DESPEDINDO: despeça com carinho, curto, e deixe a porta aberta com uma provocação leve (ex.: "boa noite, amor… vai dormir pensando em mim? 😈", "descansa, bb… amanhã quero saber se sonhou comigo"). Nada de oferta nem pergunta longa.'
-    if _ck == 'neutro': opener_block += '\nO FÃ SÓ ELOGIOU: agradeça CURTO, no máximo 6 palavras, sem pergunta e sem "fico feliz que gostou" (ex.: "obrigada amor! 😘", "ai, assim eu fico boba 🙈", "você que é, amor 😏"). Se ele não continuar, a próxima mensagem puxa assunto dele.'
+    if _ck == 'neutro' and not must_sell: opener_block += '\nO FÃ SÓ ELOGIOU: agradeça CURTO, no máximo 6 palavras, sem pergunta e sem "fico feliz que gostou" (ex.: "obrigada amor! 😘", "ai, assim eu fico boba 🙈", "você que é, amor 😏"). Se ele não continuar, a próxima mensagem puxa assunto dele.'
     if _ck == 'picante': opener_block += '\nO FÃ PROVOCOU/ELOGIOU PICANTE: brinque e devolva com UMA pergunta curta que explore o desejo dele, no tamanho da mensagem dele (ex.: "você acha mesmo amor? rs", "safada só com quem merece… você merece? 😏", "e você gosta assim, né? 😈"). Nada de "fico feliz que gostou".'
     # lote 120: fã diz que mandou foto/vídeo sem Solicitação de mídia paga na conversa → nada chegou; ela não viu
     _sent_claim = PM.fan_says_sent([m.text for m in msgs[-6:] if not m.ours]) if body.mode == 'reply' and not mreq else ''
@@ -718,14 +729,14 @@ FIM DA CONVERSA:
     claim = PM.personal_claim(txt0, profile_block(creator, prof)) if out and not out.get('alerta') else ''
     mech = PM.mechanical(txt0) if out and not out.get('alerta') and body.mode == 'reply' else ''
     if _gr and out and not out.get('alerta') and not mech and (PM.misses_greeting(txt0) or re.search(r'gostou do que viu|viu (o|meu) (post|v[ií]deo)', txt0, re.I)): mech = 'não respondeu ao cumprimento'
-    if out and not out.get('alerta') and _ck == 'neutro' and not mech:
+    if out and not out.get('alerta') and _ck == 'neutro' and not mech and not must_sell:
         if len(PM._norm(txt0)) > 6: longo = (len(PM._norm(txt0)), 6)
         elif txt0.strip().endswith('?'): mech = 'pergunta depois de elogio simples'
     seen = PM.claims_seen(txt0) if out and not out.get('alerta') and not _paid_req and not mreq else ''
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
-    nosale = bool(must_sell and out and not out.get('alerta') and not meet and not PM.is_offer(txt0, items) and not str(out.get('produto') or '').strip())
+    nosale = bool(must_sell and out and not out.get('alerta') and not meet and not str(out.get('produto') or '').strip())  # lote 130: venda é sempre com a Solicitação (produto preenchido)
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
     fam = PM.family_word(txt0) if out and not out.get('alerta') else ''
@@ -736,15 +747,25 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
+    infp = PM.plays_infant(txt0) if _inf and out and not out.get('alerta') else ''
+    echo = PM.echoes_fan(txt0, _fl) if body.mode == 'reply' and out and not out.get('alerta') and _fl else ''
+    _pg = str((out or {}).get('produto') or '').strip().lower()
+    callx = bool(_call_item and out and not out.get('alerta') and _pg != _call_item.lower())
+    pcost = next((p['cents'] for p in prices if p['item'].lower() == _pg), 0)
+    dear = bool(_first and not _call_item and _cheap and pcost and pcost > max(_cheap[min(2, len(_cheap) - 1)]['cents'], 4500))
     cbk = bool(_cb and out and not out.get('alerta') and not PM.answers_callback(txt0))  # lote 129
     gen = PM.generic_question(txt0) if body.mode == 'reply' and out and not out.get('alerta') and _talked and not phase and not _gr else ''
     pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
-    if cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
+    if infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
         why = []
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
+        if infp: why.append(f'entrou na fantasia infantil ("{infp}"); é PROIBIDO: traga para adultos com charme, sem mamar/neném/bebê/cuidar dele como criança')
+        if echo: why.append(f'repetiu o "{echo}" do fã como se fosse dela; reaja ao que ELE disse (ex.: "ai, que delícia saber disso…") em vez de repetir')
+        if callx: why.append(f'o fã pediu chamada e a resposta não fechou; diga que faz, com charme, e preencha "produto" com "{_call_item}"')
+        if dear: why.append('ofereceu item caro para quem ainda não comprou; na primeira compra ofereça um dos baratos: ' + ', '.join(p['item'] for p in _cheap[:3]))
         if cbk: why.append(f'o fã escreveu "{_cb}" e a resposta não respondeu a isso; comece respondendo a ele ("tô aqui sim, amor… senti sua falta 😏") e só depois, se couber, retome o assunto')
         if gen: why.append(f'perguntou "{gen}", genérico demais para quem já está conversando; reaja ao que ele escreveu agora e, se perguntar, pergunte algo concreto ligado à conversa')
         if pxq: why.append('a puxada não terminou com pergunta ou convite; termine com algo que ele tenha vontade de responder ("…tá afim de brincar?", "…quer saber?")')
@@ -787,6 +808,10 @@ FIM DA CONVERSA:
                 usage = _sum(usage, u2)
                 if o2 and str(o2.get('texto') or '').strip(): out = o2
         except httpx.HTTPError: pass
+        if body.mode == 'reply' and out and not out.get('alerta') and str(out.get('texto') or '').strip():  # lote 130
+            out['texto'] = PM.drop_mechanical(str(out['texto']))
+        if _inf and out and not out.get('alerta') and PM.plays_infant(str(out.get('texto') or '')):
+            out = {'alerta': True, 'motivo': f'o fã puxou fantasia infantil ("{_inf}") e a sugestão entrou no jogo; responda à mão trazendo para adultos'}
         # ainda aceitando encontro/programa depois da segunda tentativa: não sai sugestão nenhuma (vira alerta, nunca vai para o fã)
         if seen and out and not out.get('alerta') and PM.claims_seen(str(out.get('texto') or '')):
             out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}

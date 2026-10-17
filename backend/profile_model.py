@@ -498,7 +498,7 @@ GREET_BACK = re.compile(r'\b(oi+|ol[aá]|tudo bem|tudo bom|td bem|e voc[eê]|e v
 def misses_greeting(text):
     return not GREET_BACK.search(text or '')
 # lote 127 (Paulo): fã quente ("quero", "tem sido minha", "pensando em vc") → hora da oferta, mesmo antes de 3 trocas
-HOT = re.compile(r'^\W*quero\W*$|\bquero (te|voc[eê]|vc|tu|mais|ver|sentir|comer|foder|provar)\b|\b(tem sido|ser|seja|fica|fosse) minha\b|\bminha (gostosa|safada|putinha|deusa)\b|pensando em (voc[eê]|vc|ti)|penso em (voc[eê]|vc|ti)|imaginando (voc[eê]|vc|a gente|n[oó]s)|instantes imagin|t[oô] (com )?(muito )?tes[aã]o|me deixa (louco|doido|duro|maluco)|t[oô] duro|fiquei duro|que vontade de (voc[eê]|vc|te)', re.I)
+HOT = re.compile(r'me deixa curios[oa]|^\W*quero\W*$|\bquero (te|voc[eê]|vc|tu|mais|ver|sentir|comer|foder|provar)\b|\b(tem sido|ser|seja|fica|fosse) minha\b|\bminha (gostosa|safada|putinha|deusa)\b|pensando em (voc[eê]|vc|ti)|penso em (voc[eê]|vc|ti)|imaginando (voc[eê]|vc|a gente|n[oó]s)|instantes imagin|t[oô] (com )?(muito )?tes[aã]o|me deixa (louco|doido|duro|maluco)|t[oô] duro|fiquei duro|que vontade de (voc[eê]|vc|te)', re.I)
 def hot_signal(fan_texts):
     for t in reversed([x for x in fan_texts if x][-3:]):
         m = HOT.search(t)
@@ -526,10 +526,40 @@ CALLBACK_OK = re.compile(r'\b(t[ôo] aqui|aqui sim|estou aqui|t[ôo] sim|voltei|
 def answers_callback(text):
     return bool(CALLBACK_OK.search(text or ''))
 # lote 129: pergunta genérica de quem já está conversando
-GENERIC_Q = re.compile(r'como (foi|t[aá]|est[aá]) (sendo )?(o )?(seu|teu) dia|o que (voc[eê]|vc|tu) (t[aá]|est[aá]) fazendo|como (voc[eê]|vc) t[aá]\??\s*$', re.I)
+GENERIC_Q = re.compile(r'o que (t[aá]|est[aá]) rolando|como (foi|t[aá]|est[aá]) (sendo )?(o )?(seu|teu) dia|o que (voc[eê]|vc|tu) (t[aá]|est[aá]) fazendo|como (voc[eê]|vc) t[aá]\??\s*$', re.I)
 def generic_question(text):
     m = GENERIC_Q.search(text or '')
     return m.group(0) if m else ''
+# lote 130: infantilização (neném, bebê, mamãe/papai, "igual criança") — nunca entrar no jogo
+INFANT = re.compile(r'\b(nen[eé]m|nenezinh[oa]|igual (um |uma )?(crian[çc]a|nen[eé]m|beb[eê])|mam[aã]e|mam[aã]ezinha|papai|filhinh[oa]|menininh[oa])\b', re.I)
+def infant_theme(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-4:]):
+        m = INFANT.search(t)
+        if m: return m.group(0)
+    return ''
+INFANT_OK = re.compile(r'\b(mam(a|ar|ando|ada)|cuidar de (voc[eê]|vc|ti)|nen[eé]m|mam[aã]e|papai|colinho|ninar)\b', re.I)
+def plays_infant(text):
+    m = INFANT_OK.search(text or '')
+    return m.group(0) if m else ''
+# lote 130: fã pediu chamada → fecha com o item de chamada da tabela (via Solicitação de mídia)
+CALL_ASK = re.compile(r'\b(chamad(a|inha)|v[ií]deo ?chamada|videochamada|ao vivo|facetime|call)\b', re.I)
+def asks_call(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-2:]):
+        m = CALL_ASK.search(t)
+        if m: return m.group(0)
+    return ''
+# lote 130: fã falou de si ("adoro", "amo") e a resposta repetiu como se fosse ela ("adoro mesmo…")
+ECHO_VERBS = {'adoro', 'amo', 'gosto', 'curto', 'quero', 'amei', 'gostei', 'adorei'}
+def echoes_fan(text, fan_last):
+    fw = _norm(fan_last); tw = _norm(text)
+    if not fw or len(fw) > 5 or not tw: return ''
+    v = next((x for x in fw if x in ECHO_VERBS), '')
+    return v if v and tw[0] == v else ''
+# lote 130: tira a frase mecânica que sobreviveu à segunda tentativa
+def drop_mechanical(text):
+    parts = re.split(r'(?<=[.!?…])\s+', (text or '').strip())
+    keep = [x for x in parts if not MECH.search(x)]
+    return ' '.join(keep).strip() if keep and len(keep) < len(parts) else text
 def says_online(text):
     m = ONLINE_TALK.search(text or '')
     return m.group(0) if m else ''
