@@ -565,6 +565,16 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if _call_item: must_sell = True; _n_off = max(_n_off, 1)
     _first = not (card or {}).get('purchases')
     _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
+    # lote 131: já tem Solicitação de mídia nossa sem pagar (na conversa ou sugerida nas últimas 6 h) → não manda outra
+    _open_req = None
+    if body.mode == 'reply' and body.fan_ref and body.style != 'vendedora':
+        _open_req = await db.assist_recent.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'item': {'$nin': [None, '']}, 'at': {'$gte': (now() - timedelta(hours=6)).isoformat()}}, {'_id': 0, 'item': 1, 'at': 1}, sort=[('at', -1)])
+    _unpaid = PM.unpaid_request_in([m.text for m in msgs if m.ours]) and not PM.paid_request_in([m.text for m in msgs])
+    _wait_pay = bool((_open_req or _unpaid) and not mreq and not (_call_item and 'chamada' not in str((_open_req or {}).get('item') or '').lower()))
+    if _wait_pay:
+        must_sell = False; pend = ''
+        goal = ('JÁ EXISTE UMA SOLICITAÇÃO DE MÍDIA DELA SEM PAGAR' + (f' ({_open_req["item"]})' if _open_req else '') + ': NÃO mande outra e NÃO ofereça nada novo ("produto" vazio). '
+                'Converse no clima do que ele disse, curto. No máximo de vez em quando, lembre com charme que é só liberar a que ela mandou (ex.: "tá esperando o quê pra liberar, amor? 😈"), sem repetir a mesma frase.')
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
@@ -629,7 +639,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _ck = PM.compliment_kind(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''
     _gr = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.greeting_only(_lastfan))
     _talked = any(m.ours and not PM._mass(m.text) for m in msgs[:-1])  # lote 127: já havia conversa de verdade antes deste "oi"
-    _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked))
+    _prev_ours = next((m for m in reversed(msgs[:-1]) if m.ours), None)  # lote 131: "boa noite" depois de mensagem em massa é cumprimento, não despedida
+    _live = bool(_prev_ours and not PM._mass(_prev_ours.text))
+    _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked and _live))
     _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
     if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
                               'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
@@ -718,7 +730,7 @@ FIM DA CONVERSA:
     # lote 96: a criadora convidou, o fã aceitou/pediu a proposta e a sugestão não fecha (sem item nem valor)
     _lo = next((m.text for m in reversed(msgs[:-1]) if m.ours), '') if msgs else ''
     _fl = msgs[-1].text if msgs and not msgs[-1].ours else ''
-    close = bool(not mreq and out and not out.get('alerta') and not str(out.get('produto') or '').strip() and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
+    close = bool(not mreq and not _wait_pay and out and not out.get('alerta') and not str(out.get('produto') or '').strip() and PM.misses_close(txt0, _lo, _fl, [p['item'] for p in prices]))
     recd = bool(out and not out.get('alerta') and PM.says_recorded(txt0))
     reused = PM.reused_elsewhere(txt0, other_texts) if out and not out.get('alerta') else ''
     free = bool(out and not out.get('alerta') and PM.free_show(txt0, [m.text for m in msgs[-4:] if not m.ours]))
@@ -808,6 +820,7 @@ FIM DA CONVERSA:
                 usage = _sum(usage, u2)
                 if o2 and str(o2.get('texto') or '').strip(): out = o2
         except httpx.HTTPError: pass
+        if _wait_pay and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # lote 131: nunca 2 solicitações abertas
         if body.mode == 'reply' and out and not out.get('alerta') and str(out.get('texto') or '').strip():  # lote 130
             out['texto'] = PM.drop_mechanical(str(out['texto']))
         if _inf and out and not out.get('alerta') and PM.plays_infant(str(out.get('texto') or '')):
@@ -862,7 +875,7 @@ FIM DA CONVERSA:
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
     # lote 97: guarda o texto por 24 h para a próxima sugestão (de outro fã) não repetir frase/cena
     if text.strip():
-        await db.assist_recent.insert_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': scrub(text)[:400], 'at': iso(), 'expires_at': now() + timedelta(hours=24)})
+        await db.assist_recent.insert_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': scrub(text)[:400], 'item': prod['item'] if prod else '', 'at': iso(), 'expires_at': now() + timedelta(hours=24)})
     # Modo sombra (ficha da criadora): guarda a sugestão para comparar com o que o chatter enviar de verdade.
     # Só medição: nada muda no que o chatter vê, e nada é enviado pelo sistema.
     if PM.normalize(prof).get('shadow') and text.strip() and body.mode != 'puxada':
