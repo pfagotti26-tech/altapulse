@@ -622,6 +622,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _gr = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.greeting_only(_lastfan))
     _talked = any(m.ours and not PM._mass(m.text) for m in msgs[:-1])  # lote 127: já havia conversa de verdade antes deste "oi"
     _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked))
+    _cb = PM.fan_calls_back(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 129
+    if _cb: _gr = False; must_sell = False
+    if _cb: opener_block += (f'\nO FÃ COBROU / SENTIU FALTA ("{_cb}"): responda a ISSO primeiro, com carinho e charme, sem se justificar demais (ex.: "tô aqui sim, amor… senti sua falta 😏", "sumi nada, bb, tava te esperando… e você, onde tava?"). '
+                             'Depois, se couber, retome o último assunto da conversa como gancho (você lembra de tudo o que já foi falado). Nada de oferta nesta mensagem.')
     if _bye: _gr = False; must_sell = False; goal = 'NÃO ofereça nada agora: ele está se despedindo. "produto" vazio.'
     if _gr and _talked: opener_block += '\nO FÃ VOLTOU COM UM CUMPRIMENTO e vocês já estavam conversando: cumprimente com carinho e RETOME de onde parou (o último assunto da conversa), sem recomeçar do zero e sem pergunta genérica (ex.: "oi amor! tava te esperando… e aí, ficou pensando no que te falei? 😈").'
     elif _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
@@ -642,12 +646,12 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
             opener_block += _base + ('Ainda não mandamos solicitação: diga com charme que é por aqui, ex.: "amor, pra me mandar esse pau gostoso manda por aqui 😈"' + (f' e preencha "produto" com "{_aval}" (a equipe manda a Solicitação de mídia com o valor; nunca escreva o valor no texto).' if _aval else '.'))
     if _pq: opener_block += (f'\nO FÃ PERGUNTOU ALGO PESSOAL ("{_pq}"): se a ficha não traz essa informação, NÃO invente nada (idade, cidade, trabalho, namoro, nome): desvie brincando e puxe para os dois, '
                              'ex.: "hum, você é bem curioso, né? rs mas antes vamos curtir um pouquinho eu e você…", "segredinho meu 🤭 me conta você primeiro". Se a ficha traz, pode responder.')
-    sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder: "
+    sit = (f"PUXAR CONVERSA: o fã está online agora e a conversa está parada. Escreva UMA frase bem curta (até 8 palavras), no tom {w['dela']}, que provoque ele a responder e TERMINE SEMPRE com uma pergunta ou convite claro (com \"?\"), para ele ter o que responder: "
            "uma provocação, uma curiosidade ou uma pergunta leve, ligada ao que se sabe dele (memória, anotações, o fim da conversa) quando houver. "
            "Não venda e não fale de preço, conteúdo, foto ou vídeo. Não diga que viu ele online, não cobre resposta, não repita nada do que " + w['ela'] + " já disse, "
            "e nada de saudação genérica (\"oi, tudo bem?\"). Pode ser picante de leve. "
-           "Estilo (varie, não copie): \"hoje eu tô louca pra animar o seu dia…\", \"quero deixar você bem relaxado hoje…\", \"tô entediada… me distrai? 😈\", \"tava lembrando de você agora… 😏\", \"chegou quietinho, hein?\", \"pensando besteira aqui… quer saber?\".") if body.mode == 'puxada' else ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
-           if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem ' + w['dela'] + '.')
+           "Estilo (varie, não copie): \"hoje eu tô louca pra animar o seu dia… deixa? 😏\", \"quero deixar você bem relaxado hoje… topa?\", \"tô entediada… me distrai? 😈\", \"tava lembrando de você agora… adivinha o quê?\", \"chegou quietinho, hein? tá afim de brincar?\", \"pensando besteira aqui… quer saber?\".") if body.mode == 'puxada' else ('O fã ainda não respondeu à última mensagem ' + w['dela'] + ', ou a conversa está parada: escreva UMA mensagem para puxar a conversa de volta, sem repetir o que ' + w['ela'] + ' já disse e sem cobrar resposta. Se houver algo na memória do fã (um momento recente, um gosto, o pet), use isso para puxar o assunto.'
+           if body.mode == 'followup' else 'A última mensagem é do fã: escreva a próxima mensagem ' + w['dela'] + ', respondendo PRIMEIRO ao que ele acabou de escrever (as últimas mensagens dele). O resto da conversa é a sua memória: se ele citar algo de antes, retome; se couber, use o último assunto como gancho depois de responder. Nunca responda a uma mensagem antiga dele como se fosse a última.')
     anchor = fan_anchor(card)
     fan_list = ''
     if anchor and any(p['cents'] < anchor for p in prices):
@@ -732,12 +736,18 @@ FIM DA CONVERSA:
     pricetxt = bool(out and not out.get('alerta') and str(out.get('produto') or '').strip() and 'r$' in txt0.lower())
     cat = PM.catalog_talk(txt0, [m.text for m in msgs[-8:] if not m.ours]) if out and not out.get('alerta') else ''
     scold = PM.scolds(txt0) if out and not out.get('alerta') else ''
-    if rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
+    cbk = bool(_cb and out and not out.get('alerta') and not PM.answers_callback(txt0))  # lote 129
+    gen = PM.generic_question(txt0) if body.mode == 'reply' and out and not out.get('alerta') and _talked and not phase and not _gr else ''
+    pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
+    if cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
         why = []
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
+        if cbk: why.append(f'o fã escreveu "{_cb}" e a resposta não respondeu a isso; comece respondendo a ele ("tô aqui sim, amor… senti sua falta 😏") e só depois, se couber, retome o assunto')
+        if gen: why.append(f'perguntou "{gen}", genérico demais para quem já está conversando; reaja ao que ele escreveu agora e, se perguntar, pergunte algo concreto ligado à conversa')
+        if pxq: why.append('a puxada não terminou com pergunta ou convite; termine com algo que ele tenha vontade de responder ("…tá afim de brincar?", "…quer saber?")')
         if onl: why.append(f'falou "{onl}"; nunca diga que viu ele online nem cobre resposta: só provoque ou pergunte algo leve')
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
