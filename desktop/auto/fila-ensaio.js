@@ -11,6 +11,7 @@ module.exports = function createFila(deps) {
   const recentAuto = new Map(); // ref → timestamp
   const firstUnanswered = new Map(); // ref → timestamp da primeira msg não respondida
   let lastServed = null; // ref do último atendido
+  const tempRetry = new Map(); // ref → timestamp
 
   function todayBR() {
     return new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' });
@@ -48,6 +49,8 @@ module.exports = function createFila(deps) {
         if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
         const key = creatorId + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
+        const tr = tempRetry.get(ref);
+        if (tr && (now - tr) < 5 * 60 * 1000) continue;
         waiting.push({ r, ref, firstAge, key });
       }
       waiting.sort((a, b) => b.firstAge - a.firstAge); // mais antigo primeiro
@@ -60,7 +63,11 @@ module.exports = function createFila(deps) {
         firstUnanswered.delete(ref);
         lastServed = ref;
         const result = openChat ? await openChat(creatorId, r.name, ref) : null;
-        if (result === 'retry') { seen.delete(key); lastServed = null; }
+        if (result === 'retry' || result === 'temp') {
+          seen.delete(key);
+          lastServed = null;
+          if (result === 'temp') tempRetry.set(ref, Date.now());
+        }
         await new Promise(res => setTimeout(res, 3000));
         if (log) log(`abriu: ${r.name}`);
       }
