@@ -9,7 +9,7 @@
   ou contato fora da plataforma; valores fora da tabela/ofertas do fã viram [preço] antes de chegar ao chatter.
 - Nada é enviado ao fã pelo sistema: o chatter revisa e envia.
 """
-import json, re
+import json, re, random
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Literal
 from zoneinfo import ZoneInfo
@@ -578,7 +578,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
-                "(ex.: \"olha aqui como eu imaginei…\"); \"depois\" = chamada curta para ele pagar e receber (ex.: \"paga que eu te mando agorinha 😏\"). Preencha \"produto\" com o nome exato do item. "
+                "que continua a cena e cria curiosidade (ex.: \"do jeitinho que você falou…\", \"só você vai ver esse 🤫\"); \"depois\" = chamada curta para ele ABRIR, nunca a palavra pagar/pix (ex.: \"libera que é todo seu 😈\", \"desbloqueia e me diz o que achou…\"). Preencha \"produto\" com o nome exato do item. "
                 "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
         if pend and pend in PM.PAY_ASK: goal += f' O fã PEDIU PARA SER COBRADO ("{pend}"): confirme curto e com charme ("mando agora, amor 😈"), sem nova pergunta, e preencha "produto" com o item da conversa (o que ele pediu ou o último oferecido; se nenhum, o que combina com a cena).'
         elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
@@ -664,7 +664,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         _base = (f'\nO FÃ DISSE QUE MANDOU MÍDIA ("{_sent_claim}"), mas NÃO há Solicitação de mídia paga nesta conversa: nada chegou para ela (o fã só consegue mandar foto/vídeo pagando a solicitação, e você nunca enxerga imagem). '
                  'NUNCA diga que viu nem elogie a foto. ')
         if PM.unpaid_request_in([m.text for m in msgs if m.ours]):
-            opener_block += _base + 'Já existe uma solicitação nossa ainda NÃO paga: diga com charme que é só pagar a que ela mandou, ex.: "amor, é só pagar a solicitação que te mandei que eu vejo todinho 😈". "produto" vazio.'
+            opener_block += _base + 'Já existe uma solicitação nossa ainda NÃO paga: diga com charme que é só liberar a que ela mandou, ex.: "amor, é só liberar a solicitação que te mandei que eu vejo todinho 😈". "produto" vazio.'
         else:
             opener_block += _base + ('Ainda não mandamos solicitação: diga com charme que é por aqui, ex.: "amor, pra me mandar esse pau gostoso manda por aqui 😈"' + (f' e preencha "produto" com "{_aval}" (a equipe manda a Solicitação de mídia com o valor; nunca escreva o valor no texto).' if _aval else '.'))
     if _pq: opener_block += (f'\nO FÃ PERGUNTOU ALGO PESSOAL ("{_pq}"): se a ficha não traz essa informação, NÃO invente nada (idade, cidade, trabalho, namoro, nome): desvie brincando e puxe para os dois, '
@@ -768,12 +768,14 @@ FIM DA CONVERSA:
     cbk = bool(_cb and out and not out.get('alerta') and not PM.answers_callback(txt0))  # lote 129
     gen = PM.generic_question(txt0) if body.mode == 'reply' and out and not out.get('alerta') and _talked and not phase and not _gr else ''
     pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
-    if infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
+    payw = '' if mreq or not out or out.get('alerta') else (PM.pay_word(txt0) or (PM.pay_word(str(out.get('legenda') or '') + ' ' + str(out.get('depois') or '')) if str(out.get('produto') or '').strip() else ''))  # lote 132
+    if payw or infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
         why = []
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
+        if payw: why.append(f'usou "{payw}"; nunca fale em pagar/pagamento/pix: fale em liberar, desbloquear, abrir, do que ele ganha ("libera que é todo seu 😈")')
         if infp: why.append(f'entrou na fantasia infantil ("{infp}"); é PROIBIDO: traga para adultos com charme, sem mamar/neném/bebê/cuidar dele como criança')
         if echo: why.append(f'repetiu o "{echo}" do fã como se fosse dela; reaja ao que ELE disse (ex.: "ai, que delícia saber disso…") em vez de repetir')
         if callx: why.append(f'o fã pediu chamada e a resposta não fechou; diga que faz, com charme, e preencha "produto" com "{_call_item}"')
@@ -797,7 +799,7 @@ FIM DA CONVERSA:
         if vibe and vibe[0] == 'ideia': why.append(f'disse a mesma coisa que já foi dita a outro fã hoje, só trocando palavras ({vibe[1]}); responda com outra ideia, ligada ao que ESTE fã escreveu')
         if longo: why.append(f'ficou longa demais ({longo[0]} palavras); o padrão é UMA linha de chat: no máximo {longo[1]} palavras, no ritmo dele')
         if tic: why.append(f'terminou com o bordão "{tic}…", que já foi usado várias vezes; não termine com pergunta desse tipo: responda, provoque ou comente, e se perguntar, pergunte algo concreto do que ele disse')
-        if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só pagar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
+        if free: why.append('pediu para o fã mostrar/mandar a mídia dele sem dizer que é pela solicitação paga; peça para ver, mas pela solicitação ("é só liberar a solicitação e mandar"), com o item Avaliação da tabela no campo produto')
         if reused: why.append(f'repetiu "{reused}", que a criadora já disse a outro fã hoje; escreva com outras palavras e outra situação (ou sem cena nenhuma)')
         if recd: why.append('disse ao fã que a chamada é "gravada"; isso é nome interno e o fã nunca pode saber: fale só "chamada"/"videochamada" com o valor do item')
         if close: why.append('a criadora tinha convidado/oferecido, o fã aceitou ou perguntou "o que você propõe / quanto / como funciona", e a resposta não fechou; agora é a hora de FECHAR: diga em uma frase como é (item exato da tabela) e o valor, no tom dela, sem mudar de assunto e sem nova pergunta de aquecimento')
@@ -853,6 +855,8 @@ FIM DA CONVERSA:
     # lote 115: oferta em 3 passos — legenda e "depois" vão para o chatter/automação; o valor vai na mídia (PPV), nunca no texto
     caption = PM.PRICE_STRIP(scrub(str(out.get('legenda') or '')).strip())[:200] if prod else ''
     after = PM.PRICE_STRIP(scrub(str(out.get('depois') or '')).strip())[:200] if prod else ''
+    if prod and caption and PM.pay_word(caption): caption = ''  # lote 132: legenda com "pagar" não vai
+    if prod and after and PM.pay_word(after): after = random.choice(PM.SAFE_AFTER)
     if prod:
         text = PM.PRICE_STRIP(text)
         # lote 124 (Paulo): toda venda vai como Solicitação de mídia com o valor do item; pagou → a equipe entrega a mídia
