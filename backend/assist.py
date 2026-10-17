@@ -820,16 +820,17 @@ FIM DA CONVERSA:
                 usage = _sum(usage, u2)
                 if o2 and str(o2.get('texto') or '').strip(): out = o2
         except httpx.HTTPError: pass
-        if _wait_pay and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # lote 131: nunca 2 solicitações abertas
-        if body.mode == 'reply' and out and not out.get('alerta') and str(out.get('texto') or '').strip():  # lote 130
-            out['texto'] = PM.drop_mechanical(str(out['texto']))
-        if _inf and out and not out.get('alerta') and PM.plays_infant(str(out.get('texto') or '')):
-            out = {'alerta': True, 'motivo': f'o fã puxou fantasia infantil ("{_inf}") e a sugestão entrou no jogo; responda à mão trazendo para adultos'}
         # ainda aceitando encontro/programa depois da segunda tentativa: não sai sugestão nenhuma (vira alerta, nunca vai para o fã)
         if seen and out and not out.get('alerta') and PM.claims_seen(str(out.get('texto') or '')):
             out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}
         if meet and out and not out.get('alerta') and PM.accepts_meeting(str(out.get('texto') or ''), [m.text for m in msgs[-6:] if not m.ours]):
             out = {'alerta': True, 'motivo': f'o fã pediu encontro/programa ("{meet}") e a sugestão não recusou; responda à mão com um não claro'}
+    # lote 131b: valem com ou sem segunda tentativa (antes só rodavam quando a resposta era refeita)
+    if _wait_pay and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # nunca 2 solicitações abertas
+    if body.mode == 'reply' and out and not out.get('alerta') and str(out.get('texto') or '').strip():
+        out['texto'] = PM.drop_mechanical(str(out['texto']))
+    if _inf and out and not out.get('alerta') and PM.plays_infant(str(out.get('texto') or '')):
+        out = {'alerta': True, 'motivo': f'o fã puxou fantasia infantil ("{_inf}") e a sugestão entrou no jogo; responda à mão trazendo para adultos'}
     cost, pt, ct, ot = cost_of(model, usage)
     usage_id = uid()
     await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
