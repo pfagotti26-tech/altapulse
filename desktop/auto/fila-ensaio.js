@@ -10,6 +10,7 @@ module.exports = function createFila(deps) {
   let seenDay = '';
   const recentAuto = new Map(); // ref → timestamp
   const firstUnanswered = new Map(); // ref → timestamp da primeira msg não respondida
+  let lastServed = null; // ref do último atendido
 
   function todayBR() {
     return new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' });
@@ -33,34 +34,36 @@ module.exports = function createFila(deps) {
       const creatorId = st.creator_id;
       let rooms = getLastRooms(creatorId) || [];
       const now = Date.now();
-      rooms = rooms.slice().sort((a, b) => {
-        const ra = recentAuto.get(roomKey(creatorId, a.name)) || 0;
-        const rb = recentAuto.get(roomKey(creatorId, b.name)) || 0;
-        const aRecent = now - ra < 30 * 60 * 1000;
-        const bRecent = now - rb < 30 * 60 * 1000;
-        if (aRecent !== bRecent) return aRecent ? -1 : 1;
-        return 0;
-      });
+      // Fila por ordem de espera (mais antigo primeiro)
+      const waiting = [];
       for (const r of rooms) {
         if (r.ours) { firstUnanswered.delete(roomKey(creatorId, r.name)); continue; }
-        if (r.typing) continue;
-        if (r.verified) continue;
+        if (r.typing || r.verified) continue;
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
-        const age = at ? (now - at.getTime()) : Infinity; // "Ontem"/data = antigo
+        const age = at ? (now - at.getTime()) : Infinity;
         if (at && !firstUnanswered.has(ref)) firstUnanswered.set(ref, at);
         const firstAge = firstUnanswered.has(ref) ? (now - firstUnanswered.get(ref).getTime()) : Infinity;
         if (r.typing && firstAge < 60 * 1000) continue;
         if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
+        waiting.push({ r, ref, firstAge });
+      }
+      waiting.sort((a, b) => b.firstAge - a.firstAge); // mais antigo primeiro
+      // Não atende o mesmo de novo se houver outro esperando
+      let chosen = waiting[0];
+      if (chosen && chosen.ref === lastServed && waiting.length > 1) chosen = waiting[1];
+      if (chosen) {
+        const { r, ref } = chosen;
         const key = creatorId + ':' + ref + ':' + (r.when || '');
-        if (seen.has(key)) continue;
-        seen.add(key);
-        firstUnanswered.delete(ref);
-        const result = openChat ? await openChat(creatorId, r.name, ref) : null;
-        if (result === 'retry') { seen.delete(key); }
-        await new Promise(res => setTimeout(res, 3000));
-        if (log) log(`abriu: ${r.name}`);
-        break;
+        if (!seen.has(key)) {
+          seen.add(key);
+          firstUnanswered.delete(ref);
+          lastServed = ref;
+          const result = openChat ? await openChat(creatorId, r.name, ref) : null;
+          if (result === 'retry') { seen.delete(key); lastServed = null; }
+          await new Promise(res => setTimeout(res, 3000));
+          if (log) log(`abriu: ${r.name}`);
+        }
       }
     } catch (e) { if (log) log(String(e)); }
     finally { ticking = false; }
