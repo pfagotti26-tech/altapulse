@@ -158,7 +158,7 @@ def natural_rules(prof):
          '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
          '- Papéis (público hétero): quem senta, cavalga, rebola, chupa, MAMA e DÁ é SEMPRE ela; o fã mete, come, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau nem se ele gosta de dar (ex. certo: "você gosta de me comer de quatro?"). Nunca "vem sentar", "senta em mim" para o fã.',
-         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a Solicitação de mídia, o preço vai na própria solicitação ("olha aqui como eu imaginei…"); (3) "depois" = chamada curta para ele pagar e receber ("paga que eu te mando agorinha 😏", "libera aí que já é seu 🔥"), variando. NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
+         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a Solicitação de mídia e CONTINUA A CENA da conversa, criando curiosidade ou exclusividade, sem descrever o conteúdo (o preço vai na própria solicitação): "do jeitinho que você falou…", "não aguentei e fiz isso pra você", "só você vai ver esse 🤫"; (3) "depois" = chamada curta para ele ABRIR, falando do que ele ganha, NUNCA a palavra pagar/pagamento/pix: "libera que é todo seu 😈", "desbloqueia e me diz o que achou…", "abre aí, fiz pensando em você", variando. Nada de urgência inventada ("só hoje", "vai sumir"). NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
@@ -560,6 +560,12 @@ def drop_mechanical(text):
     parts = re.split(r'(?<=[.!?…])\s+', (text or '').strip())
     keep = [x for x in parts if not MECH.search(x)]
     return ' '.join(keep).strip() if keep and len(keep) < len(parts) else text
+# lote 132 (Paulo): perfil gratuito tem objeção a pagamento — a venda fala em liberar/desbloquear/abrir, nunca "pagar"
+PAY_WORD = re.compile(r'\b(pag(a|ar|ue|ando|amento|amentos)|pix)\b', re.I)
+def pay_word(text):
+    m = PAY_WORD.search(text or '')
+    return m.group(0) if m else ''
+SAFE_AFTER = ['libera que é todo seu 😈', 'desbloqueia e me diz o que achou…', 'abre aí, fiz pensando em você', 'tá aí esperando você liberar, bb 😏']
 def says_online(text):
     m = ONLINE_TALK.search(text or '')
     return m.group(0) if m else ''
