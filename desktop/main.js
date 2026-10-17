@@ -1178,7 +1178,7 @@ async function readAllNow() {
     sendRadar(id, radar).catch(() => {});
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
-    const mine = shift && shift.operator_id === state.user.id && !shift.paused;
+    const mine = (shift && shift.operator_id === state.user.id && !shift.paused) || (ALTA_TESTE && global.autoCreatorId === id && filaEnsaio && filaEnsaio.running); // AUTO (Grok)
     // com o extrato funcionando para esta criadora, a venda inferida pela lista de conversas não é
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');
