@@ -848,19 +848,22 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
     const search = () => qs('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
     // a lista demora a montar: espera até 20 s a conversa certa, a lista ou a busca aparecerem
     for (let i = 0; i < 50; i++) { if (header() === w) return 'ja'; if (rooms().length || search()) break; await sleep(400); }
-    let it = find();
+    let it = find(); let used = null;
+    // lote 126: a busca usada para achar o fã é limpa depois — senão a lista fica filtrada só nele e o resto da fila some da leitura
+    const clear = () => { try { if (!used) return; const d2 = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d2.set.call(used, ''); used.dispatchEvent(new Event('input', { bubbles: true })); used.dispatchEvent(new Event('change', { bubbles: true })); used.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', bubbles: true })); used.blur(); } catch (e) {} };
     if (!it) {
-      const box = search();
+      const box = search(); used = box;
       if (!box) return rooms().length ? 'sem-busca' : 'sem-lista';
       box.focus(); box.click();
       const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d.set.call(box, want);
       box.dispatchEvent(new Event('input', { bubbles: true })); box.dispatchEvent(new Event('change', { bubbles: true }));
       box.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
       for (let i = 0; i < 25 && !(it = find()); i++) await sleep(400);
-      if (!it) return 'nao:' + rooms().length;
+      if (!it) { const n = rooms().length; clear(); return 'nao:' + n; }
     }
     it.click();
-    for (let i = 0; i < 15; i++) { await sleep(400); if (header() === w) return 'ok'; }
+    for (let i = 0; i < 15; i++) { await sleep(400); if (header() === w) { clear(); return 'ok'; } }
+    clear();
     return 'clicou';
   })()`;
   await new Promise((r) => setTimeout(r, 800));
