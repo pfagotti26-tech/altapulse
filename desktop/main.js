@@ -2356,6 +2356,11 @@ const IDLE_LOCK_MIN = 30;
 let idleLocking = false;
 setInterval(async () => {
   if (idleLocking || !token || !state.user) return;
+  // AUTO (Grok) — app de teste não desloga se a automação estiver ligada
+  if (ALTA_TESTE && filaEnsaio && filaEnsaio.running) {
+    const st = await api('GET', '/auto/status').catch(() => null);
+    if (st && st.enabled) return;
+  }
   let idle = 0; try { idle = powerMonitor.getSystemIdleTime(); } catch { return; }
   if (idle < IDLE_LOCK_MIN * 60) return;
   idleLocking = true;
