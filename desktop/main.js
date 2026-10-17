@@ -44,13 +44,9 @@ const puxadaSkip = new Map(); // fan_ref -> timestamp
 const puxadaEssaySent = new Map(); // fan_ref -> timestamp (ensaio, 24h)
 async function autoPuxadaTick() {
   if (!ALTA_TESTE || puxadaBusy || autoInProgress.size) return;
-  // Só puxa se ninguém estiver esperando resposta
+  // Só puxa se a fila não tiver ninguém pendente
   const st = await api('GET', '/auto/status').catch(() => null);
-  if (st && st.creator_id) {
-    const rooms = lastRooms[st.creator_id] || [];
-    const waiting = rooms.some(r => r.name && !r.ours && !r.verified && !r.typing);
-    if (waiting) return;
-  }
+  if (st && st.creator_id && filaEnsaio && filaEnsaio.pendingCount(st.creator_id) > 0) return;
   puxadaBusy = true;
   try {
     const st = await api('GET', '/auto/status').catch(() => null);
