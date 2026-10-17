@@ -53,8 +53,8 @@ async def get_config():
         "creator_id": doc.get("creator_id"),
         "max_per_day": int(doc.get("max_per_day") or 15),
         "max_per_fan": int(doc.get("max_per_fan") or 2),
-        "hour_start": int(doc.get("hour_start") or 10),
-        "hour_end": int(doc.get("hour_end") or 22),
+        "hour_start": int(doc.get("hour_start") if doc.get("hour_start") is not None else 10),
+        "hour_end": int(doc.get("hour_end") if doc.get("hour_end") is not None else 22),
     }
 
 def today():
@@ -105,7 +105,9 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
 
     now = datetime.now(BR)
-    if not (cfg['hour_start'] <= now.hour < cfg['hour_end']):
+    hs, he = cfg['hour_start'], cfg['hour_end']
+    in_hours = True if hs == he else (hs <= now.hour < he if hs < he else (now.hour >= hs or now.hour < he))
+    if not in_hours:
         return DecideOut(should_send=False, reason="fora do horário", essay=cfg["essay"])
 
     # Fan must have spoken last
@@ -262,12 +264,10 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
         raise HTTPException(400, "max_per_day deve estar entre 1 e 300")
     if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 50):
         raise HTTPException(400, "max_per_fan deve estar entre 1 e 50")
-    if "hour_start" in upd and not (0 <= upd["hour_start"] <= 23):
-        raise HTTPException(400, "hour_start deve estar entre 0 e 23")
-    if "hour_end" in upd and not (0 <= upd["hour_end"] <= 23):
-        raise HTTPException(400, "hour_end deve estar entre 0 e 23")
-    if "hour_start" in upd and "hour_end" in upd and upd["hour_start"] >= upd["hour_end"]:
-        raise HTTPException(400, "hour_start deve ser menor que hour_end")
+    if "hour_start" in upd and not (0 <= upd["hour_start"] <= 24):
+        raise HTTPException(400, "hour_start deve estar entre 0 e 24")
+    if "hour_end" in upd and not (0 <= upd["hour_end"] <= 24):
+        raise HTTPException(400, "hour_end deve estar entre 0 e 24")
     await db.auto_config.update_one({"id": "main"}, {"$set": upd}, upsert=True)
     return {"ok": True}
 

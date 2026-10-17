@@ -37,6 +37,9 @@ export default function Auto() {
           <label style={{marginLeft:12}}>Início <input type="number" value={cfg.hour_start} onChange={e => setCfg({...cfg, hour_start: +e.target.value})} style={{width:50,color:"#111",background:"#fff"}} /></label>
           <label style={{marginLeft:12}}>Fim <input type="number" value={cfg.hour_end} onChange={e => setCfg({...cfg, hour_end: +e.target.value})} style={{width:50,color:"#111",background:"#fff"}} /></label>
           <Button onClick={saveCfg} disabled={cfgError} style={{marginLeft:12}}>Salvar</Button>
+          <div style={{marginTop:8,fontSize:13,opacity:0.85}}>
+            {cfg.hour_start === cfg.hour_end ? 'Funciona 24 horas' : `Funciona das ${cfg.hour_start}h às ${cfg.hour_end}h`}
+          </div>
         </div>
 
         <div className="stats-grid">
