@@ -41,6 +41,7 @@ const puxadaApp = require('./puxada-app.js');
 // AUTO (Grok) — disparador automático do Puxar conversa (só app de teste)
 let puxadaBusy = false;
 const puxadaSkip = new Map(); // fan_ref -> timestamp
+const puxadaEssaySent = new Map(); // fan_ref -> timestamp (ensaio, 24h)
 async function autoPuxadaTick() {
   if (!ALTA_TESTE || puxadaBusy || autoInProgress.size) return;
   puxadaBusy = true;
@@ -59,6 +60,8 @@ async function autoPuxadaTick() {
         if ((cfg.excluded || {})[ref]) return false;
         const skip = puxadaSkip.get(ref);
         if (skip && now - skip < 30 * 60 * 1000) return false;
+        const essayAt = puxadaEssaySent.get(ref);
+        if (essayAt && now - essayAt < 24 * 60 * 60 * 1000) return false;
         return true;
       });
       let sent = 0;
@@ -91,8 +94,12 @@ async function autoPuxadaTick() {
         }
         if (essay) {
           appLog('puxada', `puxada ensaio: ${fan.name} → ${line.text}`);
+          await view.webContents.executeJavaScript(
+            `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(line.text)}, ${JSON.stringify('puxada ensaio')}, null)`,
+            true
+          ).catch(() => {});
           await api('POST', '/extension/puxada/cancel', { token: line.token, detail: 'ensaio' }).catch(() => {});
-          puxadaSkip.set(ref, now);
+          puxadaEssaySent.set(ref, now);
           continue;
         }
         const filled = await runJs(view, FILL_SCRIPT(line.text), 4000).catch(() => false);
