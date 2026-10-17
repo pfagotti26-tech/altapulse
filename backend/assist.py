@@ -556,6 +556,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     must_sell = _n_off >= 3
     pend = PM.pending_proposal([(m.ours, m.text) for m in msgs], items) if body.mode == 'reply' and items else ''
     if pend and not must_sell: must_sell = True; _n_off = max(_n_off, 1)
+    # lote 127: fã quente (disse "quero", "tem sido minha"…) depois de pelo menos 1 troca → oferta agora
+    _hot = PM.hot_signal([m.text for m in msgs[-6:] if not m.ours]) if body.mode == 'reply' and items and not must_sell else ''
+    if _hot and _n_off >= 1: must_sell = True
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
@@ -617,7 +620,13 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _pq = PM.asks_personal(_lastfan) if body.mode == 'reply' else ''
     _ck = PM.compliment_kind(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''
     _gr = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.greeting_only(_lastfan))
-    if _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
+    _talked = any(m.ours and not PM._mass(m.text) for m in msgs[:-1])  # lote 127: já havia conversa de verdade antes deste "oi"
+    _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked))
+    if _bye: _gr = False; must_sell = False; goal = 'NÃO ofereça nada agora: ele está se despedindo. "produto" vazio.'
+    if _gr and _talked: opener_block += '\nO FÃ VOLTOU COM UM CUMPRIMENTO e vocês já estavam conversando: cumprimente com carinho e RETOME de onde parou (o último assunto da conversa), sem recomeçar do zero e sem pergunta genérica (ex.: "oi amor! tava te esperando… e aí, ficou pensando no que te falei? 😈").'
+    elif _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
+    if _bye:
+        opener_block += '\nO FÃ ESTÁ SE DESPEDINDO: despeça com carinho, curto, e deixe a porta aberta com uma provocação leve (ex.: "boa noite, amor… vai dormir pensando em mim? 😈", "descansa, bb… amanhã quero saber se sonhou comigo"). Nada de oferta nem pergunta longa.'
     if _ck == 'neutro': opener_block += '\nO FÃ SÓ ELOGIOU: agradeça CURTO, no máximo 6 palavras, sem pergunta e sem "fico feliz que gostou" (ex.: "obrigada amor! 😘", "ai, assim eu fico boba 🙈", "você que é, amor 😏"). Se ele não continuar, a próxima mensagem puxa assunto dele.'
     if _ck == 'picante': opener_block += '\nO FÃ PROVOCOU/ELOGIOU PICANTE: brinque e devolva com UMA pergunta curta que explore o desejo dele, no tamanho da mensagem dele (ex.: "você acha mesmo amor? rs", "safada só com quem merece… você merece? 😏", "e você gosta assim, né? 😈"). Nada de "fico feliz que gostou".'
     # lote 120: fã diz que mandou foto/vídeo sem Solicitação de mídia paga na conversa → nada chegou; ela não viu

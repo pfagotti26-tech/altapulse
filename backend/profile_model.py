@@ -483,7 +483,7 @@ def compliment_kind(fan_last):
     if COMP_SPICY.search(t): return 'picante'
     if COMP_NEUTRAL.search(t): return 'neutro'
     return ''
-MECH = re.compile(r'fico (bem |muito |t[aã]o )?feliz (de saber|que|em saber)|^\W*(que bom que (voc[eê]|vc) gost|obrigad[ao] por)|o que (mais )?te chamou (a )?aten[çc][aã]o', re.I)
+MECH = re.compile(r'fico (bem |muito |t[aã]o )?feliz (de saber|que|em saber)|^\W*(que bom que (voc[eê]|vc) gost|obrigad[ao] por)|o que (mais )?te chamou (a )?aten[çc][aã]o|o que (mais )?te (atrai|atraiu|excita|chama|deixa|encanta|prende)\b[^?]{0,20}em mim|o que (voc[eê]|vc) mais (gosta|curte) em mim', re.I)
 def mechanical(text):
     m = MECH.search(text or '')
     return m.group(0).strip() if m else ''
@@ -497,6 +497,21 @@ def greeting_only(fan_last):
 GREET_BACK = re.compile(r'\b(oi+|ol[aá]|tudo bem|tudo bom|td bem|e voc[eê]|e vc|e tu|bom dia|boa tarde|boa noite|como (voc[eê]|vc) t[aá]|como t[aá])', re.I)
 def misses_greeting(text):
     return not GREET_BACK.search(text or '')
+# lote 127 (Paulo): fã quente ("quero", "tem sido minha", "pensando em vc") → hora da oferta, mesmo antes de 3 trocas
+HOT = re.compile(r'^\W*quero\W*$|\bquero (te|voc[eê]|vc|tu|mais|ver|sentir|comer|foder|provar)\b|\b(tem sido|ser|seja|fica|fosse) minha\b|\bminha (gostosa|safada|putinha|deusa)\b|pensando em (voc[eê]|vc|ti)|penso em (voc[eê]|vc|ti)|imaginando (voc[eê]|vc|a gente|n[oó]s)|instantes imagin|t[oô] (com )?(muito )?tes[aã]o|me deixa (louco|doido|duro|maluco)|t[oô] duro|fiquei duro|que vontade de (voc[eê]|vc|te)', re.I)
+def hot_signal(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-3:]):
+        m = HOT.search(t)
+        if m: return m.group(0).strip()
+    return ''
+# lote 127: despedida ("boa noite", "bom descanso", "vou dormir") → despede com carinho e deixa a porta aberta
+GOODBYE = re.compile(r'\b(bom descanso|vou dormir|vou deitar|indo dormir|tchau|at[eé] amanh[aã]|at[eé] mais|beijos? (e )?(at[eé]|boa noite))\b', re.I)
+def goodbye(fan_last, talked=False):
+    """Despedida. "boa noite" sozinho só conta como despedida se já havia conversa e não é pergunta (senão é cumprimento)."""
+    t = (fan_last or '').strip()
+    if not t or len(_norm(t)) > 8: return False
+    if GOODBYE.search(t): return True
+    return talked and '?' not in t and bool(re.search(r'\bboa noite\b', t, re.I))
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''

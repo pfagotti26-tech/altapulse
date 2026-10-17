@@ -801,6 +801,39 @@ async function loadOpportunities() {
   oppFirst = false; pushState();
 }
 // abre a conversa de um fã no perfil isolado da criadora (Privacy pelo id da conversa; FatalFans clicando no nome)
+// o chat da Privacy fica dentro de shadow roots (<privacy-web-chat>): acha o fã na lista (ou pela busca) e clica, como o chatter faria
+const pickScript = (want) => `(async () => {
+  const norm = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+  const want = ${JSON.stringify(want)}; const w = norm(want);
+  const roots = () => { const out = []; (function walk(root, depth) { if (depth > 6) return; out.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0); return out; };
+  const qs = (sel) => { for (const r of roots()) { const e = r.querySelector(sel); if (e) return e; } return null; };
+  const qsa = (sel) => roots().flatMap((r) => [...r.querySelectorAll(sel)]);
+  const header = () => norm((qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name') || {}).textContent);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const rooms = () => qsa('.vac-room-list .vac-room-item, .vac-room-item');
+  const nameOf = (r) => norm((r.querySelector('.name, .vac-room-name, .vac-text-ellipsis') || r).textContent);
+  const find = () => rooms().find((r) => nameOf(r) === w) || rooms().find((r) => nameOf(r).startsWith(w));
+  const search = () => qs('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
+  // a lista demora a montar: espera até 20 s a conversa certa, a lista ou a busca aparecerem
+  for (let i = 0; i < 50; i++) { if (header() === w) return 'ja'; if (rooms().length || search()) break; await sleep(400); }
+  let it = find(); let used = null;
+  // lote 126: a busca usada para achar o fã é limpa depois — senão a lista fica filtrada só nele e o resto da fila some da leitura
+  const clear = () => { try { if (!used) return; const d2 = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d2.set.call(used, ''); used.dispatchEvent(new Event('input', { bubbles: true })); used.dispatchEvent(new Event('change', { bubbles: true })); used.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', bubbles: true })); used.blur(); } catch (e) {} };
+  if (!it) {
+    const box = search(); used = box;
+    if (!box) return rooms().length ? 'sem-busca' : 'sem-lista';
+    box.focus(); box.click();
+    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d.set.call(box, want);
+    box.dispatchEvent(new Event('input', { bubbles: true })); box.dispatchEvent(new Event('change', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+    for (let i = 0; i < 25 && !(it = find()); i++) await sleep(400);
+    if (!it) { const n = rooms().length; clear(); return 'nao:' + n; }
+  }
+  it.click();
+  for (let i = 0; i < 15; i++) { await sleep(400); if (header() === w) { clear(); return 'ok'; } }
+  clear();
+  return 'clicou';
+})()`;
 async function openConversation(creatorId, platform, cid, name, fanRef) {
   if (platform === 'fatalfans') {
     openProfile(creatorId, 'fatalfans');
@@ -814,6 +847,12 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
   openProfile(creatorId, 'privacy');
   const view = views.get(creatorId); const id = cid || (fanRef && fanCids[creatorId] && fanCids[creatorId][fanRef]);
   if (!view) return { found: false, name };
+  // lote 128: a Privacy já está aberta no chat? clica no fã na lista (sem recarregar a página inteira, que levava até 1–2 min)
+  const want0 = String(name || '').trim();
+  if (want0 && !view.webContents.isDestroyed() && /privacy\.com\.br\/chat/.test(view.webContents.getURL()) && !(await probeLogin(view))) {
+    const r0 = await runJs(view, pickScript(want0), 25000).catch(() => null);
+    if (r0 === 'ja' || r0 === 'ok' || r0 === 'clicou') return { found: true, name, how: r0 };
+  }
   const rawId = id && !/^(n:|ff:)/.test(String(id)) ? String(id) : null;
   const chatUrl = rawId ? `https://privacy.com.br/chat?cid=${encodeURIComponent(rawId)}` : 'https://privacy.com.br/chat';
   await view.webContents.loadURL(chatUrl, { userAgent: UA }).catch(() => {});
@@ -834,38 +873,7 @@ async function openConversation(creatorId, platform, cid, name, fanRef) {
   const want = String(name || (id && String(id).replace(/^n:/, '')) || '').trim();
   if (!want) return { found: !!rawId, name };
   // o chat da Privacy fica dentro de shadow roots (<privacy-web-chat>): toda busca atravessa os roots, refeitos a cada tentativa
-  const PICK = `(async () => {
-    const norm = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-    const want = ${JSON.stringify(want)}; const w = norm(want);
-    const roots = () => { const out = []; (function walk(root, depth) { if (depth > 6) return; out.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, depth + 1); })(document, 0); return out; };
-    const qs = (sel) => { for (const r of roots()) { const e = r.querySelector(sel); if (e) return e; } return null; };
-    const qsa = (sel) => roots().flatMap((r) => [...r.querySelectorAll(sel)]);
-    const header = () => norm((qs('.vac-room-header .vac-list-name .vac-text-ellipsis') || qs('.vac-room-header .vac-list-name') || {}).textContent);
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const rooms = () => qsa('.vac-room-list .vac-room-item, .vac-room-item');
-    const nameOf = (r) => norm((r.querySelector('.name, .vac-room-name, .vac-text-ellipsis') || r).textContent);
-    const find = () => rooms().find((r) => nameOf(r) === w) || rooms().find((r) => nameOf(r).startsWith(w));
-    const search = () => qs('.vac-box-search input, .vac-room-list input, input[placeholder*="esquis" i], input[placeholder*="uscar" i], input[type="search"]');
-    // a lista demora a montar: espera até 20 s a conversa certa, a lista ou a busca aparecerem
-    for (let i = 0; i < 50; i++) { if (header() === w) return 'ja'; if (rooms().length || search()) break; await sleep(400); }
-    let it = find(); let used = null;
-    // lote 126: a busca usada para achar o fã é limpa depois — senão a lista fica filtrada só nele e o resto da fila some da leitura
-    const clear = () => { try { if (!used) return; const d2 = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d2.set.call(used, ''); used.dispatchEvent(new Event('input', { bubbles: true })); used.dispatchEvent(new Event('change', { bubbles: true })); used.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', bubbles: true })); used.blur(); } catch (e) {} };
-    if (!it) {
-      const box = search(); used = box;
-      if (!box) return rooms().length ? 'sem-busca' : 'sem-lista';
-      box.focus(); box.click();
-      const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); d.set.call(box, want);
-      box.dispatchEvent(new Event('input', { bubbles: true })); box.dispatchEvent(new Event('change', { bubbles: true }));
-      box.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
-      for (let i = 0; i < 25 && !(it = find()); i++) await sleep(400);
-      if (!it) { const n = rooms().length; clear(); return 'nao:' + n; }
-    }
-    it.click();
-    for (let i = 0; i < 15; i++) { await sleep(400); if (header() === w) { clear(); return 'ok'; } }
-    clear();
-    return 'clicou';
-  })()`;
+  const PICK = pickScript(want);
   await new Promise((r) => setTimeout(r, 800));
   const r = await runJs(view, PICK, 45000).catch((e) => 'erro:' + (e && e.message));
   const found = r === 'ja' || r === 'ok' || r === 'clicou';
