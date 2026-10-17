@@ -11,6 +11,7 @@ Quando uma solicitação passa para PAGA:
 """
 import os, html, logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
@@ -47,13 +48,14 @@ async def _email(req, late=False):
     kind = PM.req_kind(req.get('item'), req.get('category'))  # lote 124: toda venda vai por solicitação
     task = {'chamada': 'combinar o horário da chamada com a criadora e avisar o fã', 'avaliacao': 'ver a mídia que o fã mandou e responder (a IA não enxerga imagem)',
             'entrega': f"mandar para o fã a mídia comprada ({req.get('item') or 'item da tabela'})"}[kind]
-    due = datetime.fromisoformat(req['due_at']).astimezone().strftime('%d/%m %H:%M')
+    due = datetime.fromisoformat(req['due_at']).astimezone(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m %H:%M')  # lote 133: horário de Brasília (antes saía o do servidor, 3 h à frente)
     intro = (f"<b>{e(req.get('fan_name') or 'Um assinante')}</b> pagou a solicitação de mídia de <b>{e(req['creator_name'])}</b>{' e mandou a mídia dele' if kind == 'avaliacao' else ''}.<br>{what}<br><br>"
              f"Falta {task}. Prazo: <b>{e(due)}</b>. A Alta Ajuda pausou este fã até alguém marcar feito (app: oportunidade “Fã pagou” → Feito; painel: Sombra → Mídias pagas).")
     if late: intro = '<b style="color:#c8102e">PASSOU DO PRAZO.</b> ' + intro
     link = req.get('chat_url') or (ORIGIN + '/sombra')
     head = {'avaliacao': 'Fã pagou e mandou mídia', 'chamada': 'Fã pagou a chamada', 'entrega': f"Fã pagou {req.get('item') or 'mídia'}: entregar"}[kind]
-    subject = f"{'ATRASADA · ' if late else ''}{head} · {req['creator_name']} · {money(req['amount_cents'])}"
+    who = req.get('fan_name') or 'fã'
+    subject = (f"⏰ ATRASADA · {head} · {req['creator_name']} · {who} · {money(req['amount_cents'])}" if late else f"💰 PAGO · {head} · {req['creator_name']} · {who} · {money(req['amount_cents'])}")  # lote 133: assunto que não passa despercebido
     body = mailer.layout(agency, ('Resposta atrasada' if late else head), intro, 'Abrir conversa' if req.get('chat_url') else 'Abrir painel', link,
                          'Aviso automático do Alta Pulse quando uma Solicitação de mídia é paga.')
     ok = await mailer.send(MEDIA_EMAIL, subject, body)
