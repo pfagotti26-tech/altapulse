@@ -517,6 +517,19 @@ def claims_seen(text):
     return m.group(0) if m else ''
 # lote 118: puxada de conversa nunca entrega que viu o fã online nem cobra resposta
 ONLINE_TALK = re.compile(r'\b(online|on-?line|on line|vi (que )?(vc|voce|você|tu)|te vi|apareceu|me responde|responde (ai|aí)|me ignor|visualiz)\w*', re.I)
+# lote 129: fã cobra / sente falta ("vc sumiu", "cadê você", "??") → responder a isso primeiro
+CALLBACK = re.compile(r'\b(sumiu|sumida|sumindo|cad[eê] (voc[eê]|vc|tu)|esqueceu de mim|me esqueceu|desapareceu|me ignorando|me ignorou|n[aã]o (vai )?(me )?responde[r]?)\b|^\W*\?{2,}\W*$', re.I)
+def fan_calls_back(fan_last):
+    m = CALLBACK.search((fan_last or '').strip())
+    return m.group(0) if m else ''
+CALLBACK_OK = re.compile(r'\b(t[ôo] aqui|aqui sim|estou aqui|t[ôo] sim|voltei|n[aã]o sumi|sumi (n[aã]o|nada)|nem sumi|nunca (sumi|esqueci|te esqueci)|esquecer de (voc[eê]|vc|tu)|desculpa|perdoa|demorei|saudade|senti (sua |tua )?falta|t[aá]va (ocupada|aqui|te esperando|pensando)|correria)\b', re.I)
+def answers_callback(text):
+    return bool(CALLBACK_OK.search(text or ''))
+# lote 129: pergunta genérica de quem já está conversando
+GENERIC_Q = re.compile(r'como (foi|t[aá]|est[aá]) (sendo )?(o )?(seu|teu) dia|o que (voc[eê]|vc|tu) (t[aá]|est[aá]) fazendo|como (voc[eê]|vc) t[aá]\??\s*$', re.I)
+def generic_question(text):
+    m = GENERIC_Q.search(text or '')
+    return m.group(0) if m else ''
 def says_online(text):
     m = ONLINE_TALK.search(text or '')
     return m.group(0) if m else ''
