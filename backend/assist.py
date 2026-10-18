@@ -739,10 +739,14 @@ FIM DA CONVERSA:
         r = await call(model)
         if r.status_code in (400, 404) and model != c['model']: model = c['model']; r = await call(model)  # modelo rápido indisponível: usa o principal
     except httpx.HTTPError as error: raise HTTPException(502, f'A Grok não respondeu a tempo ({error.__class__.__name__}). Tente de novo.')
-    if r.status_code in (401, 403): raise HTTPException(502, 'A xAI recusou a chave. Avise o gestor.')
+    _refused = r.status_code == 403 and not re.search(r'api[ _-]?key|unauthori|credential|team|billing|credit', r.text or '', re.I)
+    if _refused: print('xai 403 conteudo:', (r.text or '')[:300], flush=True)
+    if r.status_code in (401, 403) and not _refused: raise HTTPException(502, 'A xAI recusou a chave. Avise o gestor.')
     if r.status_code == 429: raise HTTPException(502, 'A xAI está limitando os pedidos ou a conta ficou sem crédito. Avise o gestor.')
-    if r.status_code >= 400: raise HTTPException(502, f'A xAI respondeu {r.status_code}. Tente de novo.' + (f' {r.text[:300]}' if alt else ''))
-    data = r.json(); out = parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
+    if r.status_code >= 400 and not _refused: raise HTTPException(502, f'A xAI respondeu {r.status_code}. Tente de novo.' + (f' {r.text[:300]}' if alt else ''))
+    # lote 137: a xAI recusou o CONTEÚDO (ex.: fã possível menor) → vira alerta para a equipe, nunca erro nem resposta
+    data = {} if _refused else r.json()
+    out = {'alerta': True, 'motivo': 'a IA recusou responder esta conversa (possível menor ou tema proibido); veja e responda à mão'} if _refused else parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
     usage = data.get('usage') or {}
     # anti-repetição: começou igual a uma das últimas mensagens da criadora? pede outra uma vez, sem o chatter perceber
     # coerência de tempo: inventou rotina ("bom dia de todo dia") que a conversa não mostra? também pede outra uma vez
@@ -796,7 +800,28 @@ FIM DA CONVERSA:
     payw = '' if mreq or not out or out.get('alerta') else (PM.pay_word(txt0) or (PM.pay_word(str(out.get('legenda') or '') + ' ' + str(out.get('depois') or '')) if str(out.get('produto') or '').strip() else ''))  # lote 132
     budg = PM.budget_talk(txt0) if out and not out.get('alerta') else ''  # lote 134
     madef = PM.made_for(txt0 + ' ' + str((out or {}).get('legenda') or '') + ' ' + str((out or {}).get('depois') or '')) if out and not out.get('alerta') and str((out or {}).get('produto') or '').strip() else ''
-    if budg or madef or payw or infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
+    # lote 137 (custo): o que dá para consertar aqui não pede outra resposta (cada refeita é outra chamada paga)
+    fixed_here = []
+    if out and not out.get('alerta'):
+        if pricetxt: pricetxt = False; fixed_here.append('valor')  # o valor sai no fim (PRICE_STRIP), a oferta segue na Solicitação
+        if recd:
+            _t = PM.strip_recorded(txt0)
+            if _t and not PM.says_recorded(_t): out['texto'] = txt0 = _t; recd = False; fixed_here.append('gravada')
+        if body.mode == 'reply' and (tic or gen) and txt0.rstrip().endswith('?'):
+            _t = PM.drop_last_sentence(txt0)
+            if _t: out['texto'] = txt0 = _t; fixed_here.append('bordao' if tic else 'generica'); tic = ''; gen = ''
+        if mech == 'pergunta depois de elogio simples':
+            _t = PM.drop_last_sentence(txt0)
+            if _t and len(PM._norm(_t)) <= 6: out['texto'] = txt0 = _t; fixed_here.append('pergunta-elogio'); mech = ''
+        if longo and body.mode == 'reply':
+            _t = PM.trim_sentences(txt0, longo[1])
+            if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
+    retry_keys = [k for k, v in (('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
+        ('cobrou', cbk), ('generica', gen), ('puxada-sem-?', pxq), ('repetiu', rep), ('rotina', rot), ('midia', med), ('encontro', meet), ('nao-fechou', close), ('gravada', recd),
+        ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
+        ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
+        ('online', onl), ('fugiu-dela', dodge), ('inventou', claim), ('disse-que-viu', seen), ('mecanica', mech)) if v]
+    if retry_keys:
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
@@ -864,11 +889,11 @@ FIM DA CONVERSA:
         out = {'alerta': True, 'motivo': f'o fã puxou fantasia infantil ("{_inf}") e a sugestão entrou no jogo; responda à mão trazendo para adultos'}
     cost, pt, ct, ot = cost_of(model, usage)
     usage_id = uid()
-    _altinfo = {'model': model, 'cost_usd': cost, 'prompt_tokens': pt, 'cached_tokens': ct, 'completion_tokens': ot, 'retry': why, 'first_try': first_try,
+    _altinfo = {'model': model, 'cost_usd': cost, 'prompt_tokens': pt, 'cached_tokens': ct, 'completion_tokens': ot, 'retry': retry_keys, 'fixed': fixed_here, 'first_try': first_try,
                 'ms': int((datetime.now() - t0).total_seconds() * 1000)} if alt else None
     if alt: remaining = None
     else:
-      await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
+      await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest', 'retry': retry_keys, 'fixed': fixed_here,
         'style': body.style, 'level': level, 'day': today(), 'at': iso(), 'tokens': usage.get('total_tokens'), 'prompt_tokens': pt, 'cached_tokens': ct,
         'completion_tokens': ot, 'cost_usd': cost, 'model': model, 'temp': body.temp, 'ms': int((datetime.now() - t0).total_seconds() * 1000), 'expires_at': now() + timedelta(days=120)})
       remaining = await remaining_for(c, user)
