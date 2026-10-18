@@ -646,6 +646,31 @@ def says_recorded(text):
     """Sugestão entrega ao fã que a chamada é gravada (nunca pode)."""
     t = ' ' + ' '.join(_norm(text)) + ' '
     return bool(re.search(r'\b(chamada|call|videochamada|video chamada)\b', t) and re.search(r'\bgrava(d[ao]s?|cao|coes)\b', t))
+# lote 137 (custo): correções feitas aqui mesmo, sem pedir outra resposta à IA
+_SENT = re.compile(r'(?<=[.!?…])\s+')
+_SENT2 = re.compile(r'.+?(?:[.!?…]+(?:\s*[^\w\s.!?…,]+)*(?=\s|$)|$)', re.S)
+def sentences(text):
+    """Frases com o emoji que vem logo depois da pontuação ('obrigada amor! 😘' fica junto)."""
+    return [x.strip() for x in _SENT2.findall((text or '').strip()) if x.strip()]
+def trim_sentences(text, maxw):
+    """Mantém as primeiras frases inteiras que cabem em maxw palavras; '' se nem a primeira cabe (aí pede outra)."""
+    out, n = [], 0
+    for x in sentences(text):
+        k = len(_norm(x))
+        if n + k > maxw: break
+        out.append(x); n += k
+    return ' '.join(out).strip() if out and n >= 2 else ''
+def drop_last_sentence(text):
+    """Tira a última frase (a pergunta-bordão/genérica) se sobrar uma frase de verdade; senão ''."""
+    parts = sentences(text)
+    if len(parts) < 2: return ''
+    rest = ' '.join(parts[:-1]).strip()
+    return rest if len(_norm(rest)) >= 2 else ''
+def strip_recorded(text):
+    """'chamada gravada' → 'chamada'."""
+    t = re.sub(r'\b((?:v[íi]deo\s?)?chamada|call)\s+gravad[ao]s?\b', r'\1', text or '', flags=re.I)
+    t = re.sub(r',?\s*\bgravad[ao]s?\b', '', t, flags=re.I)
+    return re.sub(r'\s{2,}', ' ', t).strip()
 def misses_close(text, last_ours, fan_last, items):
     """Devolve True se a criadora convidou/ofereceu, o fã aceitou ou pediu a proposta, e a sugestão não traz valor nem item da tabela."""
     lo = ' ' + ' '.join(_norm(last_ours)) + ' '; fl = ' ' + ' '.join(_norm(fan_last)) + ' '
