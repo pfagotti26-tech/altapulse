@@ -9,7 +9,7 @@
   ou contato fora da plataforma; valores fora da tabela/ofertas do fã viram [preço] antes de chegar ao chatter.
 - Nada é enviado ao fã pelo sistema: o chatter revisa e envia.
 """
-import json, re, random
+import json, re, random, os, contextvars
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Literal
 from zoneinfo import ZoneInfo
@@ -28,6 +28,10 @@ import fan_memory as FM
 router = APIRouter()
 BR = ZoneInfo('America/Sao_Paulo')
 XAI = 'https://api.x.ai/v1'
+VENICE = 'https://api.venice.ai/api/v1'
+# lote 136: comparação de modelos (tools/compare_alt.py) — só conversas sintéticas, sem fã real: com este flag ligado a sugestão
+# não usa exemplos aprovados nem frases de outros fãs, e não grava nada (uso, recentes, sombra, alertas)
+_ALT = contextvars.ContextVar('alt_provider', default=None)
 LEVELS = ['leve', 'picante', 'explicito']
 LEVEL_TEXT = {
     'leve': 'LEVE: flerte, carinho e insinuação; nada sexual explícito.',
@@ -39,7 +43,8 @@ LEVEL_TEXT = {
 DEFAULT = {'id': 'main', 'enabled': False, 'daily_limit': 1000, 'team_daily_limit': 3000, 'model': 'grok-4.7', 'suggest_model': 'grok-4.20-0309-non-reasoning'}
 # preço por 1M tokens (US$): entrada, entrada em cache, saída — docs.x.ai/developers/pricing (out/2026)
 PRICES = {'grok-4.7': (2.0, 0.5, 6.0), 'grok-4.6': (2.0, 0.5, 6.0), 'grok-4.5': (2.0, 0.3, 6.0), 'grok-4.3': (1.25, 0.2, 2.5),
-          'grok-4.20-0309-non-reasoning': (1.25, 0.2, 2.5), 'grok-4.20-0309-reasoning': (1.25, 0.2, 2.5)}
+          'grok-4.20-0309-non-reasoning': (1.25, 0.2, 2.5), 'grok-4.20-0309-reasoning': (1.25, 0.2, 2.5),
+          'olafangensan-glm-4.7-flash-heretic': (0.07, 0.04, 0.40)}  # Venice (só no teste de comparação)
 def cost_of(model, usage):
     inp, cin, out = PRICES.get(model, (2.0, 0.5, 6.0))
     pt = usage.get('prompt_tokens') or 0; ct = ((usage.get('prompt_tokens_details') or {}).get('cached_tokens')) or 0
@@ -459,6 +464,8 @@ def fan_block(card):
 @router.post('/extension/assist/suggest')
 async def suggest(body: SuggestIn, user=Depends(extension_user)):
     creator = await can_see(user, body.creator_id)
+    alt = _ALT.get()
+    if alt and body.fan_ref: raise HTTPException(422, 'Comparação de modelos só com conversa sintética (sem fã).')
     # lote 108: fã bloqueado pela equipe — a IA não escreve nada para ele (automação e Sugerir resposta); só gestor desbloqueia
     if body.fan_ref and await db.assist_blocked.find_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref}, {'_id': 1}):
         return {'alert': True, 'reason': 'Assinante bloqueado pela equipe: a IA não responde a ele. Só um gestor desbloqueia (painel → Sombra → Fãs bloqueados).', 'remaining': None, 'blocked': True}
@@ -484,7 +491,7 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0}) or {}
     if not prof.get('persona') and not prof.get('prices'): raise HTTPException(409, 'A ficha desta criadora ainda não foi preenchida no painel.')
     if not PM.normalize(prof)['features']['assist']: raise HTTPException(409, 'A Alta Ajuda está desligada para esta criadora.')
-    await check_quota(c, user)
+    if not alt: await check_quota(c, user)
     mods = PM.normalize(prof)['modules']
     if not mods['segments']: prof = {**prof, 'fan_segments': []}
     if not mods['openers']: prof = {**prof, 'openers': {}}
@@ -545,13 +552,13 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     recent_ours = [scrub(m.text) for m in msgs[-14:] if m.ours]
     # lote 97: o que esta criadora já mandou a OUTROS fãs nas últimas 8 h (frases e cenas não podem se repetir entre conversas)
     _since = (now() - timedelta(hours=8)).isoformat()
-    other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
+    other_texts = [] if alt else [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
     other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:90] for t in other_texts[:6])) if other_texts else ''
     _ops = PM.openings(other_texts)
     if _ops: other_block += '\nABERTURAS JÁ USADAS COM OUTROS FÃS (não comece igual nem parecido): ' + ' | '.join(_ops) + '. Elogio do fã não pede sempre agradecimento: às vezes provoca, às vezes devolve com uma pergunta do que ele disse, às vezes responde curto com charme.'
     # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
     _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
-    examples_block = await examples_for(body.creator_id, _lastfan, n=4)  # lote 135: 4 exemplos (antes 7)
+    examples_block = '' if alt else await examples_for(body.creator_id, _lastfan, n=4)  # lote 135: 4 exemplos (antes 7)
     if body.style == 'vendedora':
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
@@ -719,17 +726,22 @@ FIM DA CONVERSA:
 {sit}"""
     t0 = datetime.now()
     async def call(model, extra=''):
+        if alt and alt.get('provider') == 'venice':
+            async with httpx.AsyncClient(timeout=60) as client:
+                return await client.post(f'{VENICE}/chat/completions', headers={'Authorization': f"Bearer {os.environ.get('VENICE_API_KEY', '')}"},
+                    json={'model': alt['model'], 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': task + extra}], 'temperature': 0.9, 'max_tokens': 1500,
+                          'venice_parameters': {'include_venice_system_prompt': False, 'disable_thinking': True, 'strip_thinking_response': True}})
         async with httpx.AsyncClient(timeout=30) as client:
             return await client.post(f'{XAI}/chat/completions', headers={'Authorization': f'Bearer {key}', 'x-grok-conv-id': f'alta-{body.creator_id}'},
                 json={'model': model, 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': task + extra}], 'temperature': 0.9, 'max_tokens': 400})
     try:
-        model = c.get('suggest_model') or c['model']
+        model = alt['model'] if alt and alt.get('provider') == 'venice' else (c.get('suggest_model') or c['model'])
         r = await call(model)
         if r.status_code in (400, 404) and model != c['model']: model = c['model']; r = await call(model)  # modelo rápido indisponível: usa o principal
     except httpx.HTTPError as error: raise HTTPException(502, f'A Grok não respondeu a tempo ({error.__class__.__name__}). Tente de novo.')
     if r.status_code in (401, 403): raise HTTPException(502, 'A xAI recusou a chave. Avise o gestor.')
     if r.status_code == 429: raise HTTPException(502, 'A xAI está limitando os pedidos ou a conta ficou sem crédito. Avise o gestor.')
-    if r.status_code >= 400: raise HTTPException(502, f'A xAI respondeu {r.status_code}. Tente de novo.')
+    if r.status_code >= 400: raise HTTPException(502, f'A xAI respondeu {r.status_code}. Tente de novo.' + (f' {r.text[:300]}' if alt else ''))
     data = r.json(); out = parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
     usage = data.get('usage') or {}
     # anti-repetição: começou igual a uma das últimas mensagens da criadora? pede outra uma vez, sem o chatter perceber
@@ -757,6 +769,7 @@ FIM DA CONVERSA:
         if len(PM._norm(txt0)) > 6: longo = (len(PM._norm(txt0)), 6)
         elif txt0.strip().endswith('?'): mech = 'pergunta depois de elogio simples'
     seen = PM.claims_seen(txt0) if out and not out.get('alerta') and not _paid_req and not mreq else ''
+    why = []; first_try = dict(out) if isinstance(out, dict) else None
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
@@ -784,7 +797,6 @@ FIM DA CONVERSA:
     budg = PM.budget_talk(txt0) if out and not out.get('alerta') else ''  # lote 134
     madef = PM.made_for(txt0 + ' ' + str((out or {}).get('legenda') or '') + ' ' + str((out or {}).get('depois') or '')) if out and not out.get('alerta') and str((out or {}).get('produto') or '').strip() else ''
     if budg or madef or payw or infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
-        why = []
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
@@ -852,16 +864,21 @@ FIM DA CONVERSA:
         out = {'alerta': True, 'motivo': f'o fã puxou fantasia infantil ("{_inf}") e a sugestão entrou no jogo; responda à mão trazendo para adultos'}
     cost, pt, ct, ot = cost_of(model, usage)
     usage_id = uid()
-    await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
+    _altinfo = {'model': model, 'cost_usd': cost, 'prompt_tokens': pt, 'cached_tokens': ct, 'completion_tokens': ot, 'retry': why, 'first_try': first_try,
+                'ms': int((datetime.now() - t0).total_seconds() * 1000)} if alt else None
+    if alt: remaining = None
+    else:
+      await db.assist_usage.insert_one({'id': usage_id, 'user_id': user['id'], 'user_name': user['name'], 'creator_id': body.creator_id, 'mode': 'suggest',
         'style': body.style, 'level': level, 'day': today(), 'at': iso(), 'tokens': usage.get('total_tokens'), 'prompt_tokens': pt, 'cached_tokens': ct,
         'completion_tokens': ot, 'cost_usd': cost, 'model': model, 'temp': body.temp, 'ms': int((datetime.now() - t0).total_seconds() * 1000), 'expires_at': now() + timedelta(days=120)})
-    remaining = await remaining_for(c, user)
+      remaining = await remaining_for(c, user)
+    if alt and out and out.get('alerta'): return {'alert': True, 'reason': str(out.get('motivo') or '')[:300], 'remaining': None, '_alt': _altinfo}
     if out and out.get('alerta'):
         alert = {'id': uid(), 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
                  'fan_ref': body.fan_ref, 'reason': PM.clean_reason(str(out.get('motivo') or 'possível menor de idade'))[:300], 'created_at': iso(), 'expires_at': now() + timedelta(days=400)}
         await db.assist_alerts.insert_one(dict(alert))
         return {'alert': True, 'reason': alert['reason'], 'remaining': remaining}
-    if not out or not str(out.get('texto') or '').strip(): raise HTTPException(502, 'A Grok respondeu fora do formato. Tente de novo.')
+    if not out or not str(out.get('texto') or '').strip(): raise HTTPException(502, 'A Grok respondeu fora do formato. Tente de novo.' + (f' {json.dumps(first_try, ensure_ascii=False)[:300]}' if alt else ''))
     allowed = {p['cents'] for p in prices} | {o['amount_cents'] for o in ((card or {}).get('pending_offers') or [])}
     if card and (card.get('subscription') or {}).get('price_cents'): allowed.add(card['subscription']['price_cents'])
     if anchor: allowed = (allowed - {p['cents'] for p in prices}) | {fan_price(p['cents'], anchor) for p in prices}  # valor de tabela abaixo do padrão dele vira [preço]
@@ -885,6 +902,7 @@ FIM DA CONVERSA:
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora e mandar a Solicitação de mídia com o valor (nunca escrever o preço).'
     # lote 114: palavra de família/incesto na resposta final → não sugere nada (nem a automação envia)
     if PM.family_word(text):
+        if alt: return {'alert': True, 'reason': 'palavra de família na resposta final', 'remaining': None, '_alt': _altinfo}
         return {'alert': True, 'reason': 'Tema proibido na conversa: a IA não responde. Responda à mão mudando de assunto, sem citar o tema.', 'remaining': remaining}
     if mreq: from media_requests import mark_acked; await mark_acked(mreq['id'])  # lote 110: agradeceu; daqui em diante pausa
     result = {'alert': False, 'text': text, 'step': str(out.get('passo') or '')[:20], 'objection': str(out.get('objecao') or '')[:80],
@@ -897,6 +915,7 @@ FIM DA CONVERSA:
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
             'suggested_segment': (str(out.get('perfil_sugerido') or '').strip() if not seg and str(out.get('perfil_sugerido') or '').strip() in {x['key'] for x in segs} else '')}
+    if alt: result['_alt'] = _altinfo; return result
     # lote 97: guarda o texto por 24 h para a próxima sugestão (de outro fã) não repetir frase/cena
     if text.strip():
         await db.assist_recent.insert_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'text': scrub(text)[:400], 'item': prod['item'] if prod else '', 'at': iso(), 'expires_at': now() + timedelta(hours=24)})
