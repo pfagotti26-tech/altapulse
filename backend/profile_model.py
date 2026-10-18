@@ -158,7 +158,7 @@ def natural_rules(prof):
          '- "Molhadinha" descreve só ELA (o corpo dela), nunca uma coisa: nada de "áudio molhadinho", "vídeo molhado". Use pouco.',
          '- Fã reagiu (coração, 🔥, 😍) ou curtiu: não fale da "reação"; responda direto ao sentimento ("amei que gostou, amor 😘", "ai que tesão… assim você me deixa molhadinha", "sabia que ia te deixar assim…").',
          '- Papéis (público hétero): quem senta, cavalga, rebola, chupa, MAMA e DÁ é SEMPRE ela; o fã mete, come, goza, assiste. Nunca pergunte se ele gosta de mamar/chupar pau nem se ele gosta de dar (ex. certo: "você gosta de me comer de quatro?"). Nunca "vem sentar", "senta em mim" para o fã.',
-         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a Solicitação de mídia e CONTINUA A CENA da conversa, criando curiosidade ou exclusividade, sem descrever o conteúdo (o preço vai na própria solicitação): "do jeitinho que você falou…", "não aguentei e fiz isso pra você", "só você vai ver esse 🤫"; (3) "depois" = chamada curta para ele ABRIR, falando do que ele ganha, NUNCA a palavra pagar/pagamento/pix: "libera que é todo seu 😈", "desbloqueia e me diz o que achou…", "abre aí, fiz pensando em você", variando. Nada de urgência inventada ("só hoje", "vai sumir"). NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
+         '- Oferta em 3 passos: (1) "texto" = provocação que faz ele imaginar ("já imaginou eu sentando bem gostoso no seu pau? 😈"), SEM valor escrito; (2) "legenda" = frase curta que vai junto com a Solicitação de mídia e CONTINUA A CENA da conversa, criando curiosidade ou exclusividade, sem descrever o conteúdo (o preço vai na própria solicitação): "do jeitinho que você falou…", "lembrei de você na hora…", "acho que você vai gostar disso 🤭"; (3) "depois" = chamada curta para ele ABRIR, falando do que ele ganha, NUNCA a palavra pagar/pagamento/pix: "libera que é todo seu 😈", "desbloqueia e me diz o que achou…", "abre aí, acho que você vai amar", variando. Nada de urgência inventada ("só hoje", "vai sumir"). NUNCA "tenho um vídeo meu…", nunca descreva o conteúdo, nunca diga duração nem valor no texto, nunca cite marido/parceiro/outro homem se ele não citou. O catálogo é só para VOCÊ escolher o item certo.',
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
@@ -565,7 +565,24 @@ PAY_WORD = re.compile(r'\b(pag(a|ar|ue|ando|amento|amentos)|pix)\b', re.I)
 def pay_word(text):
     m = PAY_WORD.search(text or '')
     return m.group(0) if m else ''
-SAFE_AFTER = ['libera que é todo seu 😈', 'desbloqueia e me diz o que achou…', 'abre aí, fiz pensando em você', 'tá aí esperando você liberar, bb 😏']
+SAFE_AFTER = ['libera que é todo seu 😈', 'desbloqueia e me diz o que achou…', 'abre aí, acho que você vai amar', 'tá aí esperando você liberar, bb 😏']
+# lote 134: nunca abrir negociação de preço (o preço é o da tabela)
+BUDGET = re.compile(r'cabe no (seu|teu) bolso|(qual|que|quanto) (valor|pre[çc]o)[^?.!]{0,25}(cabe|pode|consegue|quer|daria|tem)|quanto (voc[eê]|vc|tu) (pode|consegue|quer|daria|topa) (pagar|gastar|dar|investir)|por menos\b|desconto|mais barat(o|inho) pra (voc[eê]|vc|ti)|faz(emos)? um pre[çc]o|negoci', re.I)
+def budget_talk(text):
+    m = BUDGET.search(text or '')
+    return m.group(0) if m else ''
+# lote 134: fã recusa com desdém (não é pechincha) → sem oferta nesta vez
+DISDAIN = re.compile(r'n[aã]o acho justo|trabalho alheio|n[aã]o (vou )?pag(o|ar) (pra|por|nada)|pagar (pra|por) ver|interesseira|mercen[aá]ri|s[oó] (quer|pensa em|liga pra) (meu )?dinheiro|golpista|\bgolpe\b|n[aã]o (dou|gasto) (um )?(centavo|real|dinheiro)', re.I)
+def disdain(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-2:]):
+        m = DISDAIN.search(t)
+        if m: return m.group(0)
+    return ''
+# lote 134: venda de item da tabela nunca diz que foi feito/gravado pra ele (é mentira e ele descobre)
+MADE_FOR = re.compile(r'\b(gravei|filmei|fiz|preparei|produzi)\b[^.!?]{0,30}\b(pra|para) (voc[eê]|vc|ti)\b|\b(gravei|filmei|fiz|preparei) pensando em (voc[eê]|vc|ti)\b', re.I)
+def made_for(text):
+    m = MADE_FOR.search(text or '')
+    return m.group(0) if m else ''
 def says_online(text):
     m = ONLINE_TALK.search(text or '')
     return m.group(0) if m else ''
