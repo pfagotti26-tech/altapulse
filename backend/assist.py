@@ -535,17 +535,23 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         dflt = next((x for x in segs if x.get('default')), segs[0])
         seg_text = f"PERFIL DESTE FÃ: ainda não classificado. Use o perfil padrão ({dflt['label']}). Se a conversa mostrar com clareza que ele é de outro perfil, coloque a chave em \"perfil_sugerido\"."
     else: seg_text = ''
-    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + scrub(m.text) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
+    def _short(m):  # lote 135: boas-vindas/massa/post longo vão resumidos (mantendo as marcações [solicitação…], [foto paga…]); o resto até 500 caracteres
+        t = scrub(m.text)
+        if m.ours and PM._mass(t) and len(t) > 170:
+            marks = ' '.join(re.findall(r'\[[^\]]{0,90}\]', t))
+            return t[:150].rstrip() + '… [mensagem em massa/post]' + (' ' + marks if marks else '')
+        return t[:500]
+    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + _short(m) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
     recent_ours = [scrub(m.text) for m in msgs[-14:] if m.ours]
     # lote 97: o que esta criadora já mandou a OUTROS fãs nas últimas 8 h (frases e cenas não podem se repetir entre conversas)
     _since = (now() - timedelta(hours=8)).isoformat()
     other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
-    other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
+    other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:90] for t in other_texts[:6])) if other_texts else ''
     _ops = PM.openings(other_texts)
     if _ops: other_block += '\nABERTURAS JÁ USADAS COM OUTROS FÃS (não comece igual nem parecido): ' + ' | '.join(_ops) + '. Elogio do fã não pede sempre agradecimento: às vezes provoca, às vezes devolve com uma pergunta do que ele disse, às vezes responde curto com charme.'
     # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
     _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
-    examples_block = await examples_for(body.creator_id, _lastfan)
+    examples_block = await examples_for(body.creator_id, _lastfan, n=4)  # lote 135: 4 exemplos (antes 7)
     if body.style == 'vendedora':
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
@@ -1081,7 +1087,7 @@ async def examples_for(creator_id, fan_text, n=7):
     if not rows: return ''
     fw = _ex_words(fan_text)
     rows.sort(key=lambda r: (len(fw & _ex_words(r.get('fan_text', ''))), r.get('at', '')), reverse=True)
-    lines = [f"- fã: \"{r.get('fan_text', '')[:160]}\" → ela: \"{r['good'][:300]}\"" for r in rows[:n] if r.get('good')]
+    lines = [f"- fã: \"{r.get('fan_text', '')[:110]}\" → ela: \"{r['good'][:200]}\"" for r in rows[:n] if r.get('good')]
     return ('EXEMPLOS APROVADOS PELA EQUIPE desta criadora (imite o jeito, o tamanho e o tom; NUNCA copie as frases):\n' + '\n'.join(lines)) if lines else ''
 
 @router.post('/assist/examples')
