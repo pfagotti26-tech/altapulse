@@ -535,17 +535,23 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         dflt = next((x for x in segs if x.get('default')), segs[0])
         seg_text = f"PERFIL DESTE FÃ: ainda não classificado. Use o perfil padrão ({dflt['label']}). Se a conversa mostrar com clareza que ele é de outro perfil, coloque a chave em \"perfil_sugerido\"."
     else: seg_text = ''
-    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + scrub(m.text) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
+    def _short(m):  # lote 135: boas-vindas/massa/post longo vão resumidos (mantendo as marcações [solicitação…], [foto paga…]); o resto até 500 caracteres
+        t = scrub(m.text)
+        if m.ours and PM._mass(t) and len(t) > 170:
+            marks = ' '.join(re.findall(r'\[[^\]]{0,90}\]', t))
+            return t[:150].rstrip() + '… [mensagem em massa/post]' + (' ' + marks if marks else '')
+        return t[:500]
+    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + _short(m) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
     recent_ours = [scrub(m.text) for m in msgs[-14:] if m.ours]
     # lote 97: o que esta criadora já mandou a OUTROS fãs nas últimas 8 h (frases e cenas não podem se repetir entre conversas)
     _since = (now() - timedelta(hours=8)).isoformat()
     other_texts = [r['text'] async for r in db.assist_recent.find({'creator_id': body.creator_id, 'fan_ref': {'$ne': body.fan_ref}, 'at': {'$gte': _since}}, {'_id': 0, 'text': 1}).sort('at', -1).limit(30)]
-    other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:140] for t in other_texts[:12])) if other_texts else ''
+    other_block = ('JÁ DITO A OUTROS FÃS HOJE (não repita frases, cenas nem desculpas destas; invente outra situação ou nenhuma): ' + ' | '.join(t[:90] for t in other_texts[:6])) if other_texts else ''
     _ops = PM.openings(other_texts)
     if _ops: other_block += '\nABERTURAS JÁ USADAS COM OUTROS FÃS (não comece igual nem parecido): ' + ' | '.join(_ops) + '. Elogio do fã não pede sempre agradecimento: às vezes provoca, às vezes devolve com uma pergunta do que ele disse, às vezes responde curto com charme.'
     # lote 100: exemplos aprovados pela equipe (correções e 👍), os mais parecidos com a última do fã
     _lastfan = next((scrub(m.text) for m in reversed(msgs) if not m.ours), '')
-    examples_block = await examples_for(body.creator_id, _lastfan)
+    examples_block = await examples_for(body.creator_id, _lastfan, n=4)  # lote 135: 4 exemplos (antes 7)
     if body.style == 'vendedora':
         goal = (f"OBJETIVO: VENDER AGORA o item \"{product}\" da tabela, ligado ao que o fã disse, no tom do perfil dele. Diga o valor (da lista do fã, se houver)." if product else
                 "OBJETIVO: VENDER AGORA. Escolha o item da tabela que mais combina com o que o fã disse ou pediu e com o perfil dele, de preferência um que ele costuma comprar ou um passo acima. Diga o valor (da lista do fã, se houver) e preencha \"produto\" com o nome exato do item.")
@@ -578,7 +584,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
-                "que continua a cena e cria curiosidade (ex.: \"do jeitinho que você falou…\", \"só você vai ver esse 🤫\"); \"depois\" = chamada curta para ele ABRIR, nunca a palavra pagar/pix (ex.: \"libera que é todo seu 😈\", \"desbloqueia e me diz o que achou…\"). Preencha \"produto\" com o nome exato do item. "
+                "que continua a cena e cria curiosidade (ex.: \"do jeitinho que você falou…\", \"lembrei de você na hora…\"); \"depois\" = chamada curta para ele ABRIR, nunca a palavra pagar/pix (ex.: \"libera que é todo seu 😈\", \"desbloqueia e me diz o que achou…\"). Preencha \"produto\" com o nome exato do item. "
                 "Não descreva o conteúdo, não diga \"tenho um vídeo\", não cite duração nem parceiro, não escreva valor. Exceção: encontro/job ou menor, siga as regras fixas.")
         if pend and pend in PM.PAY_ASK: goal += f' O fã PEDIU PARA SER COBRADO ("{pend}"): confirme curto e com charme ("mando agora, amor 😈"), sem nova pergunta, e preencha "produto" com o item da conversa (o que ele pediu ou o último oferecido; se nenhum, o que combina com a cena).'
         elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
@@ -645,6 +651,12 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
     if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
                               'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
+    _dis = PM.disdain([m.text for m in msgs if not m.ours]) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 134
+    if _dis:
+        must_sell = False; pend = ''
+        goal = 'NÃO ofereça nada agora: "produto" vazio, sem preço e sem nova solicitação.'
+        opener_block += (f'\nO FÃ RECUSOU COM DESDÉM ("{_dis}"): não é pechincha. Responda CURTO, segura e sem se abalar, sem pedir desculpa, sem discutir, sem ofender e sem oferecer nada '
+                         '(ex.: "tudo bem, bb… aqui é pra quem quer me ter de verdade 😘", "relaxa, amor, sem pressão nenhuma 😏"). Nunca pergunte quanto ele pode pagar.')
     _cb = PM.fan_calls_back(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 129
     if _cb: _gr = False; must_sell = False
     if _cb: opener_block += (f'\nO FÃ COBROU / SENTIU FALTA ("{_cb}"): responda a ISSO primeiro, com carinho e charme, sem se justificar demais (ex.: "tô aqui sim, amor… senti sua falta 😏", "sumi nada, bb, tava te esperando… e você, onde tava?"). '
@@ -769,12 +781,16 @@ FIM DA CONVERSA:
     gen = PM.generic_question(txt0) if body.mode == 'reply' and out and not out.get('alerta') and _talked and not phase and not _gr else ''
     pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
     payw = '' if mreq or not out or out.get('alerta') else (PM.pay_word(txt0) or (PM.pay_word(str(out.get('legenda') or '') + ' ' + str(out.get('depois') or '')) if str(out.get('produto') or '').strip() else ''))  # lote 132
-    if payw or infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
+    budg = PM.budget_talk(txt0) if out and not out.get('alerta') else ''  # lote 134
+    madef = PM.made_for(txt0 + ' ' + str((out or {}).get('legenda') or '') + ' ' + str((out or {}).get('depois') or '')) if out and not out.get('alerta') and str((out or {}).get('produto') or '').strip() else ''
+    if budg or madef or payw or infp or echo or callx or dear or cbk or gen or pxq or rep or rot or med or meet or close or recd or reused or free or tic or longo or vibe or nosale or obj or scold or dur or cat or fam or flip or pricetxt or react or callp or wet or onl or dodge or claim or seen or mech:
         why = []
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
+        if budg: why.append(f'abriu negociação ("{budg}"); o preço é o da tabela: nunca pergunte quanto ele pode pagar, nem fale em desconto ou "por menos"')
+        if madef: why.append(f'disse "{madef}", mas o item é da tabela, não foi feito pra ele; nunca diga que gravou/fez/preparou pra ele: fale do que ele vai sentir ("do jeitinho que você falou…", "acho que você vai amar")')
         if payw: why.append(f'usou "{payw}"; nunca fale em pagar/pagamento/pix: fale em liberar, desbloquear, abrir, do que ele ganha ("libera que é todo seu 😈")')
         if infp: why.append(f'entrou na fantasia infantil ("{infp}"); é PROIBIDO: traga para adultos com charme, sem mamar/neném/bebê/cuidar dele como criança')
         if echo: why.append(f'repetiu o "{echo}" do fã como se fosse dela; reaja ao que ELE disse (ex.: "ai, que delícia saber disso…") em vez de repetir')
@@ -827,6 +843,7 @@ FIM DA CONVERSA:
             out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}
         if meet and out and not out.get('alerta') and PM.accepts_meeting(str(out.get('texto') or ''), [m.text for m in msgs[-6:] if not m.ours]):
             out = {'alerta': True, 'motivo': f'o fã pediu encontro/programa ("{meet}") e a sugestão não recusou; responda à mão com um não claro'}
+    if _dis and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # lote 134: recusa com desdém não recebe oferta
     # lote 131b: valem com ou sem segunda tentativa (antes só rodavam quando a resposta era refeita)
     if _wait_pay and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # nunca 2 solicitações abertas
     if body.mode == 'reply' and out and not out.get('alerta') and str(out.get('texto') or '').strip():
@@ -857,6 +874,8 @@ FIM DA CONVERSA:
     after = PM.PRICE_STRIP(scrub(str(out.get('depois') or '')).strip())[:200] if prod else ''
     if prod and caption and PM.pay_word(caption): caption = ''  # lote 132: legenda com "pagar" não vai
     if prod and after and PM.pay_word(after): after = random.choice(PM.SAFE_AFTER)
+    if prod and caption and PM.made_for(caption): caption = ''  # lote 134
+    if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
     if prod:
         text = PM.PRICE_STRIP(text)
         # lote 124 (Paulo): toda venda vai como Solicitação de mídia com o valor do item; pagou → a equipe entrega a mídia
@@ -1068,7 +1087,7 @@ async def examples_for(creator_id, fan_text, n=7):
     if not rows: return ''
     fw = _ex_words(fan_text)
     rows.sort(key=lambda r: (len(fw & _ex_words(r.get('fan_text', ''))), r.get('at', '')), reverse=True)
-    lines = [f"- fã: \"{r.get('fan_text', '')[:160]}\" → ela: \"{r['good'][:300]}\"" for r in rows[:n] if r.get('good')]
+    lines = [f"- fã: \"{r.get('fan_text', '')[:110]}\" → ela: \"{r['good'][:200]}\"" for r in rows[:n] if r.get('good')]
     return ('EXEMPLOS APROVADOS PELA EQUIPE desta criadora (imite o jeito, o tamanho e o tom; NUNCA copie as frases):\n' + '\n'.join(lines)) if lines else ''
 
 @router.post('/assist/examples')
