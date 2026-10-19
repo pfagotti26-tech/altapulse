@@ -11,6 +11,7 @@ import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Checkbox } from '../components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import PriceTests from '../components/PriceTests';
 
 const DAYS = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
 const LS_KEY = 'auto-filters';
@@ -177,6 +178,8 @@ export default function Auto() {
       </div>
       {filtered.hidden > 0 && <div style={{marginTop:8,fontSize:13,opacity:0.7}}>{filtered.hidden} criadoras sem ficha da IA escondidas · <button onClick={() => setFilters({...filters, ficha:false})} style={{background:'none',border:'none',color:'#48c',cursor:'pointer'}}>mostrar todas</button></div>}
       {!filtered.list.length && <Empty title="Nenhuma criadora" description="Ajuste os filtros ou ligue uma criadora." icon={Inbox}/>}
+
+      <PriceTests names={Object.fromEntries((configs || []).map(c => [c.creator_id, c.name]))}/>
 
       <SectionHeading title="Histórico de respostas">
         <Select value={histCreator} onValueChange={setHistCreator}>

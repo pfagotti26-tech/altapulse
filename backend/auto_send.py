@@ -404,6 +404,11 @@ async def request_price(creator_id: str, item: str, fan_ref: str = "", user=Depe
     for p in prices:
         if p.get("item", "").strip().lower() == item_low:
             min_cents = p.get("cents", 0)
+            if fan_ref:  # lote 143: fã em teste de faixa → o mínimo é a faixa dele (pode ser abaixo da tabela, ex.: 39,90)
+                from price_test import active_test
+                t = await active_test(creator_id, p["item"])
+                a = t and await db.price_test_assign.find_one({"test_id": t["id"], "fan_ref": fan_ref}, {"_id": 0, "cents": 1})
+                if a: min_cents = a["cents"]
             return {"ok": True, "item": p["item"], "min_cents": min_cents}
     return {"ok": False, "motivo": "item sem preço", "item": item}
 
