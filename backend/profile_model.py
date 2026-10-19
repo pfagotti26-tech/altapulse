@@ -218,6 +218,20 @@ def no_reply_needed(msgs):
         w = _norm(t)
         if len(w) > 4 or not all(x in ACK or _LAUGH.match(x) for x in w): return False
     return True
+# lote 142d: apelido em toda mensagem ("bb" em 94% das respostas da Aline) soa robô; se a criadora usou o mesmo apelido
+# numa das 2 últimas falas desta conversa, tira o apelido da nova (sem chamar a IA de novo)
+PETS = ['bb', 'bebe', 'amor', 'mor', 'gato', 'lindo', 'delicia', 'vida', 'paixao', 'gostoso', 'safado', 'safadinho']
+def strip_pet(text, recent_ours):
+    t = text or ''
+    prev = ' ' + ' '.join(' '.join(_norm(x)) for x in [y for y in recent_ours if y][-2:]) + ' '
+    for pet in PETS:
+        if ' ' + pet + ' ' not in prev: continue
+        for raw in {'bb', 'bebê', 'bebe', 'amor', 'mor', 'gato', 'lindo', 'delícia', 'delicia', 'vida', 'paixão', 'paixao', 'gostoso', 'safado', 'safadinho'}:
+            if ' '.join(_norm(raw)) != pet: continue
+            t2 = re.sub(r'(?i)(,\s*|\s+)' + re.escape(raw) + r'\b(?=\s*[,.!?…]|\s*$)', '', t)
+            t2 = re.sub(r'(?i)^' + re.escape(raw) + r'\b[,\s]*', '', t2)
+            if t2 != t and len(_norm(t2)) >= 2: t = t2[:1].upper() + t2[1:] if t[:1].isupper() else t2
+    return re.sub(r'\s{2,}', ' ', t).strip()
 def avoid_now(recent_ours, prof):
     """O que a criadora acabou de dizer nesta conversa: aberturas, apelidos e bordões para NÃO repetir agora."""
     recent = [x for x in recent_ours if x and x.strip()][-6:]
@@ -512,9 +526,9 @@ def mechanical(text):
     m = MECH.search(text or '')
     return m.group(0).strip() if m else ''
 # lote 123 (Paulo): fã só cumprimentou ("oi bb", "boa noite") → cumprimenta de volta e pergunta dele; nada de "gostou do que viu?"
-GREET_ONLY = re.compile(r'^\W*(oi+e?|ol[aá]|opa|eae|e a[ií]|hey|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|blz|beleza)\b', re.I)
+GREET_ONLY = re.compile(r'^\W*(oi+e?|ol[aá]|opa|eae|e a[ií]|hey|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|blz|beleza|psiu|e (voc[eê]|vc)|como (voc[eê]|vc) (est[aá]|t[aá])|meu amor)\b', re.I)
 GREET_FILL = {'oi', 'oii', 'oiii', 'oie', 'ola', 'opa', 'eae', 'e', 'ai', 'hey', 'bom', 'boa', 'dia', 'tarde', 'noite', 'tudo', 'bem', 'td', 'bom', 'blz', 'beleza',
-              'bb', 'bebe', 'amor', 'gata', 'gatinha', 'linda', 'lindinha', 'gostosa', 'princesa', 'vida', 'minha', 'meu', 'flor', 'querida', 'ta', 'como', 'vai', 'voce', 'vc', 'contigo', 'com', 'ai', 'aí'}
+              'bb', 'bebe', 'amor', 'gata', 'gatinha', 'linda', 'lindinha', 'gostosa', 'princesa', 'vida', 'minha', 'meu', 'flor', 'querida', 'ta', 'como', 'vai', 'voce', 'vc', 'contigo', 'com', 'ai', 'aí', 'esta', 'psiu', 'delicia', 'tudo'}
 def greeting_only(fan_last):
     t = (fan_last or '').strip(); w = _norm(t)
     return bool(t) and 0 < len(w) <= 6 and bool(GREET_ONLY.search(t)) and all(x in GREET_FILL for x in w)
