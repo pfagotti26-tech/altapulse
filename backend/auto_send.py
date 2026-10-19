@@ -298,7 +298,9 @@ async def list_configs(user=Depends(manager)):
         cfg = await get_config(c["id"])
         today_count = await count_today(c["id"])
         remaining = max(0, cfg["max_per_day"] - today_count)
-        out.append({"creator_id": c["id"], "name": c["name"], **cfg, "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0})
+        prof = await db.assist_profiles.find_one({"creator_id": c["id"]}) or {}
+        ficha = bool(prof.get("persona") and prof.get("prices"))
+        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha})
     return out
 
 @router.get("/app-configs")
@@ -342,6 +344,10 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
 @router.post("/config/toggle")
 async def toggle_config(creator_id: str, enabled: bool, user=Depends(manager)):
     """Liga/desliga na hora, sem depender dos outros campos."""
+    if enabled:
+        prof = await db.assist_profiles.find_one({"creator_id": creator_id}) or {}
+        if not (prof.get("persona") and prof.get("prices")):
+            raise HTTPException(400, "Preencha a ficha da IA antes de ligar")
     await db.auto_config.update_one({"id": f"creator:{creator_id}"}, {"$set": {"enabled": enabled, "creator_id": creator_id}}, upsert=True)
     return {"ok": True, "enabled": enabled}
 
