@@ -847,6 +847,13 @@ FIM DA CONVERSA:
         ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
         ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
         ('online', onl), ('fugiu-dela', dodge), ('inventou', claim), ('disse-que-viu', seen), ('mecanica', mech)) if v]
+    # lote 142b: só estilo (frase já usada com outro fã, mecânica, longa até 2x, eco, rotina…) não paga uma 2ª chamada: aceita como está.
+    # Segurança e venda (valor, pagar, encontro, ao vivo, chamada, viu mídia, repetiu com o MESMO fã…) continuam refazendo.
+    _style_only = {'frase-de-outro', 'mecanica', 'midia', 'mesma-ideia', 'rotina', 'eco', 'bordao', 'catalogo', 'duracao', 'generica'}
+    if longo and longo[0] <= 2 * longo[1]: _style_only = _style_only | {'longa'}
+    skipped_style = [k for k in retry_keys if k in _style_only] if all(k in _style_only for k in retry_keys) else []
+    if skipped_style:
+        fixed_here.append('aceito-estilo:' + ','.join(skipped_style)); retry_keys = []
     if retry_keys:
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
