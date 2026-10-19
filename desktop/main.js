@@ -56,7 +56,7 @@ async function autoPuxadaTick() {
     const now = Date.now();
     for (const cfg of overview.configs) {
       if (!cfg.auto || !cfg.in_window || cfg.paused_reason || !(cfg.left_hour > 0)) continue;
-      const rooms = lastRooms[cfg.creator_id] || [];
+      const rooms = lastRooms[cfg.creator_id + ':privacy'] || [];
       const candidates = rooms.filter(r => {
         if (!r.name || !r.online || r.verified || !r.ours) return false;
         const ref = readerFor(cfg.creator_id).reader.roomKey(r.name);
@@ -689,8 +689,8 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       return val.value;
     })()`, 2000).catch(() => '');
     const expected = 'R$ ' + (cents/100).toLocaleString('pt-BR', {minimumFractionDigits:2});
-    if (filled !== expected) {
-      await runJs(view, `(() => { const b = [...document.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
+    if (String(filled).replace(/\s+/g,' ').trim() !== expected.replace(/\s+/g,' ')) {
+      await runJs(view, `(() => { const m = document.querySelector('[role="dialog"]'); const b = m && [...m.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
       appLog('fila', 'FatalFans: presente falhou (valor divergente)');
       return false;
     }
@@ -703,7 +703,7 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       return false;
     })()`, 2000).catch(() => false);
     if (!clicked) {
-      await runJs(view, `(() => { const b = [...document.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
+      await runJs(view, `(() => { const m = document.querySelector('[role="dialog"]'); const b = m && [...m.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
       appLog('fila', 'FatalFans: presente falhou (não clicou)');
       return false;
     }
