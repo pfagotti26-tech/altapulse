@@ -760,6 +760,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
     if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return; }
     if (expectName && norm(read.name) !== norm(expectName)) { appLog('fila', `decide: conversa não trocou (esperado ${expectName})`); return 'retry'; }
     if (read.headerVerified) { appLog('fila', 'decide: pulou criadora verificada'); return; }
+    if (read.cantSend) { appLog('fila', 'decide: conversa sem assinatura (não dá para responder)'); return; }
     if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
     if (read.msgs[read.msgs.length - 1].ours) { appLog('fila', 'decide: última é nossa'); return; }
     const fan_ref = expectName ? (read.name ? (platform === 'fatalfans' ? ffFor(creatorId).reader.ref('fan', read.name) : readerFor(creatorId).reader.roomKey(read.name)) : '') : (fan.fanRef || (read.name ? (platform === 'fatalfans' ? ffFor(creatorId).reader.ref('fan', read.name) : readerFor(creatorId).reader.roomKey(read.name)) : ''));
@@ -2103,8 +2104,9 @@ const READ_FF_MSGS = String.raw`(() => {
     msgs.push({ ours, text: t.slice(0, 1200) });
   }
   const header = h2 && h2.closest('div');
-  const verified = !!(header && header.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
-  return { name: txt(h2), headerVerified: verified, msgs: msgs.slice(-14) };
+  const verified = !!(h2 && h2.parentElement && h2.parentElement.querySelector('[aria-label*="verificad" i], [class*="badge"]'));
+  const cantSend = /n[aã]o [eé] mais assinante|renove (sua )?assinatura/i.test(document.body.innerText || ''); // conversa com outra criadora sem assinatura: não dá para responder
+  return { name: txt(h2), headerVerified: verified, cantSend, msgs: msgs.slice(-14) };
 })()`;
 const READ_OF_MSGS = String.raw`(() => {
   const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');

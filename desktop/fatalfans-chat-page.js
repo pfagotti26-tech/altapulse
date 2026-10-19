@@ -24,7 +24,8 @@ module.exports = String.raw`(() => {
     const prevs = [...r.querySelectorAll('span.truncate')].map(txt).filter(Boolean);
     const last = prevs[prevs.length - 1] || '';
     const ours = /^voc[eê]:/i.test(last);
-    const verified = !!(r.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
+    // selo ao lado do nome (FatalFans: span.iconify i-streamline-ultimate:check-badge-bold, aria-label "Perfil verificado"; azul = plataforma, dourado = criadora). O lápis de editar (square-pen) não conta.
+    const verified = !!(h3 && h3.parentElement && h3.parentElement.querySelector('[aria-label*="verificad" i], [class*="badge"]'));
     return { name: txt(h3), ours, verified, unread: h3 && /font-semibold/.test(h3.className) ? 1 : 0, when: txt(r.querySelector('span.text-xs.text-muted')), lastHash: hash8(last),
       intent: !ours && INTENT.test(prevs.join(' ').toLowerCase()) };
   }).filter((r) => r.name);
