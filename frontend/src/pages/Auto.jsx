@@ -87,7 +87,7 @@ export default function Auto() {
     return { list, hidden };
   }, [configs, filters]);
 
-  const openEdit = (c) => { setEdit({ ...c, windows: c.windows || [{start:0,end:24,days:null}] }); setSheetError(''); };
+  const openEdit = (c) => { setEdit({ ...c, windows: c.windows || [{start:0,end:24,days:null}], platforms: c.platforms || ['privacy'] }); setSheetError(''); };
   const saveEdit = async () => {
     setSheetError('');
     try { await api.put('/auto/config', edit); toast.success('Salvo'); setEdit(null); load(); }
@@ -218,6 +218,11 @@ export default function Auto() {
               <Field label="Respostas por dia" id="max-day"><input id="max-day" type="number" min={1} max={1000} value={edit.max_per_day} onChange={e => setEdit({...edit, max_per_day: +e.target.value})}/></Field>
               <Field label="Por fã, por dia" id="max-fan"><input id="max-fan" type="number" min={1} max={50} value={edit.max_per_fan} onChange={e => setEdit({...edit, max_per_fan: +e.target.value})}/></Field>
               <div style={{fontSize:12,opacity:0.6}}>Zera à meia-noite (Brasília)</div>
+              <div>
+                <div style={{fontSize:13,marginBottom:4}}>Plataformas</div>
+                <label style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}><Switch checked={(edit.platforms||[]).includes('privacy')} onCheckedChange={v => setEdit({...edit, platforms: v ? [...(edit.platforms||[]).filter(p=>p!=='privacy'), 'privacy'] : (edit.platforms||[]).filter(p=>p!=='privacy')})}/> Privacy</label>
+                <label style={{display:'flex',alignItems:'center',gap:6}}><Switch checked={(edit.platforms||[]).includes('fatalfans')} onCheckedChange={v => setEdit({...edit, platforms: v ? [...(edit.platforms||[]).filter(p=>p!=='fatalfans'), 'fatalfans'] : (edit.platforms||[]).filter(p=>p!=='fatalfans')})}/> FatalFans</label>
+              </div>
               <div>
                 <div style={{fontSize:13,marginBottom:4}}>Horários</div>
                 <div style={{display:'flex',gap:6,marginBottom:8}}>

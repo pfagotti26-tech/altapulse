@@ -61,11 +61,19 @@ module.exports = function createFila(deps) {
           if (log) log('fila reiniciada');
         }
       }
-      const cfg = enabled[cycleIdx % enabled.length];
+      // Expande em (criadora, plataforma)
+      const pairs = [];
+      for (const c of enabled) {
+        for (const p of (c.platforms || ['privacy'])) pairs.push({ ...c, platform: p });
+      }
+      if (!pairs.length) return;
+      const pair = pairs[cycleIdx % pairs.length];
       cycleIdx++;
-      const creatorId = cfg.creator_id;
-      if (cfg.limit_hit) return;
-      let rooms = getLastRooms(creatorId) || [];
+      const creatorId = pair.creator_id;
+      const platform = pair.platform;
+      if (pair.limit_hit) return;
+      let rooms = getLastRooms(creatorId, platform) || [];
+      if (!rooms.length) { if (log) log(`pulou ${platform} (deslogada/fechada)`); return; }
       const now = Date.now();
       // Fila por ordem de espera (mais antigo primeiro)
       const waiting = [];
@@ -79,7 +87,7 @@ module.exports = function createFila(deps) {
         const firstAge = firstUnanswered.has(ref) ? (now - firstUnanswered.get(ref).getTime()) : Infinity;
         if (r.typing && firstAge < 60 * 1000) continue;
         if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
-        const key = creatorId + ':' + ref + ':' + (r.when || '');
+        const key = creatorId + ':' + platform + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
         const tr = tempRetry.get(ref);
         if (tr && (now - tr) < 5 * 60 * 1000) continue;
@@ -96,7 +104,7 @@ module.exports = function createFila(deps) {
         lastServed = ref;
         lastAction = Date.now();
         const result = openChat ? await Promise.race([
-          openChat(creatorId, r.name, ref),
+          openChat(creatorId, r.name, ref, platform),
           new Promise(res => setTimeout(() => res('timeout'), 90000))
         ]) : null;
         if (result === 'timeout') { seen.delete(key); lastServed = null; if (log) log('timeout 90s'); }
@@ -119,7 +127,7 @@ module.exports = function createFila(deps) {
     for (const r of rooms) {
       if (r.ours || r.typing || r.verified) continue;
       const ref = roomKey(creatorId, r.name);
-      const key = creatorId + ':' + ref + ':' + (r.when || '');
+      const key = creatorId + ':' + platform + ':' + ref + ':' + (r.when || '');
       if (seen.has(key)) continue;
       const at = listAt ? listAt(r.when, new Date()) : null;
       const age = at ? (now - at.getTime()) : Infinity;

@@ -76,6 +76,7 @@ async def get_config(creator_id: str = None):
         "max_per_day": int(doc.get("max_per_day") or 15),
         "max_per_fan": int(doc.get("max_per_fan") or 2),
         "windows": windows,
+        "platforms": doc.get("platforms") or ["privacy"],
     }
 
 def in_windows(windows, now=None):
@@ -291,6 +292,7 @@ class ConfigIn(BaseModel):
     max_per_day: Optional[int] = None
     max_per_fan: Optional[int] = None
     windows: Optional[list] = None
+    platforms: Optional[list] = None
 
 
 
@@ -319,7 +321,7 @@ async def app_configs(user=Depends(extension_user)):
         if not cfg.get("enabled"): continue
         today_count = await count_today(c["id"])
         remaining = max(0, cfg["max_per_day"] - today_count)
-        out.append({"creator_id": c["id"], "name": c["name"], "enabled": True, "essay": cfg["essay"], "windows": cfg["windows"], "max_per_day": cfg["max_per_day"], "max_per_fan": cfg["max_per_fan"], "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0})
+        out.append({"creator_id": c["id"], "name": c["name"], "enabled": True, "essay": cfg["essay"], "windows": cfg["windows"], "platforms": cfg.get("platforms") or ["privacy"], "max_per_day": cfg["max_per_day"], "max_per_fan": cfg["max_per_fan"], "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0})
     return out
 
 @router.get("/config")
@@ -335,6 +337,9 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
         raise HTTPException(400, "max_per_day deve estar entre 1 e 1000")
     if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 50):
         raise HTTPException(400, "max_per_fan deve estar entre 1 e 50")
+    if "platforms" in upd:
+        if not all(p in ("privacy", "fatalfans") for p in upd["platforms"]):
+            raise HTTPException(400, "Plataforma inválida")
     if "windows" in upd:
         for w in upd["windows"]:
             if not isinstance(w.get("start"), int) or not isinstance(w.get("end"), int):

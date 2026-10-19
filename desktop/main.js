@@ -659,17 +659,15 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
   } catch (e) { appLog('fila', String(e)); return false; }
 }
 
-async function tryAutoDecide(view, creatorId, expectName) {
+async function tryAutoDecide(view, creatorId, expectName, platform) {
+  platform = platform || 'privacy';
   if (!ALTA_TESTE) return;
   const key = creatorId + ':' + (expectName || '');
   if (autoInProgress.has(key)) return;
   autoInProgress.add(key);
   const p = (async () => {
   // Só na criadora configurada (id vem de /auto/status)
-  if (!global.autoCreatorId) {
-    try { const st = await api('GET', '/auto/status'); global.autoCreatorId = st && st.creator_id; } catch {}
-  }
-  if (!global.autoCreatorId || creatorId !== global.autoCreatorId) return;
+  // multiperfil: qualquer criadora ligada
   try {
     const tg = chatTarget();
     if (!tg || tg.id !== creatorId) return;
@@ -685,13 +683,14 @@ async function tryAutoDecide(view, creatorId, expectName) {
     if (read.headerVerified) { appLog('fila', 'decide: pulou criadora verificada'); return; }
     if (read.otherCreator) { appLog('fila', 'decide: otherCreator'); return; }
     if (read.msgs[read.msgs.length - 1].ours) { appLog('fila', 'decide: última é nossa'); return; }
-    const fan_ref = expectName ? (read.name ? readerFor(creatorId).reader.roomKey(read.name) : '') : (fan.fanRef || (read.name ? readerFor(creatorId).reader.roomKey(read.name) : ''));
+    const fan_ref = expectName ? (read.name ? (platform === 'fatalfans' ? ffFor(creatorId).reader.ref('fan', read.name) : readerFor(creatorId).reader.roomKey(read.name)) : '') : (fan.fanRef || (read.name ? (platform === 'fatalfans' ? ffFor(creatorId).reader.ref('fan', read.name) : readerFor(creatorId).reader.roomKey(read.name)) : ''));
     if (!fan_ref) { appLog('fila', 'decide: sem fan_ref'); return; }
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
     const payload = {
       creator_id: creatorId,
+      platform,
       fan_ref,
       fan_name: (state.fan_names_allowed && fan.name) ? fan.name : undefined,
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
@@ -706,23 +705,28 @@ async function tryAutoDecide(view, creatorId, expectName) {
       if (tg) {
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
-          const enterScript = `(() => {
-            const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-            let ta = null;
-            for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
-            if (!ta) return false;
-            const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
-            ta.dispatchEvent(new KeyboardEvent('keydown', ev));
-            ta.dispatchEvent(new KeyboardEvent('keyup', ev));
-            return true;
-          })()`;
-          await runJs(tg.view, enterScript, 2000).catch(() => false);
+          if (platform === 'fatalfans') {
+            await runJs(tg.view, `(() => { const btn = [...document.querySelectorAll('button')].find(b => /enviar|send/i.test(b.textContent||'') || b.type==='submit'); if (btn) btn.click(); return !!btn; })()`, 2000).catch(() => false);
+          } else {
+            const enterScript = `(() => {
+              const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+              let ta = null;
+              for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
+              if (!ta) return false;
+              const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
+              ta.dispatchEvent(new KeyboardEvent('keydown', ev));
+              ta.dispatchEvent(new KeyboardEvent('keyup', ev));
+              return true;
+            })()`;
+            await runJs(tg.view, enterScript, 2000).catch(() => false);
+          }
           await new Promise(res => setTimeout(res, 1500));
           const after = await runJs(tg.view, tg.read, 4000).catch(() => null);
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
-            if (r.product && r.product_cents) {
+            if (platform === 'fatalfans' && r.product) { appLog('fila', 'FatalFans: oferta fica para a equipe'); }
+            else if (r.product && r.product_cents) {
               const mediaOk = await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
               if (!mediaOk) {
                 appLog('fila', `solicitação falhou: ${r.product}`);
@@ -794,6 +798,7 @@ async function radarFatalFans() {
   for (const [id, t] of tabs) {
     const view = t.get('fatalfans'); if (!view || view.webContents.isDestroyed() || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) continue;
     let data; try { data = await runJs(view, FF_CHAT_SCRIPT, 5000); } catch { continue; }
+    if (data && data.page === 'chat' && data.rooms) lastRooms[id + ':fatalfans'] = data.rooms; // AUTO (Grok)
     if (!data || !data.rooms || !data.rooms.length) continue;
     const reader = ffFor(id).reader; reader.options.fanNames = !!state.fan_names_allowed; const now = new Date();
     const rows = data.rooms.map((r) => { const at = listAt(r.when, now); return { ...reader.fan(r.name), cid: 'ff:' + r.name.slice(0, 77), spent_cents: null, last_from: r.ours ? 'us' : 'fan', last_at: at ? at.toISOString() : null, unread: r.unread || 0, intent: !!r.intent }; });
@@ -1167,7 +1172,7 @@ async function readAllNow() {
     // foto da criadora: também pela aba da Privacy aberta (avatar no topo), sem esperar o extrato; uma vez por sessão
     if (!(state.creators || []).find((c) => c.id === id && c.avatar)) grabAvatar(id, view, 'privacy').catch(() => {});
     if (id === activeId && activeTab.get(id) === 'privacy') setFanFromChat(id, data && data.page === 'chat' ? data.open : null);
-    if (data && data.page === 'chat') { lastRooms[id] = data.rooms || []; plantao.onRooms(id, data.rooms); puxada.onRooms(id, data.rooms); } // AUTO (Grok) + lote 118
+    if (data && data.page === 'chat') { lastRooms[id + ':privacy'] = data.rooms || []; plantao.onRooms(id, data.rooms); puxada.onRooms(id, data.rooms); } // AUTO (Grok) + lote 118
     // fora da tela de chat: mantém o último balão conhecido (o chatter pode estar no feed por um instante)
     if (!data || data.page !== 'chat') { const prev = r.summary || {}; r.summary = { waiting: 0, waitingRecent: prev.waitingRecent || 0, oldestWaitMin: null, page: data ? data.page : 'other', readAt: new Date().toISOString() }; continue; }
     let events, summary, radar;
@@ -2150,14 +2155,15 @@ if (ALTA_TESTE) {
     api,
     getState: () => state,
     roomKey: (id, name) => readerFor(id).reader.roomKey(name),
-    getLastRooms: (id) => lastRooms[id] || [],
+    getLastRooms: (id, platform) => lastRooms[(platform ? id + ':' + platform : id)] || lastRooms[id + ':privacy'] || [],
     getReader: (id) => readerFor(id).reader,
     listAt,
-    openChat: async (creatorId, name, fanRef) => {
-      await openConversation(creatorId, 'privacy', null, name, fanRef);
-      const view = (tabs.get(creatorId) || new Map()).get('privacy');
+    openChat: async (creatorId, name, fanRef, platform) => {
+      platform = platform || 'privacy';
+      await openConversation(creatorId, platform, null, name, fanRef);
+      const view = (tabs.get(creatorId) || new Map()).get(platform);
       let result = null;
-      if (view) result = await tryAutoDecide(view, creatorId, name);
+      if (view) result = await tryAutoDecide(view, creatorId, name, platform);
       if (global.autoBusy) await global.autoBusy.catch(() => {});
       return result;
     },
