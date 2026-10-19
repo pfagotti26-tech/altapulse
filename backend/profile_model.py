@@ -542,9 +542,10 @@ def plays_infant(text):
     m = INFANT_OK.search(text or '')
     return m.group(0) if m else ''
 # lote 130: fã pediu chamada → fecha com o item de chamada da tabela (via Solicitação de mídia)
-CALL_ASK = re.compile(r'\b(chamad(a|inha)|v[ií]deo ?chamada|videochamada|ao vivo|facetime|call)\b', re.I)
+CALL_ASK = re.compile(r'\b(chamad(a|inha)|v[ií]deo ?chamada|videochamada|ao vivo|facetime|call|web ?cam|cam|c[aâ]mera|live|em voz|chamada de voz|'
+                      r'(faz(es)?|fazer|faria|bora|vamos)( um| o| ao| uma)? show|show (agora|ao vivo|privado|pra mim|comigo|na cam))\b', re.I)  # lote 138: webcam/cam/show agora = ao vivo
 def asks_call(fan_texts):
-    for t in reversed([x for x in fan_texts if x][-2:]):
+    for t in reversed([x for x in fan_texts if x][-3:]):
         m = CALL_ASK.search(t)
         if m: return m.group(0)
     return ''
@@ -561,7 +562,7 @@ def drop_mechanical(text):
     keep = [x for x in parts if not MECH.search(x)]
     return ' '.join(keep).strip() if keep and len(keep) < len(parts) else text
 # lote 132 (Paulo): perfil gratuito tem objeção a pagamento — a venda fala em liberar/desbloquear/abrir, nunca "pagar"
-PAY_WORD = re.compile(r'\b(pag(a|ar|ue|ando|amento|amentos)|pix)\b', re.I)
+PAY_WORD = re.compile(r'\b(pag(a|ar|ue|ou|uei|ando|amento|amentos)|pix)\b', re.I)  # lote 138: + pagou/paguei
 def pay_word(text):
     m = PAY_WORD.search(text or '')
     return m.group(0) if m else ''
@@ -580,6 +581,15 @@ def disdain(fan_texts):
     return ''
 # lote 134: venda de item da tabela nunca diz que foi feito/gravado pra ele (é mentira e ele descobre)
 MADE_FOR = re.compile(r'\b(gravei|filmei|fiz|preparei|produzi)\b[^.!?]{0,30}\b(pra|para) (voc[eê]|vc|ti)\b|\b(gravei|filmei|fiz|preparei) pensando em (voc[eê]|vc|ti)\b', re.I)
+# lote 138: mídia da tabela não é ao vivo — fora da oferta de chamada, nunca falar de cam/ao vivo/show
+LIVE_TALK = re.compile(r'\b(ao vivo|web ?cam|cam|c[aâ]mera|live|show (agora|ao vivo|privado|pra voc[eê]|pra vc)|ligar a cam|liga a cam)\b', re.I)
+def live_talk(text):
+    m = LIVE_TALK.search(text or '')
+    return m.group(0) if m else ''
+def drop_live(text):
+    """Tira as frases que falam de cam/ao vivo; '' se não sobrar nada."""
+    keep = [x for x in sentences(text) if not LIVE_TALK.search(x)]
+    return ' '.join(keep).strip() if keep and len(_norm(' '.join(keep))) >= 2 else ''
 def made_for(text):
     m = MADE_FOR.search(text or '')
     return m.group(0) if m else ''
