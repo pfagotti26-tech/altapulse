@@ -53,7 +53,7 @@ module.exports = function createFila(deps) {
           ticking = false;
           lastServed = null;
           for (const c of enabled) {
-            const rooms = getLastRooms(c.creator_id) || [];
+            const rooms = [...(getLastRooms(c.creator_id, 'privacy') || []), ...(ffRooms.get(c.creator_id) || [])];
             for (const r of rooms) {
               if (!r.ours) { seen.delete(c.creator_id + ':privacy:' + roomKey(c.creator_id, r.name) + ':' + (r.when || '')); seen.delete(c.creator_id + ':fatalfans:' + roomKey(c.creator_id, r.name) + ':' + (r.when || '')); }
             }
