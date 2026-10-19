@@ -665,8 +665,9 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
   try {
     // Open gift modal (present icon)
     const opened = await runJs(view, `(() => {
-      const icons = [...document.querySelectorAll('button, [role="button"]')];
-      const gift = icons.find(b => /presente|gift|🎁/i.test(b.textContent||'') || b.querySelector('[class*="gift"], [class*="presente"]'));
+      const form = document.querySelector('form:has(textarea[aria-label="Digite uma mensagem"])');
+      if (!form) return false;
+      const gift = form.querySelector('button:has(.i-lucide\\:gift)');
       if (gift) { gift.click(); return true; }
       return false;
     })()`, 2000).catch(() => false);
@@ -676,15 +677,15 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
     const descText = rawDesc.length > 50 ? rawDesc.slice(0, 50).replace(/\s+\S*$/, '') : rawDesc;
     // Fill value and description
     const filled = await runJs(view, `(() => {
-      const modal = document.querySelector('[class*="modal"], [role="dialog"]');
-      if (!modal) return false;
-      const val = modal.querySelector('input[type="number"], input[inputmode="decimal"], input');
-      const desc = modal.querySelector('textarea, input[placeholder*="escri"]');
+      const modal = document.querySelector('[role="dialog"]');
+      if (!modal || !/Solicitar presente/i.test(modal.textContent||'')) return false;
+      const val = modal.querySelector('input[aria-label="Valor do presente"]');
+      const desc = modal.querySelector('input[placeholder="Escreva sua descrição"]');
       if (!val) return false;
-      val.focus();
-      val.value = '${(cents/100).toFixed(2)}';
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(val, '${cents}');
       val.dispatchEvent(new Event('input', {bubbles:true}));
-      if (desc) { desc.value = descText; desc.dispatchEvent(new Event('input', {bubbles:true})); }
+      if (desc) { set.call(desc, descText); desc.dispatchEvent(new Event('input', {bubbles:true})); }
       return val.value;
     })()`, 2000).catch(() => '');
     if (String(filled).replace(/\D/g,'') !== String(cents)) {
@@ -694,7 +695,9 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
     }
     // Click Solicitar presente
     const clicked = await runJs(view, `(() => {
-      const btn = [...document.querySelectorAll('button')].find(b => /solicitar presente/i.test(b.textContent||''));
+      const modal = document.querySelector('[role="dialog"]');
+      if (!modal) return false;
+      const btn = [...modal.querySelectorAll('button[type="submit"]')].find(b => /solicitar presente/i.test(b.textContent||''));
       if (btn && !btn.disabled) { btn.click(); return true; }
       return false;
     })()`, 2000).catch(() => false);
@@ -708,7 +711,9 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
     const confirmed = await runJs(view, `(() => {
       const cards = [...document.querySelectorAll('[data-message-id]')];
       const last = cards[cards.length-1];
-      return last && /presente|R\$/i.test(last.textContent||'');
+      if (!last) return false;
+      const ours = last.querySelector(':scope > .relative.justify-end');
+      return ours && /Pedido de presente/i.test(last.textContent||'') && /${expected.replace('R$ ','')}/.test(last.textContent||'');
     })()`, 2000).catch(() => false);
     if (!confirmed) {
       appLog('fila', 'FatalFans: presente falhou (cartão não apareceu)');
@@ -766,14 +771,14 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
           if (platform === 'fatalfans') {
-            await runJs(tg.view, `(() => {
-              const ta = [...document.querySelectorAll('textarea')].find(x => x.getBoundingClientRect().width > 0);
-              if (!ta) return false;
-              const footer = ta.closest('form, div') || ta.parentElement;
-              const btn = [...footer.querySelectorAll('button')].find(b => !/mic|microfone|áudio/i.test(b.className + (b.getAttribute('aria-label')||'')));
+            const sent = await runJs(tg.view, `(() => {
+              const form = document.querySelector('form:has(textarea[aria-label="Digite uma mensagem"])');
+              if (!form) return false;
+              const btn = form.querySelector('button[aria-label="Enviar mensagem"]');
               if (btn) { btn.click(); return true; }
               return false;
-            })()`, 2000).catch(() => false);
+            })()`, 1500).catch(() => false);
+            if (!sent) { appLog('fila', 'FatalFans: botão enviar não apareceu'); }
           } else {
             const enterScript = `(() => {
               const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
@@ -2064,9 +2069,10 @@ const READ_FF_MSGS = String.raw`(() => {
     const isGift = /Pedido de presente/i.test(el.textContent);
     const price = [...el.querySelectorAll('*')].find((x) => !x.children.length && /R\$\s*[\d.,]+/.test(x.textContent));
     if (isGift) {
-      const val = txt(price) || 'R$ ?';
-      const statusEl = [...el.querySelectorAll('*')].find(x => /aguardando|pago|pendente/i.test(x.textContent||'') && x.textContent.length < 30);
+      const statusEl = el.querySelector('span.truncate');
+      const valEl = el.querySelector('p.font-bold.text-xl');
       const status = statusEl ? txt(statusEl).toLowerCase() : 'aguardando';
+      const val = valEl ? txt(valEl) : 'R$ ?';
       t = '[presente solicitado: ' + val + ' — ' + status + ']';
     } else if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
     else if (!t && el.querySelector('img, video')) t = '[mídia]';
