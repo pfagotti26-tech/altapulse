@@ -122,10 +122,14 @@ async function autoPuxadaTick() {
           return true;
         })()`;
         await runJs(view, enterScript, 2000).catch(() => false);
-        // Espera a tela mudar (até 4s, checa a cada 300ms)
-          const t0 = Date.now();
-          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
-        const confirm = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
+        // revisão Claude: espera de verdade a mensagem aparecer (a cada 300 ms, até 4 s)
+        let confirm = null; const t0 = Date.now();
+        while (Date.now() - t0 < 4000) {
+          confirm = await runJs(view, READ_MSGS_SCRIPT, 2000).catch(() => null);
+          const lx = confirm && confirm.msgs && confirm.msgs[confirm.msgs.length - 1];
+          if (lx && lx.ours && lx.text && lx.text.includes(line.text.slice(0, 30))) break;
+          await new Promise(res => setTimeout(res, 300));
+        }
         const last = confirm && confirm.msgs && confirm.msgs[confirm.msgs.length - 1];
         if (last && last.ours && last.text && last.text.includes(line.text.slice(0, 30))) {
           await api('POST', '/extension/puxada/sent', { token: line.token, text: line.text }).catch(() => {});
@@ -710,8 +714,6 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       return false;
     }
     // Espera a tela mudar (até 4s, checa a cada 300ms)
-          const t0 = Date.now();
-          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
     // Confirm card appeared
     let confirmed = false;
     const tGift = Date.now();
@@ -765,7 +767,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
-    const wait_s = waitS || 0;
+    const wait_s = Number.isFinite(waitS) ? Math.max(0, Math.round(waitS)) : 0;
     const payload = {
       creator_id: creatorId,
       platform,

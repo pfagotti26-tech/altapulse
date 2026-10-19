@@ -14,6 +14,7 @@ module.exports = function createFila(deps) {
   const tempRetry = new Map(); // ref → timestamp
   const ffRooms = new Map(); // creatorId → rooms
   let lastFFUpdate = 0;
+  let pendingNow = 0; // fãs esperando na última volta (define o ritmo)
   let cycleIdx = 0;
   let lastAction = Date.now();
 
@@ -101,6 +102,7 @@ module.exports = function createFila(deps) {
           }
         }
       }
+      pendingNow = waiting.length;
       waiting.sort((a, b) => (isFinite(b.firstAge) ? b.firstAge : 0) - (isFinite(a.firstAge) ? a.firstAge : 0) || (b.spent > 0) - (a.spent > 0));
       // Não atende o mesmo de novo se houver outro esperando
       let chosen = waiting[0];
@@ -112,7 +114,7 @@ module.exports = function createFila(deps) {
         lastServed = ref;
         lastAction = Date.now();
         const result = openChat ? await Promise.race([
-          openChat(creatorId, r.name, ref, platform, Math.round(chosen.firstAge/1000)),
+          openChat(creatorId, r.name, ref, platform, Number.isFinite(chosen.firstAge) ? Math.round(chosen.firstAge / 1000) : 0),
           new Promise(res => setTimeout(() => res('timeout'), 90000))
         ]) : null;
         if (result === 'timeout') { seen.delete(key); lastServed = null; if (log) log('timeout 90s'); }
@@ -135,7 +137,7 @@ module.exports = function createFila(deps) {
     for (const r of rooms) {
       if (r.ours || r.typing || r.verified) continue;
       const ref = roomKey(creatorId, r.name);
-      const key = creatorId + ':' + platform + ':' + ref + ':' + (r.when || '');
+      const key = creatorId + ':' + platform + ':' + ref + ':' + (r.lastHash || '');
       if (seen.has(key)) continue;
       const at = listAt ? listAt(r.when, new Date()) : null;
       const age = at ? (now - at.getTime()) : Infinity;
@@ -149,7 +151,7 @@ module.exports = function createFila(deps) {
   function start() {
     if (running) return;
     running = true;
-    const delay = () => waiting.length > 1 ? 1000 : 5000;
+    const delay = () => pendingNow > 1 ? 1000 : 5000;
     const loop = () => { tick(); timer = setTimeout(loop, delay()); };
     timer = setTimeout(loop, delay());
     tick();
