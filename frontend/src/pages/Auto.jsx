@@ -66,8 +66,8 @@ export default function Auto() {
     const ligadas = configs.filter(c => c.enabled);
     const ensaio = ligadas.filter(c => c.essay).length;
     const real = ligadas.length - ensaio;
-    const respostas = configs.reduce((a, c) => a + (c.today || 0), 0);
-    const ensaioResp = configs.filter(c => c.essay).reduce((a, c) => a + (c.today || 0), 0);
+    const respostas = configs.reduce((a, c) => a + (c.today || 0) + (c.today_essay || 0), 0);
+    const ensaioResp = configs.reduce((a, c) => a + (c.today_essay || 0), 0);
     const travados = d?.summary?.travados || 0;
     const motivos = Object.entries(d?.summary?.motivos || {}).sort((a,b) => b[1]-a[1]).slice(0,3).map(([k]) => k).join(', ');
     const gasto = d?.summary?.cost_usd || 0;

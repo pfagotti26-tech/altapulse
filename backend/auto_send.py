@@ -229,13 +229,16 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
 
 @router.get("/report")
-async def report(day: str = "", user=Depends(manager)):
+async def report(day: str = "", creator_id: str = "", user=Depends(manager)):
     """Resumo e lista do dia para o painel de teste. Só gestor."""
     d = day or today()
-    rows = await db.auto_log.find({"day": d}, {"_id": 0}).sort("at", -1).to_list(500)
-    # gasto do dia (assist_usage)
+    q = {"day": d}
+    if creator_id: q["creator_id"] = creator_id
+    rows = await db.auto_log.find(q, {"_id": 0}).sort("at", -1).to_list(500)
+    usage_q = {"day": d}
+    if creator_id: usage_q["creator_id"] = creator_id
     usage = await db.assist_usage.aggregate([
-        {"$match": {"day": d}},
+        {"$match": usage_q},
         {"$group": {"_id": None, "cost": {"$sum": "$cost_usd"}, "calls": {"$sum": 1}}}
     ]).to_list(1)
     cost = usage[0]["cost"] if usage else 0
@@ -249,10 +252,12 @@ async def report(day: str = "", user=Depends(manager)):
         "cost_usd": round(cost or 0, 4),
         "calls": calls,
     }
+    labels = {"mídia": "mídia paga", "pago": "mídia paga", "bloqueado": "bloqueado", "proibido": "tema proibido", "encontro": "encontro"}
     for r in rows:
         if r.get("decision") == "travado":
-            m = r.get("reason") or "outro"
-            summary["motivos"][m] = summary["motivos"].get(m, 0) + 1
+            raw = (r.get("reason") or "").lower()
+            label = next((v for k, v in labels.items() if k in raw), "outro")
+            summary["motivos"][label] = summary["motivos"].get(label, 0) + 1
     return {"summary": summary, "rows": rows}
 
 
@@ -292,21 +297,22 @@ class ConfigIn(BaseModel):
 @router.get("/configs")
 async def list_configs(user=Depends(manager)):
     """Lista configs de todas as criadoras para o painel."""
-    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(1000)
+    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1, "avatar": 1}).sort("name", 1).to_list(1000)
     out = []
     for c in creators:
         cfg = await get_config(c["id"])
         today_count = await count_today(c["id"])
+        today_essay = await db.auto_log.count_documents({"day": today(), "creator_id": c["id"], "decision": "ensaio"})
         remaining = max(0, cfg["max_per_day"] - today_count)
         prof = await db.assist_profiles.find_one({"creator_id": c["id"]}) or {}
         ficha = bool(prof.get("persona") and prof.get("prices"))
-        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha})
+        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "today_essay": today_essay, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha})
     return out
 
 @router.get("/app-configs")
 async def app_configs(user=Depends(extension_user)):
     """Configs das criadoras ligadas que o usuário pode ver. Para o app."""
-    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(1000)
+    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1, "avatar": 1}).sort("name", 1).to_list(1000)
     out = []
     for c in creators:
         cfg = await get_config(c["id"])
