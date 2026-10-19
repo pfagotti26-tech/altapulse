@@ -30,6 +30,10 @@ async def _profile_bits(creator_id, cents):
     prof = await db.assist_profiles.find_one({'creator_id': creator_id}, {'_id': 0, 'prices': 1, 'delivery': 1}) or {}
     item = next((p for p in (prof.get('prices') or []) if p.get('cents') == cents), None)
     hours = int(((prof.get('delivery') or {}).get('hours')) or 0) or 24
+    if not item:  # lote 143: valor de faixa em teste → mesmo item da tabela
+        from price_test import item_for_cents
+        name = await item_for_cents(creator_id, cents)
+        item = next((p for p in (prof.get('prices') or []) if p.get('item') == name), None) if name else None
     return (item or {}).get('item') or '', (item or {}).get('category') or '', hours
 
 
