@@ -618,9 +618,23 @@ def says_duration(text, fan_last):
 FAMILY = ['incesto', 'incestuoso', 'familia', 'mae', 'mamae', 'pai', 'papai', 'irma', 'irmao', 'irmaozinho', 'irmazinha', 'filha', 'filho', 'filhinha', 'sogra', 'sogro',
           'tia', 'tio', 'titia', 'titio', 'prima', 'primo', 'sobrinha', 'sobrinho', 'enteada', 'enteado', 'madrasta', 'padrasto', 'cunhada', 'cunhado', 'avo', 'vovo', 'neta', 'neto',
           'nora', 'genro', 'parente', 'parentes']
-def family_word(text):
+TIA_NICK = {'tia', 'titia', 'tiazinha'}
+TIA_RELATION = re.compile(r'\b(minha|sua|tua|nossa) (tia|titia|tiazinha)\b|\bsobrinh', re.I)
+def family_word(text, allow_tia=False):
+    """Palavra de família/incesto. allow_tia (lote 140, criadora madura): "tia"/"titia" como apelido não conta,
+    a não ser com parentesco ("minha tia", sobrinho) — aí continua proibido."""
     t = ' ' + ' '.join(_norm(text)) + ' '
-    return next((k for k in FAMILY if ' ' + k + ' ' in t), '')
+    if allow_tia and TIA_RELATION.search(' '.join(_norm(text))): return 'tia'
+    return next((k for k in FAMILY if ' ' + k + ' ' in t and not (allow_tia and k in TIA_NICK)), '')
+def says_tia(text):
+    t = ' ' + ' '.join(_norm(text)) + ' '
+    return any(' ' + k + ' ' in t for k in TIA_NICK)
+MATURE = re.compile(r'\bmadur[ao]s?\b|\bcoroa\b|\bmilf\b|\b(40|50|60)\s?\+', re.I)
+def mature_persona(prof):
+    """Ficha descreve criadora madura (coroa/MILF): fã chamando de "tia" é apelido, não parentesco."""
+    p = prof or {}
+    txt = ' '.join([str(v) for v in (p.get('persona') or {}).values()] + [str(p.get('style') or ''), str((p.get('voice') or {}).get('tone_notes') or '')])
+    return bool(MATURE.search(txt))
 def clean_reason(text):
     """Aviso/motivo para o painel sem a palavra proibida."""
     out = []
