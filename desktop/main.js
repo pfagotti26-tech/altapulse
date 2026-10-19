@@ -699,7 +699,7 @@ async function tryAutoDecide(view, creatorId, expectName) {
     const r = await api('POST', '/auto/decide', payload);
     if (filaEnsaio && r && (r.log_id || r.suggested_text)) filaEnsaio.markRecent(fan_ref);
     appLog('fila', `decide ${(payload.fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
-    const temp = r && /fora do horário|teto|plantão/.test(r.reason || '');
+    const temp = r && /fora do horário|teto|plantão|chatter ativo|erro interno/.test(r.reason || '');
     if (temp) return 'temp';
     if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
@@ -2743,7 +2743,7 @@ ipcMain.handle('auto:decide', async (_e, payload) => {
     const r = await api('POST', '/auto/decide', payload);
     if (filaEnsaio && r && (r.log_id || r.suggested_text)) filaEnsaio.markRecent(fan_ref);
     appLog('fila', `decide ${(payload.fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
-    const temp = r && /fora do horário|teto|plantão/.test(r.reason || '');
+    const temp = r && /fora do horário|teto|plantão|chatter ativo|erro interno/.test(r.reason || '');
     if (temp) return 'temp';
     if (r && r.suggested_text) {
       // No ensaio só mostra; não envia

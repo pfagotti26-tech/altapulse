@@ -12,7 +12,21 @@ module.exports = function createFila(deps) {
   const firstUnanswered = new Map(); // ref → timestamp da primeira msg não respondida
   let lastServed = null; // ref do último atendido
   const tempRetry = new Map(); // ref → timestamp
+  let cycleIdx = 0;
+  let lastAction = Date.now();
 
+  function inWindow(windows) {
+    const now = new Date();
+    const h = parseInt(now.toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', hour:'numeric', hour12:false}));
+    const dow = now.getDay() === 0 ? 6 : now.getDay() - 1;
+    for (const w of windows || []) {
+      if (w.days && !w.days.includes(dow)) continue;
+      if (w.start === w.end) return true;
+      if (w.start < w.end) { if (w.start <= h && h < w.end) return true; }
+      else { if (h >= w.start || h < w.end) return true; }
+    }
+    return false;
+  }
   function todayBR() {
     return new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' });
   }
@@ -28,11 +42,18 @@ module.exports = function createFila(deps) {
     try {
       const day = todayBR();
       if (day !== seenDay) { seen = new Set(); seenDay = day; }
-      const st = await api('GET', '/auto/status');
-      if (!st || !st.enabled || !st.creator_id || (st.remaining != null && st.remaining <= 0)) {
-        stop(); return;
+      const configs = await api('GET', '/auto/configs').catch(() => []);
+      const enabled = (configs || []).filter(c => c.enabled && inWindow(c.windows));
+      if (!enabled.length) return;
+      // Reinicia se parada 5 min com fã esperando
+      if (Date.now() - lastAction > 5 * 60 * 1000) {
+        const anyWaiting = enabled.some(c => pendingCount(c.creator_id) > 0);
+        if (anyWaiting) { lastAction = Date.now(); if (log) log('fila reiniciada (5 min parada)'); }
       }
-      const creatorId = st.creator_id;
+      const cfg = enabled[cycleIdx % enabled.length];
+      cycleIdx++;
+      const creatorId = cfg.creator_id;
+      if (cfg.limit_hit) return;
       let rooms = getLastRooms(creatorId) || [];
       const now = Date.now();
       // Fila por ordem de espera (mais antigo primeiro)
@@ -62,7 +83,12 @@ module.exports = function createFila(deps) {
         seen.add(key);
         firstUnanswered.delete(ref);
         lastServed = ref;
-        const result = openChat ? await openChat(creatorId, r.name, ref) : null;
+        lastAction = Date.now();
+        const result = openChat ? await Promise.race([
+          openChat(creatorId, r.name, ref),
+          new Promise(res => setTimeout(() => res('timeout'), 90000))
+        ]) : null;
+        if (result === 'timeout') { seen.delete(key); lastServed = null; if (log) log('timeout 90s'); }
         if (result === 'retry' || result === 'temp') {
           seen.delete(key);
           lastServed = null;

@@ -6,10 +6,16 @@ import { PageHeading, Stat, Button, Empty, Notice } from '../components/Common';
 
 // AUTO (Grok) — resumo do ensaio. Só leitura. Nada envia.
 export default function Auto() {
-  const [cfg, setCfg] = useState({enabled:false, essay:true, max_per_day:15, max_per_fan:2, hour_start:10, hour_end:22});
-  const saveCfg = async () => { try { await api.put('/auto/config', cfg); toast.success('Salvo'); const r = await api.get('/auto/config'); setCfg(c => ({...c, ...r.data})); } catch(e){ toast.error(errorText(e)); } };
+  const [configs, setConfigs] = useState([]);
   const [cfgError, setCfgError] = useState(false);
-  useEffect(() => { api.get('/auto/config').then(r => { setCfg(c => ({...c, ...r.data})); setCfgError(false); }).catch(() => setCfgError(true)); }, []);
+  const [saveError, setSaveError] = useState('');
+  const loadConfigs = () => api.get('/auto/configs').then(r => { setConfigs(r.data || []); setCfgError(false); }).catch(() => setCfgError(true));
+  useEffect(() => { loadConfigs(); }, []);
+  const toggle = async (cid, enabled) => { try { await api.post(`/auto/config/toggle?creator_id=${cid}&enabled=${enabled}`); toast.success(enabled ? 'Ligado' : 'Desligado'); loadConfigs(); } catch(e){ toast.error(errorText(e)); } };
+  const saveOne = async (cfg) => { setSaveError(''); try { await api.put('/auto/config', cfg); toast.success('Salvo'); loadConfigs(); } catch(e){ setSaveError(errorText(e)); toast.error(errorText(e)); } };
+  const addWindow = (cid) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: [...(c.windows||[]), {start:0, end:24, days:null}]} : c)); };
+  const removeWindow = (cid, i) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: c.windows.filter((_,j)=>j!==i)} : c)); };
+  const updateWindow = (cid, i, field, val) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: c.windows.map((w,j) => j===i ? {...w, [field]: val} : w)} : c)); };
   const [day, setDay] = useState(new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' }));
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -27,20 +33,34 @@ export default function Auto() {
         <input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
         <Button variant="ghost" disabled={busy} onClick={load}><RefreshCw size={15}/>Atualizar</Button>
       </PageHeading>
-      {cfgError && <Notice>Não foi possível carregar a configuração. Salvar desabilitado.</Notice>}
-        {!d ? <p className="body-muted">Carregando…</p> : <>
-        <div style={{margin:'16px 0',padding:12,background:'#1a1a2e',borderRadius:8,color:'#fff'}}>
-          <label>Ligado <input type="checkbox" checked={cfg.enabled} onChange={e => setCfg({...cfg, enabled: e.target.checked})} /></label>
-          <label style={{marginLeft:12}}>Ensaio <input type="checkbox" checked={cfg.essay} onChange={e => setCfg({...cfg, essay: e.target.checked})} /></label>
-          <label style={{marginLeft:12}}>Max/dia <input type="number" value={cfg.max_per_day} onChange={e => setCfg({...cfg, max_per_day: +e.target.value})} style={{width:60,color:"#111",background:"#fff"}} /></label>
-          <label style={{marginLeft:12}}>Max/fã <input type="number" value={cfg.max_per_fan} onChange={e => setCfg({...cfg, max_per_fan: +e.target.value})} style={{width:50,color:"#111",background:"#fff"}} /></label>
-          <label style={{marginLeft:12}}>Início <input type="number" value={cfg.hour_start} onChange={e => setCfg({...cfg, hour_start: +e.target.value})} style={{width:50,color:"#111",background:"#fff"}} /></label>
-          <label style={{marginLeft:12}}>Fim <input type="number" value={cfg.hour_end} onChange={e => setCfg({...cfg, hour_end: +e.target.value})} style={{width:50,color:"#111",background:"#fff"}} /></label>
-          <Button onClick={saveCfg} disabled={cfgError} style={{marginLeft:12}}>Salvar</Button>
-          <div style={{marginTop:8,fontSize:13,opacity:0.85}}>
-            {cfg.hour_start === cfg.hour_end ? 'Funciona 24 horas' : `Funciona das ${cfg.hour_start}h às ${cfg.hour_end}h`}
+      {cfgError && <Notice>Não foi possível carregar a configuração.</Notice>}
+      {saveError && <Notice>{saveError}</Notice>}
+      {!d ? <p className="body-muted">Carregando…</p> : <>
+      {configs.map(cfg => (
+        <div key={cfg.creator_id} style={{margin:'16px 0',padding:12,background:'#1a1a2e',borderRadius:8,color:'#fff'}}>
+          <strong>{cfg.name}</strong>
+          {cfg.limit_hit && <span style={{marginLeft:12,color:'#f88'}}>limite do dia atingido</span>}
+          <div style={{marginTop:8}}>
+            <label>Ligado <input type="checkbox" checked={cfg.enabled} onChange={e => toggle(cfg.creator_id, e.target.checked)} /></label>
+            <label style={{marginLeft:12}}>Ensaio <input type="checkbox" checked={cfg.essay} onChange={e => setConfigs(cs => cs.map(c => c.creator_id===cfg.creator_id ? {...c, essay: e.target.checked} : c))} /></label>
+            <label style={{marginLeft:12}}>Max/dia <input type="number" value={cfg.max_per_day} onChange={e => setConfigs(cs => cs.map(c => c.creator_id===cfg.creator_id ? {...c, max_per_day: +e.target.value} : c))} style={{width:70,color:"#111",background:"#fff"}} /></label>
+            <label style={{marginLeft:12}}>Max/fã <input type="number" value={cfg.max_per_fan} onChange={e => setConfigs(cs => cs.map(c => c.creator_id===cfg.creator_id ? {...c, max_per_fan: +e.target.value} : c))} style={{width:50,color:"#111",background:"#fff"}} /></label>
+            <Button onClick={() => saveOne(cfg)} style={{marginLeft:12}}>Salvar</Button>
+          </div>
+          <div style={{marginTop:8}}>
+            {(cfg.windows||[]).map((w,i) => (
+              <div key={i} style={{marginTop:4}}>
+                <input type="number" value={w.start} onChange={e => updateWindow(cfg.creator_id, i, 'start', +e.target.value)} style={{width:50,color:"#111",background:"#fff"}} />
+                <span> às </span>
+                <input type="number" value={w.end} onChange={e => updateWindow(cfg.creator_id, i, 'end', +e.target.value)} style={{width:50,color:"#111",background:"#fff"}} />
+                <span style={{marginLeft:8,fontSize:12,opacity:0.8}}>{w.start===w.end ? '24h' : `${w.start}h–${w.end}h`}</span>
+                <button onClick={() => removeWindow(cfg.creator_id, i)} style={{marginLeft:8,background:'#c44',color:'#fff',border:'none',borderRadius:4,padding:'2px 6px'}}>×</button>
+              </div>
+            ))}
+            <button onClick={() => addWindow(cfg.creator_id)} style={{marginTop:4,background:'#48c',color:'#fff',border:'none',borderRadius:4,padding:'4px 8px'}}>+ faixa</button>
           </div>
         </div>
+      ))}
 
         <div className="stats-grid">
           <Stat id="au-ensaios" label="Ensaios" value={s.ensaios} icon={Sparkles}/>

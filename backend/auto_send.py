@@ -45,17 +45,54 @@ class DecideOut(BaseModel):
     caption: Optional[str] = None
     after: Optional[str] = None
 
-async def get_config():
-    doc = await db.auto_config.find_one({"id": "main"}) or {}
+async def get_config(creator_id: str = None):
+    """Config por criadora. Se não existir, tenta migrar da antiga 'main'."""
+    if not creator_id:
+        # Legacy: devolve a primeira ligada ou a main
+        doc = await db.auto_config.find_one({"id": "main"}) or {}
+        creator_id = doc.get("creator_id")
+        if not creator_id:
+            return {"enabled": False, "essay": True, "creator_id": None, "max_per_day": 15, "max_per_fan": 2, "windows": [{"start": 10, "end": 22}]}
+    doc = await db.auto_config.find_one({"id": f"creator:{creator_id}"}) or {}
+    if not doc:
+        # Migração da Aline
+        old = await db.auto_config.find_one({"id": "main"}) or {}
+        if old.get("creator_id") == creator_id:
+            doc = {
+                "id": f"creator:{creator_id}",
+                "creator_id": creator_id,
+                "enabled": bool(old.get("enabled")),
+                "essay": old.get("essay", True),
+                "max_per_day": int(old.get("max_per_day") or 600),
+                "max_per_fan": int(old.get("max_per_fan") or 15),
+                "windows": [{"start": 0, "end": 24, "days": None}],
+            }
+            await db.auto_config.insert_one(dict(doc))
+    windows = doc.get("windows") or [{"start": int(doc.get("hour_start") or 0), "end": int(doc.get("hour_end") or 24), "days": None}]
     return {
         "enabled": bool(doc.get("enabled")),
         "essay": doc.get("essay", True),
-        "creator_id": doc.get("creator_id"),
+        "creator_id": creator_id,
         "max_per_day": int(doc.get("max_per_day") or 15),
         "max_per_fan": int(doc.get("max_per_fan") or 2),
-        "hour_start": int(doc.get("hour_start") if doc.get("hour_start") is not None else 10),
-        "hour_end": int(doc.get("hour_end") if doc.get("hour_end") is not None else 22),
+        "windows": windows,
     }
+
+def in_windows(windows, now=None):
+    """Verifica se agora está em alguma faixa (Brasília). Faixa que cruza meia-noite funciona."""
+    now = now or datetime.now(BR)
+    h = now.hour
+    dow = now.weekday()  # 0=seg
+    for w in windows or []:
+        start, end = w.get("start", 0), w.get("end", 24)
+        days = w.get("days")
+        if days and dow not in days: continue
+        if start == end: return True  # 24h
+        if start < end:
+            if start <= h < end: return True
+        else:  # cruza meia-noite
+            if h >= start or h < end: return True
+    return False
 
 def today():
     return datetime.now(BR).strftime('%Y-%m-%d')
@@ -68,20 +105,11 @@ async def count_today(creator_id: str, fan_ref: Optional[str] = None):
 
 @router.post("/decide", response_model=DecideOut)
 async def decide(body: DecideIn, user=Depends(extension_user)):
-    cfg = await get_config()
+    cfg = await get_config(body.creator_id)
     if not cfg["enabled"]:
         return DecideOut(should_send=False, reason="automação desligada", essay=cfg["essay"])
 
-    if not cfg.get("creator_id"):
-        await db.auto_log.insert_one({
-            "id": uid(), "at": iso(), "day": today(),
-            "creator_id": body.creator_id, "fan_ref": body.fan_ref,
-            "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
-            "decision": "travado", "reason": "creator_id não configurado",
-        })
-        raise HTTPException(403, "creator_id não configurado")
-    if body.creator_id != cfg["creator_id"]:
-        raise HTTPException(403, "Automação só para a criadora configurada")
+    # per-creator: cfg já é da criadora
 
     # Presence: active shift (same pattern as extension_routes.py)
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True})
@@ -105,9 +133,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
 
     now = datetime.now(BR)
-    hs, he = cfg['hour_start'], cfg['hour_end']
-    in_hours = True if hs == he else (hs <= now.hour < he if hs < he else (now.hour >= hs or now.hour < he))
-    if not in_hours:
+    if not in_windows(cfg.get("windows")):
         return DecideOut(should_send=False, reason="fora do horário", essay=cfg["essay"])
 
     # Fan must have spoken last
@@ -136,7 +162,11 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
         # Distrust / robot
         low = last_text.lower()
-        if any(x in low for x in ["robô", "robo", "é a aline", "quem tá falando", "automático", "é você mesmo"]):
+        creator = await db.creators.find_one({"id": body.creator_id}, {"name": 1}) or {}
+        name_low = (creator.get("name") or "").lower().split()[0] if creator.get("name") else ""
+        distrust = ["robô", "robo", "quem tá falando", "automático", "é você mesmo"]
+        if name_low: distrust.append(f"é a {name_low}")
+        if any(x in low for x in distrust):
             await db.auto_log.insert_one({
                 "id": uid(), "at": iso(), "day": today(),
                 "creator_id": body.creator_id, "fan_ref": body.fan_ref,
@@ -244,40 +274,64 @@ async def mark_sent(log_id: str, user=Depends(extension_user)):
     return {"ok": True}
 
 
+class WindowIn(BaseModel):
+    start: int = 0
+    end: int = 24
+    days: Optional[list] = None
+
 class ConfigIn(BaseModel):
+    creator_id: Optional[str] = None
     enabled: Optional[bool] = None
     essay: Optional[bool] = None
     max_per_day: Optional[int] = None
     max_per_fan: Optional[int] = None
-    hour_start: Optional[int] = None
-    hour_end: Optional[int] = None
+    windows: Optional[list] = None
 
+
+
+@router.get("/configs")
+async def list_configs(user=Depends(manager)):
+    """Lista configs de todas as criadoras para o painel."""
+    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(1000)
+    out = []
+    for c in creators:
+        cfg = await get_config(c["id"])
+        out.append({"creator_id": c["id"], "name": c["name"], **cfg})
+    return out
 
 @router.get("/config")
-async def get_config_endpoint(user=Depends(manager)):
-    return await get_config()
+async def get_config_endpoint(creator_id: str = "", user=Depends(manager)):
+    return await get_config(creator_id or None)
 
 @router.put("/config")
 async def set_config(body: ConfigIn, user=Depends(manager)):
-    upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None}
-    if "max_per_day" in upd and not (1 <= upd["max_per_day"] <= 300):
-        raise HTTPException(400, "max_per_day deve estar entre 1 e 300")
+    cid = body.creator_id
+    if not cid: raise HTTPException(400, "creator_id obrigatório")
+    upd = {k: v for k, v in body.dict(exclude_unset=True).items() if v is not None and k != "creator_id"}
+    if "max_per_day" in upd and not (1 <= upd["max_per_day"] <= 1000):
+        raise HTTPException(400, "max_per_day deve estar entre 1 e 1000")
     if "max_per_fan" in upd and not (1 <= upd["max_per_fan"] <= 50):
         raise HTTPException(400, "max_per_fan deve estar entre 1 e 50")
-    if "hour_start" in upd and not (0 <= upd["hour_start"] <= 24):
-        raise HTTPException(400, "hour_start deve estar entre 0 e 24")
-    if "hour_end" in upd and not (0 <= upd["hour_end"] <= 24):
-        raise HTTPException(400, "hour_end deve estar entre 0 e 24")
-    await db.auto_config.update_one({"id": "main"}, {"$set": upd}, upsert=True)
+    if "windows" in upd:
+        for w in upd["windows"]:
+            if not (0 <= w.get("start", 0) <= 24 and 0 <= w.get("end", 24) <= 24):
+                raise HTTPException(400, "Faixa de horário inválida (0-24)")
+    await db.auto_config.update_one({"id": f"creator:{cid}"}, {"$set": {**upd, "creator_id": cid}}, upsert=True)
     return {"ok": True}
+
+@router.post("/config/toggle")
+async def toggle_config(creator_id: str, enabled: bool, user=Depends(manager)):
+    """Liga/desliga na hora, sem depender dos outros campos."""
+    await db.auto_config.update_one({"id": f"creator:{creator_id}"}, {"$set": {"enabled": enabled, "creator_id": creator_id}}, upsert=True)
+    return {"ok": True, "enabled": enabled}
 
 
 @router.get("/request-price")
 async def request_price(creator_id: str, item: str, fan_ref: str = "", user=Depends(extension_user)):
     """Devolve o preço da tabela para um item. Só a criadora configurada."""
-    cfg = await get_config()
-    if not cfg.get("creator_id") or creator_id != cfg["creator_id"]:
-        raise HTTPException(403, "Automação só para a criadora configurada")
+    cfg = await get_config(creator_id)
+    if not cfg.get("enabled"):
+        raise HTTPException(403, "Automação desligada para esta criadora")
     if fan_ref and await db.assist_blocked.find_one({"creator_id": creator_id, "fan_ref": fan_ref}):
         return {"ok": False, "motivo": "fã bloqueado"}
     if fan_ref and await db.media_requests.find_one({"creator_id": creator_id, "fan_ref": fan_ref, "status": "aguardando"}):
@@ -311,8 +365,9 @@ async def request_log(body: RequestLogIn, user=Depends(extension_user)):
     return {"ok": True}
 
 @router.get("/status")
-async def status(user=Depends(extension_user)):
-    cfg = await get_config()
-    today_count = await db.auto_log.count_documents({"day": today(), "decision": {"$in": ["aprovado", "enviado", "falha_envio"]}}) if cfg.get("creator_id") else 0
+async def status(creator_id: str = "", user=Depends(extension_user)):
+    cfg = await get_config(creator_id or None)
+    today_count = await count_today(cfg["creator_id"]) if cfg.get("creator_id") else 0
     remaining = max(0, cfg['max_per_day'] - today_count)
-    return {**cfg, "today": today_count, "remaining": remaining, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}
+    limit_hit = remaining <= 0
+    return {**cfg, "today": today_count, "remaining": remaining, "limit_hit": limit_hit, "limits": {"max_per_day": MAX_PER_DAY, "max_per_fan": MAX_PER_FAN}}
