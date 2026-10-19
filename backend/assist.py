@@ -575,6 +575,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     # lote 130: pediu chamada → fecha com o item de chamada; primeira compra → item barato
     _call = PM.asks_call([m.text for m in msgs[-3:] if not m.ours]) if body.mode == 'reply' and items and msgs and not msgs[-1].ours else ''
     _call_item = next((p['item'] for p in prices if 'chamada' in p['item'].lower()), '') if _call else ''
+    if _call and not _call_item and not body.style == 'vendedora':  # lote 138: pediu ao vivo e a criadora não tem chamada na tabela → só a equipe responde
+        _call_nosale = True
+    else: _call_nosale = False
     if _call_item: must_sell = True; _n_off = max(_n_off, 1)
     _first = not (card or {}).get('purchases')
     _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
@@ -603,7 +606,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
                 + {'chamada': "diga que vai preparar algo bem especial pra ele e que já já combina certinho (sem prometer horário)",
                    'avaliacao': "diga que já vai olhar o que ele mandou com calma (você NÃO vê a mídia: não descreva nem elogie detalhes dela)",
                    'entrega': "diga que já já te manda, que ele vai amar (sem prometer horário exato e sem descrever o conteúdo)"}[PM.req_kind(mreq.get('item'), mreq.get('category'))] +
-                ", sem prometer horário exato, sem oferecer nada novo e sem perguntar nada. \"produto\" vazio.")
+                ", sem prometer horário exato, sem oferecer nada novo e sem perguntar nada. Não fale de cam, show, chamada ou ao vivo. \"produto\" vazio.")
     # começo de conversa ("oi", "tudo bem?"): a conversa não dá contexto, então a situação vem do cartão do fã
     GREET = re.compile(r'^\W*(oi+e?|ola|olá|opa|eae|e a[ií]|hey|hi|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|como vai|sumida|saudade)\b', re.I)
     fan_msgs = [m for m in msgs if not m.ours]
@@ -658,6 +661,11 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
     if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
                               'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
+    if _call_nosale and not mreq:  # lote 138
+        must_sell = False; pend = ''
+        goal = 'NÃO ofereça nada agora: "produto" vazio.'
+        opener_block += (f'\nO FÃ PEDIU AO VIVO ("{_call}"): ela NÃO faz cam/show/ao vivo. Diga com charme que ao vivo não rola, sem prometer nada e sem falar de horário, '
+                         'e puxe para a conversa aqui (ex.: "ao vivo não, amor… mas aqui eu te deixo louco do mesmo jeito 😈"). Preencha "aviso" para a equipe.')
     _dis = PM.disdain([m.text for m in msgs if not m.ours]) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 134
     if _dis:
         must_sell = False; pend = ''
@@ -799,6 +807,8 @@ FIM DA CONVERSA:
     pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
     payw = '' if mreq or not out or out.get('alerta') else (PM.pay_word(txt0) or (PM.pay_word(str(out.get('legenda') or '') + ' ' + str(out.get('depois') or '')) if str(out.get('produto') or '').strip() else ''))  # lote 132
     budg = PM.budget_talk(txt0) if out and not out.get('alerta') else ''  # lote 134
+    _pgl = str((out or {}).get('produto') or '').strip().lower()
+    livex = PM.live_talk(txt0 + ' ' + (str((out or {}).get('legenda') or '') + ' ' + str((out or {}).get('depois') or '') if _pgl else '')) if out and not out.get('alerta') and 'chamada' not in _pgl and not (_call_item and not _pgl) else ''  # lote 138
     madef = PM.made_for(txt0 + ' ' + str((out or {}).get('legenda') or '') + ' ' + str((out or {}).get('depois') or '')) if out and not out.get('alerta') and str((out or {}).get('produto') or '').strip() else ''
     # lote 137 (custo): o que dá para consertar aqui não pede outra resposta (cada refeita é outra chamada paga)
     fixed_here = []
@@ -816,7 +826,7 @@ FIM DA CONVERSA:
         if longo and body.mode == 'reply':
             _t = PM.trim_sentences(txt0, longo[1])
             if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
-    retry_keys = [k for k, v in (('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
+    retry_keys = [k for k, v in (('ao-vivo', livex), ('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
         ('cobrou', cbk), ('generica', gen), ('puxada-sem-?', pxq), ('repetiu', rep), ('rotina', rot), ('midia', med), ('encontro', meet), ('nao-fechou', close), ('gravada', recd),
         ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
         ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
@@ -827,6 +837,7 @@ FIM DA CONVERSA:
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
         if budg: why.append(f'abriu negociação ("{budg}"); o preço é o da tabela: nunca pergunte quanto ele pode pagar, nem fale em desconto ou "por menos"')
+        if livex: why.append(f'falou "{livex}", mas a mídia da tabela é gravada, não é ao vivo: nunca prometa cam, show, live ou ao vivo; se o fã pediu ao vivo, a única opção é a chamada da tabela (sem horário), senão diga com charme que agora não rola e ofereça o conteúdo')
         if madef: why.append(f'disse "{madef}", mas o item é da tabela, não foi feito pra ele; nunca diga que gravou/fez/preparou pra ele: fale do que ele vai sentir ("do jeitinho que você falou…", "acho que você vai amar")')
         if payw: why.append(f'usou "{payw}"; nunca fale em pagar/pagamento/pix: fale em liberar, desbloquear, abrir, do que ele ganha ("libera que é todo seu 😈")')
         if infp: why.append(f'entrou na fantasia infantil ("{infp}"); é PROIBIDO: traga para adultos com charme, sem mamar/neném/bebê/cuidar dele como criança')
@@ -880,6 +891,14 @@ FIM DA CONVERSA:
             out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}
         if meet and out and not out.get('alerta') and PM.accepts_meeting(str(out.get('texto') or ''), [m.text for m in msgs[-6:] if not m.ours]):
             out = {'alerta': True, 'motivo': f'o fã pediu encontro/programa ("{meet}") e a sugestão não recusou; responda à mão com um não claro'}
+    # lote 138: fã pediu ao vivo e a IA insistiu em outro item → a oferta vira a chamada da tabela (vídeo gravado vendido como ao vivo, nunca)
+    if _call_item and out and not out.get('alerta') and str(out.get('produto') or '').strip() and str(out.get('produto') or '').strip().lower() != _call_item.lower():
+        out['produto'] = _call_item; out['legenda'] = ''; out['depois'] = ''
+    # lote 138: ainda falando de cam/ao vivo fora da chamada → tira a frase (ou vira alerta)
+    if out and not out.get('alerta') and str(out.get('produto') or '').strip().lower().find('chamada') < 0 and not (_call_item and not str(out.get('produto') or '').strip()) and PM.live_talk(str(out.get('texto') or '')):
+        _t = PM.drop_live(str(out.get('texto') or ''))
+        if _t: out['texto'] = _t
+        else: out = {'alerta': True, 'motivo': 'a sugestão falou de cam/ao vivo fora da chamada; responda à mão (ao vivo só pela chamada da tabela, sem horário)'}
     if _dis and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # lote 134: recusa com desdém não recebe oferta
     # lote 131b: valem com ou sem segunda tentativa (antes só rodavam quando a resposta era refeita)
     if _wait_pay and out and not out.get('alerta'): out['produto'] = ''; out['legenda'] = ''; out['depois'] = ''  # nunca 2 solicitações abertas
@@ -917,6 +936,8 @@ FIM DA CONVERSA:
     if prod and caption and PM.pay_word(caption): caption = ''  # lote 132: legenda com "pagar" não vai
     if prod and after and PM.pay_word(after): after = random.choice(PM.SAFE_AFTER)
     if prod and caption and PM.made_for(caption): caption = ''  # lote 134
+    if prod and 'chamada' not in prod['item'].lower() and caption and PM.live_talk(caption): caption = ''  # lote 138
+    if prod and 'chamada' not in prod['item'].lower() and after and PM.live_talk(after): after = random.choice(PM.SAFE_AFTER)
     if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
     if prod:
         text = PM.PRICE_STRIP(text)
