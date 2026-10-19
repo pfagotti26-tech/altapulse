@@ -966,10 +966,18 @@ FIM DA CONVERSA:
     if prod and 'chamada' not in prod['item'].lower() and caption and PM.live_talk(caption): caption = ''  # lote 138
     if prod and 'chamada' not in prod['item'].lower() and after and PM.live_talk(after): after = random.choice(PM.SAFE_AFTER)
     if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
+    # lote 142c: nunca baixar o valor de uma oferta nossa que o fã ainda não pagou (aberta ou expirada): reclamou de R$ 800, não sai por 700.
+    # Item bem mais barato (menos da metade) é "alternativa menor" e continua valendo.
+    _pcents = fan_price(prod['cents'], anchor) if prod else None
+    if prod:
+        _hi = max([mi['cents'] for m in msgs[-12:] if m.ours and re.search(r'n[aã]o pago', m.text or '', re.I)
+                   for mi in [media_info(m.text)] if mi and not mi['free'] and mi['cents']] or [0])
+        if _hi and _pcents < _hi and _pcents * 2 >= _hi:
+            _pcents = _hi; fixed_here.append('sem-desconto')
     if prod:
         text = PM.PRICE_STRIP(text)
         # lote 124 (Paulo): toda venda vai como Solicitação de mídia com o valor do item; pagou → a equipe entrega a mídia
-        ppv = f"📩 Mandar a Solicitação de mídia: {prod['item']} {money_br(fan_price(prod['cents'], anchor))}" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
+        ppv = f"📩 Mandar a Solicitação de mídia: {prod['item']} {money_br(_pcents)}" + (f' · legenda: "{caption}"' if caption else '') + (f' · depois: "{after}"' if after else '')
         warning = (warning + ' · ' if warning else '') + ppv
     if prod and 'chamada' in prod['item'].lower() and 'confirm' not in warning.lower():
         warning = (warning + ' · ' if warning else '') + 'Videochamada: confirmar com a criadora e mandar a Solicitação de mídia com o valor (nunca escrever o preço).'
@@ -983,7 +991,7 @@ FIM DA CONVERSA:
             'temperature': max(0, min(100, int(out.get('temperatura')))) if isinstance(out.get('temperatura'), (int, float)) else None,
             'temp_reason': str(out.get('motivo_temperatura') or '')[:80],
             'facts': FM.pick_new_facts(out.get('fatos'), facts), 'phase': phase,
-            'product': {'item': prod['item'], 'cents': fan_price(prod['cents'], anchor), 'table_cents': prod['cents']} if prod else None,
+            'product': {'item': prod['item'], 'cents': _pcents, 'table_cents': prod['cents']} if prod else None,
             'caption': caption, 'after': after,
             'fan_anchor': anchor,
             'segment': seg['key'] if seg else '', 'level': level, 'max_level': top, 'mode': body.mode, 'style': body.style, 'situation': situation,
@@ -999,7 +1007,7 @@ FIM DA CONVERSA:
         sid = uid()
         await db.shadow_actions.insert_one({'id': sid, 'creator_id': body.creator_id, 'creator_name': creator.get('name'), 'user_id': user['id'], 'user_name': user['name'],
             'at': iso(), 'day': today(), 'fan_ref': body.fan_ref, 'usage_id': usage_id, 'platform': body.platform, 'mode': body.mode, 'style': body.style,
-            'level': level, 'step': result['step'], 'situation': situation, 'product': prod['item'] if prod else '', 'product_cents': fan_price(prod['cents'], anchor) if prod else None, 'proposed': text[:1200], 'last_fan': last_fan[:300],
+            'level': level, 'step': result['step'], 'situation': situation, 'product': prod['item'] if prod else '', 'product_cents': _pcents if prod else None, 'proposed': text[:1200], 'last_fan': last_fan[:300],
             'status': 'pendente', 'sent': None, 'sent_at': None, 'similarity': None, 'media_cents': None, 'expires_at': now() + timedelta(days=120)})
         result['shadow_id'] = sid
     return result
