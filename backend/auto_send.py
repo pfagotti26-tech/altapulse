@@ -13,6 +13,7 @@ from quality_ai import scrub
 from extension_routes import extension_user
 from zoneinfo import ZoneInfo
 import assist as A
+import profile_model as PM
 
 router = APIRouter(prefix="/auto", tags=["auto"])
 BR = ZoneInfo('America/Sao_Paulo')
@@ -144,6 +145,15 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     # Fan must have spoken last
     if not body.messages or body.messages[-1].ours:
         return DecideOut(should_send=False, reason="fã não falou por último", essay=cfg["essay"])
+
+    # lote 142 (Claude): fã só encerrou ("ok", "kkk", emoji, "boa noite bjs") depois de fala nossa sem pergunta nem oferta → não chama a IA
+    if PM.no_reply_needed([{'ours': m.ours, 'text': m.text} for m in body.messages]):
+        await db.auto_log.insert_one({
+            "id": uid(), "at": iso(), "day": today(), "creator_id": body.creator_id, "platform": body.platform, "wait_s": body.wait_s,
+            "fan_ref": body.fan_ref, "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+            "last_fan": scrub(body.messages[-1].text)[:500], "decision": "sem resposta", "reason": "fã só encerrou (ok/emoji/tchau)",
+        })
+        return DecideOut(should_send=False, reason="sem resposta necessária", essay=cfg["essay"])
 
     last_text = body.messages[-1].text
     # Lock por fã + dedupe 10 min
