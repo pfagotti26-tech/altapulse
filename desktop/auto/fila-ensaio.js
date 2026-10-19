@@ -17,7 +17,7 @@ module.exports = function createFila(deps) {
 
   function inWindow(windows) {
     const now = new Date();
-    const h = parseInt(now.toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', hour:'numeric', hour12:false}));
+    const h = parseInt(now.toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', hour:'numeric', hourCycle:'h23'}));
     const dow = now.getDay() === 0 ? 6 : now.getDay() - 1;
     for (const w of windows || []) {
       if (w.days && !w.days.includes(dow)) continue;
@@ -42,13 +42,24 @@ module.exports = function createFila(deps) {
     try {
       const day = todayBR();
       if (day !== seenDay) { seen = new Set(); seenDay = day; }
-      const configs = await api('GET', '/auto/configs').catch(() => []);
+      const configs = await api('GET', '/auto/app-configs').catch(() => []);
       const enabled = (configs || []).filter(c => c.enabled && inWindow(c.windows));
       if (!enabled.length) return;
       // Reinicia se parada 5 min com fã esperando
       if (Date.now() - lastAction > 5 * 60 * 1000) {
         const anyWaiting = enabled.some(c => pendingCount(c.creator_id) > 0);
-        if (anyWaiting) { lastAction = Date.now(); if (log) log('fila reiniciada (5 min parada)'); }
+        if (anyWaiting) {
+          ticking = false;
+          lastServed = null;
+          for (const c of enabled) {
+            const rooms = getLastRooms(c.creator_id) || [];
+            for (const r of rooms) {
+              if (!r.ours) seen.delete(c.creator_id + ':' + roomKey(c.creator_id, r.name) + ':' + (r.when || ''));
+            }
+          }
+          lastAction = Date.now();
+          if (log) log('fila reiniciada');
+        }
       }
       const cfg = enabled[cycleIdx % enabled.length];
       cycleIdx++;

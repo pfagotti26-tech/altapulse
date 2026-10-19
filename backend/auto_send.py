@@ -296,7 +296,22 @@ async def list_configs(user=Depends(manager)):
     out = []
     for c in creators:
         cfg = await get_config(c["id"])
-        out.append({"creator_id": c["id"], "name": c["name"], **cfg})
+        today_count = await count_today(c["id"])
+        remaining = max(0, cfg["max_per_day"] - today_count)
+        out.append({"creator_id": c["id"], "name": c["name"], **cfg, "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0})
+    return out
+
+@router.get("/app-configs")
+async def app_configs(user=Depends(extension_user)):
+    """Configs das criadoras ligadas que o usuário pode ver. Para o app."""
+    creators = await db.creators.find({"deleted_at": None}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(1000)
+    out = []
+    for c in creators:
+        cfg = await get_config(c["id"])
+        if not cfg.get("enabled"): continue
+        today_count = await count_today(c["id"])
+        remaining = max(0, cfg["max_per_day"] - today_count)
+        out.append({"creator_id": c["id"], "name": c["name"], "enabled": True, "essay": cfg["essay"], "windows": cfg["windows"], "max_per_day": cfg["max_per_day"], "max_per_fan": cfg["max_per_fan"], "today": today_count, "remaining": remaining, "limit_hit": remaining <= 0})
     return out
 
 @router.get("/config")
@@ -314,8 +329,13 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
         raise HTTPException(400, "max_per_fan deve estar entre 1 e 50")
     if "windows" in upd:
         for w in upd["windows"]:
+            if not isinstance(w.get("start"), int) or not isinstance(w.get("end"), int):
+                raise HTTPException(400, "start e end devem ser inteiros")
             if not (0 <= w.get("start", 0) <= 24 and 0 <= w.get("end", 24) <= 24):
                 raise HTTPException(400, "Faixa de horário inválida (0-24)")
+            if w.get("days"):
+                if not all(isinstance(d, int) and 0 <= d <= 6 for d in w["days"]):
+                    raise HTTPException(400, "days deve conter apenas números de 0 a 6")
     await db.auto_config.update_one({"id": f"creator:{cid}"}, {"$set": {**upd, "creator_id": cid}}, upsert=True)
     return {"ok": True}
 

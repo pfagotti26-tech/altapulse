@@ -16,6 +16,7 @@ export default function Auto() {
   const addWindow = (cid) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: [...(c.windows||[]), {start:0, end:24, days:null}]} : c)); };
   const removeWindow = (cid, i) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: c.windows.filter((_,j)=>j!==i)} : c)); };
   const updateWindow = (cid, i, field, val) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: c.windows.map((w,j) => j===i ? {...w, [field]: val} : w)} : c)); };
+  const toggleDay = (cid, i, day) => { setConfigs(cs => cs.map(c => c.creator_id === cid ? {...c, windows: c.windows.map((w,j) => { if (j!==i) return w; const days = w.days || []; const next = days.includes(day) ? days.filter(d=>d!==day) : [...days, day].sort(); return {...w, days: next.length ? next : null}; })} : c)); };
   const [day, setDay] = useState(new Date().toLocaleDateString('sv', { timeZone: 'America/Sao_Paulo' }));
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -54,6 +55,7 @@ export default function Auto() {
                 <span> às </span>
                 <input type="number" value={w.end} onChange={e => updateWindow(cfg.creator_id, i, 'end', +e.target.value)} style={{width:50,color:"#111",background:"#fff"}} />
                 <span style={{marginLeft:8,fontSize:12,opacity:0.8}}>{w.start===w.end ? '24h' : `${w.start}h–${w.end}h`}</span>
+                <span style={{marginLeft:8}}>{['S','T','Q','Q','S','S','D'].map((d,di) => <button key={di} onClick={() => toggleDay(cfg.creator_id, i, di)} style={{marginLeft:2,padding:'1px 4px',fontSize:10,background:(w.days||[]).includes(di)?'#48c':'#555',color:'#fff',border:'none',borderRadius:2}}>{d}</button>)}</span>
                 <button onClick={() => removeWindow(cfg.creator_id, i)} style={{marginLeft:8,background:'#c44',color:'#fff',border:'none',borderRadius:4,padding:'2px 6px'}}>×</button>
               </div>
             ))}
