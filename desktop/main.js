@@ -659,6 +659,64 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
   } catch (e) { appLog('fila', String(e)); return false; }
 }
 
+
+async function tryFatalFansGift(view, creatorId, item, cents, fanRef) {
+  if (!item || !cents) return false;
+  try {
+    // Open gift modal (present icon)
+    const opened = await runJs(view, `(() => {
+      const icons = [...document.querySelectorAll('button, [role="button"]')];
+      const gift = icons.find(b => /presente|gift|🎁/i.test(b.textContent||'') || b.querySelector('[class*="gift"], [class*="presente"]'));
+      if (gift) { gift.click(); return true; }
+      return false;
+    })()`, 2000).catch(() => false);
+    if (!opened) { appLog('fila', 'FatalFans: presente falhou (não abriu)'); return false; }
+    await new Promise(res => setTimeout(res, 1000));
+    // Fill value and description
+    const filled = await runJs(view, `(() => {
+      const modal = document.querySelector('[class*="modal"], [role="dialog"]');
+      if (!modal) return false;
+      const val = modal.querySelector('input[type="number"], input[inputmode="decimal"], input');
+      const desc = modal.querySelector('textarea, input[placeholder*="escri"]');
+      if (!val) return false;
+      val.focus();
+      val.value = '${(cents/100).toFixed(2)}';
+      val.dispatchEvent(new Event('input', {bubbles:true}));
+      if (desc) { desc.value = ${JSON.stringify(item.slice(0,50))}; desc.dispatchEvent(new Event('input', {bubbles:true})); }
+      return val.value;
+    })()`, 2000).catch(() => '');
+    if (String(filled).replace(/\D/g,'') !== String(cents)) {
+      await runJs(view, `(() => { const b = [...document.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
+      appLog('fila', 'FatalFans: presente falhou (valor divergente)');
+      return false;
+    }
+    // Click Solicitar presente
+    const clicked = await runJs(view, `(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /solicitar presente/i.test(b.textContent||''));
+      if (btn && !btn.disabled) { btn.click(); return true; }
+      return false;
+    })()`, 2000).catch(() => false);
+    if (!clicked) {
+      await runJs(view, `(() => { const b = [...document.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
+      appLog('fila', 'FatalFans: presente falhou (não clicou)');
+      return false;
+    }
+    await new Promise(res => setTimeout(res, 1500));
+    // Confirm card appeared
+    const confirmed = await runJs(view, `(() => {
+      const cards = [...document.querySelectorAll('[data-message-id]')];
+      const last = cards[cards.length-1];
+      return last && /presente|R\$/i.test(last.textContent||'');
+    })()`, 2000).catch(() => false);
+    if (!confirmed) {
+      appLog('fila', 'FatalFans: presente falhou (cartão não apareceu)');
+      return false;
+    }
+    await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item, cents, essay: false, result: 'presente criado' }).catch(() => {});
+    return true;
+  } catch (e) { appLog('fila', 'FatalFans: presente falhou ' + e); return false; }
+}
+
 async function tryAutoDecide(view, creatorId, expectName, platform) {
   platform = platform || 'privacy';
   if (!ALTA_TESTE) return;
@@ -706,7 +764,14 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
           if (platform === 'fatalfans') {
-            await runJs(tg.view, `(() => { const btn = [...document.querySelectorAll('button')].find(b => /enviar|send/i.test(b.textContent||'') || b.type==='submit'); if (btn) btn.click(); return !!btn; })()`, 2000).catch(() => false);
+            await runJs(tg.view, `(() => {
+              const ta = [...document.querySelectorAll('textarea')].find(x => x.getBoundingClientRect().width > 0);
+              if (!ta) return false;
+              const footer = ta.closest('form, div') || ta.parentElement;
+              const btn = [...footer.querySelectorAll('button')].find(b => !/mic|microfone|áudio/i.test(b.className + (b.getAttribute('aria-label')||'')));
+              if (btn) { btn.click(); return true; }
+              return false;
+            })()`, 2000).catch(() => false);
           } else {
             const enterScript = `(() => {
               const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
@@ -725,7 +790,10 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
-            if (platform === 'fatalfans' && r.product) { appLog('fila', 'FatalFans: oferta fica para a equipe'); }
+            if (platform === 'fatalfans' && r.product && r.product_cents) {
+              const giftOk = await tryFatalFansGift(tg.view, creatorId, r.product, r.product_cents, fan_ref);
+              if (!giftOk) appLog('fila', 'FatalFans: presente falhou');
+            }
             else if (r.product && r.product_cents) {
               const mediaOk = await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, false);
               if (!mediaOk) {
@@ -747,6 +815,9 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
           }
         }
       }
+    } else if (r && r.essay && platform === 'fatalfans' && r.product && r.product_cents) {
+      appLog('fila', `ensaio: presente de R$ ${(r.product_cents/100).toFixed(2)} — ${r.product}`);
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref, item: r.product, cents: r.product_cents, essay: true, result: 'ensaio presente' }).catch(() => {});
     } else if (r && r.essay && r.product && r.product_cents) {
       appLog('fila', `ensaio: ${r.product} R$ ${(r.product_cents/100).toFixed(2)} · legenda: ${r.caption || '-'} · depois: ${r.after || '-'}`);
       await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, true);
@@ -1988,8 +2059,13 @@ const READ_FF_MSGS = String.raw`(() => {
   for (const el of document.querySelectorAll('[data-message-id]')) {
     const row = el.querySelector(':scope > .relative'); const ours = !!(row && row.classList.contains('justify-end'));
     let t = [...el.querySelectorAll('p.whitespace-pre-wrap')].map(txt).join(' ').trim();
+    const gift = el.querySelector('[data-gift], .gift-card, [class*="presente"], [class*="gift"]');
     const price = [...el.querySelectorAll('*')].find((x) => !x.children.length && /R\$\s*[\d.,]+/.test(x.textContent));
-    if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
+    if (gift || (price && /presente|gift/i.test(el.textContent))) {
+      const val = txt(price) || 'R$ ?';
+      const paid = /pago|paid/i.test(el.textContent);
+      t = '[presente solicitado: ' + val + ' — ' + (paid ? 'pago' : 'pendente') + ']';
+    } else if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
     else if (!t && el.querySelector('img, video')) t = '[mídia]';
     if (!t) continue;
     msgs.push({ ours, text: t.slice(0, 1200) });
