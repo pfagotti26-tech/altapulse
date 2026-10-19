@@ -240,6 +240,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             "last_fan": scrub(last_text)[:500],
             "decision": decision, "reason": reason,
             "suggested_text": suggested,
+            "usage_id": (result.get("usage_id") if isinstance(result, dict) else None),
         })
         return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents, caption=caption, after=after)
 
@@ -296,6 +297,11 @@ async def mark_sent(log_id: str, user=Depends(extension_user)):
         {"id": log_id, "decision": "aprovado"},
         {"$set": {"decision": "enviado", "sent_at": iso(), "reason": "enviado"}}
     )
+    # lote 142d (Claude): a Sombra passa a ver o envio da automação (antes ficava "sem resposta")
+    log = await db.auto_log.find_one({"id": log_id}, {"_id": 0, "usage_id": 1, "suggested_text": 1})
+    if log and log.get("usage_id"):
+        await db.shadow_actions.update_one({"usage_id": log["usage_id"], "status": "pendente"},
+            {"$set": {"sent": (log.get("suggested_text") or "")[:1200], "sent_at": iso(), "similarity": 1.0, "status": "igual", "by_auto": True}})
     return {"ok": True}
 
 
