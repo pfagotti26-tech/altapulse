@@ -487,6 +487,10 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     if body.fan_ref and body.mode == 'reply':
         from media_requests import open_for
         mreq = await open_for(body.creator_id, body.fan_ref)
+        if mreq and PM.req_kind(mreq.get('item'), mreq.get('category')) == 'entrega' and PM.delivered_in_chat(body.messages):
+            from media_requests import deliver  # lote 141: a mídia já foi mandada na conversa → marca entregue sozinho e segue respondendo
+            await deliver(mreq['id'], {'id': 'sistema', 'name': 'Sistema (entrega vista na conversa)'}, how='conversa')
+            mreq = None
         if mreq and mreq.get('acked_at'):
             return {'alert': True, 'remaining': None, 'waiting_delivery': True,
                     'reason': (f"Fã pagou {mreq.get('item') or 'a solicitação'} (R$ {(mreq.get('amount_cents') or 0) / 100:.2f}). " + {'avaliacao': 'Ele mandou a mídia dele: a IA não enxerga imagem. Veja e responda', 'chamada': 'Combine o horário da chamada com a criadora e avise o fã', 'entrega': 'Mande a mídia comprada para ele'}[PM.req_kind(mreq.get('item'), mreq.get('category'))] + " e toque em Feito na oportunidade (ou Sombra → Mídias pagas). A IA pausou este fã até lá.")}

@@ -470,6 +470,13 @@ def req_kind(item, category=''):
     if category == 'avaliacao' or 'avalia' in i: return 'avaliacao'
     if category in ('chamada', 'chamada_gravada') or 'chamada' in i: return 'chamada'
     return 'entrega'
+def delivered_in_chat(msgs):
+    """Lote 141: a mídia comprada já aparece mandada por nós na conversa (o app lê '[vídeo grátis enviada]'; mídia paga ofertada não conta)
+    depois do cartão da solicitação → entrega feita, a IA não pausa mais o fã. Sem o cartão na janela: mídia nossa nas últimas 6."""
+    rows = [(bool(getattr(m, 'ours', False) if not isinstance(m, dict) else m.get('ours')), str(getattr(m, 'text', '') if not isinstance(m, dict) else m.get('text') or '').lower()) for m in msgs]
+    req = max((i for i, (_, t) in enumerate(rows) if 'solicitação de mídia' in t or 'solicitacao de midia' in t), default=-1)
+    tail = rows[req + 1:] if req >= 0 else rows[-6:]
+    return any(o and re.search(r'\[(foto|vídeo|video|foto e vídeo|mídia|midia) grátis enviada\]', t) for o, t in tail)
 def is_request_item(p):
     """Itens que vão como Solicitação de mídia (o fã paga e manda a dele / chamada), não como mídia paga (PPV)."""
     return (p.get('category') in ('avaliacao', 'chamada', 'chamada_gravada')) or any(k in (p.get('item') or '').lower() for k in ('avalia', 'chamada'))
