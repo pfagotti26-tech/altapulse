@@ -544,6 +544,19 @@ def plays_infant(text):
 # lote 130: fã pediu chamada → fecha com o item de chamada da tabela (via Solicitação de mídia)
 CALL_ASK = re.compile(r'\b(chamad(a|inha)|v[ií]deo ?chamada|videochamada|ao vivo|facetime|call|web ?cam|cam|c[aâ]mera|live|em voz|chamada de voz|'
                       r'(faz(es)?|fazer|faria|bora|vamos)( um| o| ao| uma)? show|show (agora|ao vivo|privado|pra mim|comigo|na cam))\b', re.I)  # lote 138: webcam/cam/show agora = ao vivo
+# lote 139 (Paulo): punheta guiada = vídeo (o mais caro da tabela); ao vivo só se ele pedir, aí é chamada
+GUIDED = re.compile(r'\b(punhet\w*|bronha|masturba\w*)\s+(guiad\w*|com (voc[eê]|vc) (me )?guiando)|\bme guia(ndo)?\b|\bguia (minha|a) (punheta|bronha)|\bjoi\b', re.I)
+def asks_guided(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-3:]):
+        m = GUIDED.search(t)
+        if m: return m.group(0)
+    return ''
+def guided_item(prices):
+    """Item da punheta guiada: o que tem 'guiad' no nome; senão o vídeo mais caro (sem chamada/personalizado/avaliação)."""
+    named = [p for p in prices if 'guiad' in p['item'].lower()]
+    if named: return named[0]['item']
+    vids = [p for p in prices if re.search(r'v[ií]deo', p['item'], re.I) and not re.search(r'chamada|personaliz|avalia', p['item'], re.I)]
+    return max(vids, key=lambda p: p['cents'])['item'] if vids else ''
 def asks_call(fan_texts):
     for t in reversed([x for x in fan_texts if x][-3:]):
         m = CALL_ASK.search(t)

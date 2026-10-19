@@ -579,6 +579,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         _call_nosale = True
     else: _call_nosale = False
     if _call_item: must_sell = True; _n_off = max(_n_off, 1)
+    # lote 139: punheta guiada → vídeo mais caro (se ele não pediu ao vivo)
+    _guided = PM.asks_guided([m.text for m in msgs[-3:] if not m.ours]) if body.mode == 'reply' and items and msgs and not msgs[-1].ours and not _call else ''
+    _guided_item = PM.guided_item(prices) if _guided else ''
+    if _guided_item: must_sell = True; _n_off = max(_n_off, 1)
     _first = not (card or {}).get('purchases')
     _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
     # lote 131: já tem Solicitação de mídia nossa sem pagar (na conversa ou sugerida nas últimas 6 h) → não manda outra
@@ -599,6 +603,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         if pend and pend in PM.PAY_ASK: goal += f' O fã PEDIU PARA SER COBRADO ("{pend}"): confirme curto e com charme ("mando agora, amor 😈"), sem nova pergunta, e preencha "produto" com o item da conversa (o que ele pediu ou o último oferecido; se nenhum, o que combina com a cena).'
         elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
         if _call_item: goal += f' O FÃ PEDIU CHAMADA ("{_call}"): diga com charme que faz, sem combinar horário e sem valor no texto, e preencha "produto" com "{_call_item}" (a Solicitação de mídia leva o valor). Nunca diga "gravada".'
+        elif _guided_item: goal += f' O FÃ PEDIU PUNHETA GUIADA ("{_guided}"): diga com charme que tem sim, em VÍDEO, ela guiando ele, e preencha "produto" com "{_guided_item}". Nunca diga ou insinue que é ao vivo, agora ou chamada; se ele pedir ao vivo, aí é a chamada (outro valor).'
         elif _first and _cheap: goal += ' O fã AINDA NÃO COMPROU nada: na primeira compra ofereça um item BARATO (' + ', '.join(p['item'] for p in _cheap[:3]) + '), para ele começar.'
     if mreq:
         must_sell = False; pend = ''
@@ -799,9 +804,10 @@ FIM DA CONVERSA:
     infp = PM.plays_infant(txt0) if _inf and out and not out.get('alerta') else ''
     echo = PM.echoes_fan(txt0, _fl) if body.mode == 'reply' and out and not out.get('alerta') and _fl else ''
     _pg = str((out or {}).get('produto') or '').strip().lower()
+    guidx = bool(_guided_item and out and not out.get('alerta') and str(out.get('produto') or '').strip().lower() != _guided_item.lower())  # lote 139
     callx = bool(_call_item and out and not out.get('alerta') and _pg != _call_item.lower())
     pcost = next((p['cents'] for p in prices if p['item'].lower() == _pg), 0)
-    dear = bool(_first and not _call_item and _cheap and pcost and pcost > max(_cheap[min(2, len(_cheap) - 1)]['cents'], 4500))
+    dear = bool(_first and not _call_item and not _guided_item and _cheap and pcost and pcost > max(_cheap[min(2, len(_cheap) - 1)]['cents'], 4500))
     cbk = bool(_cb and out and not out.get('alerta') and not PM.answers_callback(txt0))  # lote 129
     gen = PM.generic_question(txt0) if body.mode == 'reply' and out and not out.get('alerta') and _talked and not phase and not _gr else ''
     pxq = bool(body.mode == 'puxada' and out and not out.get('alerta') and '?' not in txt0)
@@ -826,7 +832,7 @@ FIM DA CONVERSA:
         if longo and body.mode == 'reply':
             _t = PM.trim_sentences(txt0, longo[1])
             if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
-    retry_keys = [k for k, v in (('ao-vivo', livex), ('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
+    retry_keys = [k for k, v in (('guiada-item', guidx), ('ao-vivo', livex), ('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
         ('cobrou', cbk), ('generica', gen), ('puxada-sem-?', pxq), ('repetiu', rep), ('rotina', rot), ('midia', med), ('encontro', meet), ('nao-fechou', close), ('gravada', recd),
         ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
         ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
@@ -842,6 +848,7 @@ FIM DA CONVERSA:
         if payw: why.append(f'usou "{payw}"; nunca fale em pagar/pagamento/pix: fale em liberar, desbloquear, abrir, do que ele ganha ("libera que é todo seu 😈")')
         if infp: why.append(f'entrou na fantasia infantil ("{infp}"); é PROIBIDO: traga para adultos com charme, sem mamar/neném/bebê/cuidar dele como criança')
         if echo: why.append(f'repetiu o "{echo}" do fã como se fosse dela; reaja ao que ELE disse (ex.: "ai, que delícia saber disso…") em vez de repetir')
+        if guidx: why.append(f'o fã pediu punheta guiada; diga que tem em vídeo, ela guiando, e preencha "produto" com "{_guided_item}" (nunca ao vivo)')
         if callx: why.append(f'o fã pediu chamada e a resposta não fechou; diga que faz, com charme, e preencha "produto" com "{_call_item}"')
         if dear: why.append('ofereceu item caro para quem ainda não comprou; na primeira compra ofereça um dos baratos: ' + ', '.join(p['item'] for p in _cheap[:3]))
         if cbk: why.append(f'o fã escreveu "{_cb}" e a resposta não respondeu a isso; comece respondendo a ele ("tô aqui sim, amor… senti sua falta 😏") e só depois, se couber, retome o assunto')
@@ -894,6 +901,9 @@ FIM DA CONVERSA:
     # lote 138: fã pediu ao vivo e a IA insistiu em outro item → a oferta vira a chamada da tabela (vídeo gravado vendido como ao vivo, nunca)
     if _call_item and out and not out.get('alerta') and str(out.get('produto') or '').strip() and str(out.get('produto') or '').strip().lower() != _call_item.lower():
         out['produto'] = _call_item; out['legenda'] = ''; out['depois'] = ''
+    if _guided_item and out and not out.get('alerta') and str(out.get('produto') or '').strip().lower() != _guided_item.lower() and not _wait_pay and not mreq and must_sell:  # lote 139
+        if str(out.get('produto') or '').strip(): out['legenda'] = ''; out['depois'] = ''
+        out['produto'] = _guided_item
     # lote 138: ainda falando de cam/ao vivo fora da chamada → tira a frase (ou vira alerta)
     if out and not out.get('alerta') and str(out.get('produto') or '').strip().lower().find('chamada') < 0 and not (_call_item and not str(out.get('produto') or '').strip()) and PM.live_talk(str(out.get('texto') or '')):
         _t = PM.drop_live(str(out.get('texto') or ''))
