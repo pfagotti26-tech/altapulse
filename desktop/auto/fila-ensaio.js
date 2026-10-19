@@ -56,7 +56,7 @@ module.exports = function createFila(deps) {
           for (const c of enabled) {
             const rooms = [...(getLastRooms(c.creator_id, 'privacy') || []), ...(ffRooms.get(c.creator_id) || [])];
             for (const r of rooms) {
-              if (!r.ours) { seen.delete(c.creator_id + ':privacy:' + roomKey(c.creator_id, r.name) + ':' + (r.when || '')); seen.delete(c.creator_id + ':fatalfans:' + roomKey(c.creator_id, r.name) + ':' + (r.when || '')); }
+              if (!r.ours) { seen.delete(c.creator_id + ':privacy:' + roomKey(c.creator_id, r.name) + ':' + (r.lastHash || '')); seen.delete(c.creator_id + ':fatalfans:' + roomKey(c.creator_id, r.name) + ':' + (r.lastHash || '')); }
             }
           }
           lastAction = Date.now();
@@ -101,7 +101,7 @@ module.exports = function createFila(deps) {
           }
         }
       }
-      waiting.sort((a, b) => b.firstAge - a.firstAge || (b.spent > 0) - (a.spent > 0));
+      waiting.sort((a, b) => (isFinite(b.firstAge) ? b.firstAge : 0) - (isFinite(a.firstAge) ? a.firstAge : 0) || (b.spent > 0) - (a.spent > 0));
       // Não atende o mesmo de novo se houver outro esperando
       let chosen = waiting[0];
       if (chosen && chosen.ref === lastServed && waiting.length > 1) chosen = waiting[1];
@@ -112,7 +112,7 @@ module.exports = function createFila(deps) {
         lastServed = ref;
         lastAction = Date.now();
         const result = openChat ? await Promise.race([
-          openChat(creatorId, r.name, ref, platform),
+          openChat(creatorId, r.name, ref, platform, Math.round(chosen.firstAge/1000)),
           new Promise(res => setTimeout(() => res('timeout'), 90000))
         ]) : null;
         if (result === 'timeout') { seen.delete(key); lastServed = null; if (log) log('timeout 90s'); }
@@ -121,12 +121,7 @@ module.exports = function createFila(deps) {
           lastServed = null;
           if (result === 'temp') tempRetry.set(fKey, Date.now());
         }
-        // Espera a tela mudar (até 4s, checa a cada 300ms)
-        const start = Date.now();
-        while (Date.now() - start < 4000) {
-          await new Promise(res => setTimeout(res, 300));
-          break; // a confirmação é feita no tryAutoDecide
-        }
+
         if (log) log(`abriu: ${r.name}`);
       }
     } catch (e) { if (log) log(String(e)); }
@@ -154,7 +149,7 @@ module.exports = function createFila(deps) {
   function start() {
     if (running) return;
     running = true;
-    const delay = () => 8000 + Math.floor(Math.random() * 4000); // 8–12s
+    const delay = () => waiting.length > 1 ? 1000 : 5000;
     const loop = () => { tick(); timer = setTimeout(loop, delay()); };
     timer = setTimeout(loop, delay());
     tick();

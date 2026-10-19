@@ -713,13 +713,19 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
           const t0 = Date.now();
           while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
     // Confirm card appeared
-    const confirmed = await runJs(view, `(() => {
+    let confirmed = false;
+    const tGift = Date.now();
+    while (Date.now() - tGift < 4000 && !confirmed) {
+      confirmed = await runJs(view, `(() => {
       const cards = [...document.querySelectorAll('[data-message-id]')];
       const last = cards[cards.length-1];
       if (!last) return false;
       const ours = last.querySelector(':scope > .relative.justify-end');
       return ours && /Pedido de presente/i.test(last.textContent||'') && (last.textContent||'').includes(${JSON.stringify(expected)});
     })()`, 2000).catch(() => false);
+      if (confirmed) break;
+      await new Promise(res => setTimeout(res, 300));
+    }
     if (!confirmed) {
       appLog('fila', 'FatalFans: presente enviado, conferir');
       await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item, cents, essay: false, result: 'presente enviado, conferir' }).catch(() => {});
@@ -730,7 +736,7 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
   } catch (e) { appLog('fila', 'FatalFans: presente falhou ' + e); return false; }
 }
 
-async function tryAutoDecide(view, creatorId, expectName, platform) {
+async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
   platform = platform || 'privacy';
   if (!ALTA_TESTE) return;
   const key = creatorId + ':' + (expectName || '');
@@ -759,9 +765,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
-    const fKey = creatorId + ':' + platform + ':' + fan_ref;
-    const firstAt = filaEnsaio && filaEnsaio.firstUnanswered && filaEnsaio.firstUnanswered.get(fKey);
-    const wait_s = firstAt ? Math.round((Date.now() - firstAt.getTime()) / 1000) : 0;
+    const wait_s = waitS || 0;
     const payload = {
       creator_id: creatorId,
       platform,
@@ -803,9 +807,14 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
             await runJs(tg.view, enterScript, 2000).catch(() => false);
           }
           // Espera a tela mudar (até 4s, checa a cada 300ms)
-          const t0 = Date.now();
-          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
-          const after = await runJs(tg.view, tg.read, 4000).catch(() => null);
+          let after = null;
+          const tSend = Date.now();
+          while (Date.now() - tSend < 4000) {
+            after = await runJs(tg.view, tg.read, 2000).catch(() => null);
+            const last = after && after.msgs && after.msgs[after.msgs.length - 1];
+            if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) break;
+            await new Promise(res => setTimeout(res, 300));
+          }
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
@@ -2091,7 +2100,8 @@ const READ_FF_MSGS = String.raw`(() => {
     if (!t) continue;
     msgs.push({ ours, text: t.slice(0, 1200) });
   }
-  const verified = !!(document.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
+  const header = h2 && h2.closest('div');
+  const verified = !!(header && header.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
   return { name: txt(h2), headerVerified: verified, msgs: msgs.slice(-14) };
 })()`;
 const READ_OF_MSGS = String.raw`(() => {
@@ -2259,12 +2269,12 @@ if (ALTA_TESTE) {
     tabs: () => tabs,
     runJs,
     FF_CHAT_SCRIPT,
-    openChat: async (creatorId, name, fanRef, platform) => {
+    openChat: async (creatorId, name, fanRef, platform, waitS) => {
       platform = platform || 'privacy';
       await openConversation(creatorId, platform, null, name, fanRef);
       const view = (tabs.get(creatorId) || new Map()).get(platform);
       let result = null;
-      if (view) result = await tryAutoDecide(view, creatorId, name, platform);
+      if (view) result = await tryAutoDecide(view, creatorId, name, platform, waitS);
       if (global.autoBusy) await global.autoBusy.catch(() => {});
       return result;
     },
