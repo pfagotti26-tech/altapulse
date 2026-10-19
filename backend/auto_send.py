@@ -30,6 +30,7 @@ class ChatMsg(BaseModel):
 
 class DecideIn(BaseModel):
     creator_id: str
+    platform: str = "privacy"
     fan_ref: str
     fan_name: Optional[str] = None
     messages: List[ChatMsg] = Field(default_factory=list, max_length=16)
@@ -111,6 +112,8 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         return DecideOut(should_send=False, reason="automação desligada", essay=cfg["essay"])
 
     # per-creator: cfg já é da criadora
+    if body.platform not in (cfg.get("platforms") or ["privacy"]):
+        raise HTTPException(403, "plataforma desligada")
 
     # Presence: active shift (same pattern as extension_routes.py)
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True})
@@ -183,6 +186,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         try:
             suggest_body = A.SuggestIn(
                 creator_id=body.creator_id,
+                platform=body.platform,
                 fan_ref=body.fan_ref,
                 messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
                 mode='reply',
@@ -220,7 +224,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         lid = uid()
         await db.auto_log.insert_one({
             "id": lid, "at": iso(), "day": today(),
-            "creator_id": body.creator_id, "fan_ref": body.fan_ref,
+            "creator_id": body.creator_id, "platform": body.platform, "fan_ref": body.fan_ref,
             "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
             "decision": decision, "reason": reason,

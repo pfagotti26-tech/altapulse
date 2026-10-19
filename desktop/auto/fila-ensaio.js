@@ -2,7 +2,7 @@
 // Critério: !ours, não está digitando, última msg do fã ≥ 45s.
 // Tick 10s com variação. Prioriza recentes da automação.
 module.exports = function createFila(deps) {
-  const { api, getState, roomKey, openChat, getLastRooms, listAt, log } = deps;
+  const { api, getState, roomKey, openChat, getLastRooms, listAt, log, tabs, runJs, FF_CHAT_SCRIPT } = deps;
   let running = false;
   let timer = null;
   let ticking = false;
@@ -72,7 +72,15 @@ module.exports = function createFila(deps) {
       const creatorId = pair.creator_id;
       const platform = pair.platform;
       if (pair.limit_hit) return;
-      let rooms = getLastRooms(creatorId, platform) || [];
+      let rooms = [];
+      if (platform === 'fatalfans') {
+        const view = (tabs && tabs() && tabs().get(creatorId) && tabs().get(creatorId).get('fatalfans'));
+        if (!view || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) { if (log) log('pulou fatalfans (fora de /chat)'); return; }
+        const data = await runJs(view, FF_CHAT_SCRIPT, 4000).catch(() => null);
+        rooms = (data && data.rooms) || [];
+      } else {
+        rooms = getLastRooms(creatorId, platform) || [];
+      }
       if (!rooms.length) { if (log) log(`pulou ${platform} (deslogada/fechada)`); return; }
       const now = Date.now();
       // Fila por ordem de espera (mais antigo primeiro)
@@ -83,13 +91,14 @@ module.exports = function createFila(deps) {
         const ref = roomKey(creatorId, r.name);
         const at = listAt ? listAt(r.when, new Date()) : null;
         const age = at ? (now - at.getTime()) : Infinity;
-        if (at && !firstUnanswered.has(ref)) firstUnanswered.set(ref, at);
-        const firstAge = firstUnanswered.has(ref) ? (now - firstUnanswered.get(ref).getTime()) : Infinity;
+        const fKey = creatorId + ':' + platform + ':' + ref;
+        if (at && !firstUnanswered.has(fKey)) firstUnanswered.set(fKey, at);
+        const firstAge = firstUnanswered.has(fKey) ? (now - firstUnanswered.get(fKey).getTime()) : Infinity;
         if (r.typing && firstAge < 60 * 1000) continue;
         if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
         const key = creatorId + ':' + platform + ':' + ref + ':' + (r.when || '');
         if (seen.has(key)) continue;
-        const tr = tempRetry.get(ref);
+        const tr = tempRetry.get(fKey);
         if (tr && (now - tr) < 5 * 60 * 1000) continue;
         waiting.push({ r, ref, firstAge, key });
       }
@@ -111,7 +120,7 @@ module.exports = function createFila(deps) {
         if (result === 'retry' || result === 'temp') {
           seen.delete(key);
           lastServed = null;
-          if (result === 'temp') tempRetry.set(ref, Date.now());
+          if (result === 'temp') tempRetry.set(fKey, Date.now());
         }
         await new Promise(res => setTimeout(res, 3000));
         if (log) log(`abriu: ${r.name}`);

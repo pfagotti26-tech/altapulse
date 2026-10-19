@@ -685,10 +685,11 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       set.call(val, '${cents}');
       val.dispatchEvent(new Event('input', {bubbles:true}));
-      if (desc) { set.call(desc, descText); desc.dispatchEvent(new Event('input', {bubbles:true})); }
+      if (desc) { set.call(desc, ${JSON.stringify(descText)}); desc.dispatchEvent(new Event('input', {bubbles:true})); }
       return val.value;
     })()`, 2000).catch(() => '');
-    if (String(filled).replace(/\D/g,'') !== String(cents)) {
+    const expected = 'R$ ' + (cents/100).toLocaleString('pt-BR', {minimumFractionDigits:2});
+    if (filled !== expected) {
       await runJs(view, `(() => { const b = [...document.querySelectorAll('button')].find(x => /cancelar/i.test(x.textContent||'')); if(b) b.click(); })()`, 1000).catch(() => {});
       appLog('fila', 'FatalFans: presente falhou (valor divergente)');
       return false;
@@ -713,11 +714,12 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       const last = cards[cards.length-1];
       if (!last) return false;
       const ours = last.querySelector(':scope > .relative.justify-end');
-      return ours && /Pedido de presente/i.test(last.textContent||'') && /${expected.replace('R$ ','')}/.test(last.textContent||'');
+      return ours && /Pedido de presente/i.test(last.textContent||'') && (last.textContent||'').includes(${JSON.stringify(expected)});
     })()`, 2000).catch(() => false);
     if (!confirmed) {
-      appLog('fila', 'FatalFans: presente falhou (cartão não apareceu)');
-      return false;
+      appLog('fila', 'FatalFans: presente enviado, conferir');
+      await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item, cents, essay: false, result: 'presente enviado, conferir' }).catch(() => {});
+      return true;
     }
     await api('POST', '/auto/request-log', { creator_id: creatorId, fan_ref: fanRef, item, cents, essay: false, result: 'presente criado' }).catch(() => {});
     return true;
@@ -735,7 +737,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
   // multiperfil: qualquer criadora ligada
   try {
     const tg = chatTarget();
-    if (!tg || tg.id !== creatorId) return;
+    if (!tg || tg.id !== creatorId || tg.platform !== platform) { appLog('fila', 'decide: alvo diferente'); return 'retry'; }
     const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     let read = null;
     for (let i = 0; i < 8; i++) {
@@ -2240,9 +2242,12 @@ if (ALTA_TESTE) {
     api,
     getState: () => state,
     roomKey: (id, name) => readerFor(id).reader.roomKey(name),
-    getLastRooms: (id, platform) => lastRooms[(platform ? id + ':' + platform : id)] || lastRooms[id + ':privacy'] || [],
+    getLastRooms: (id, platform) => lastRooms[(platform ? id + ':' + platform : id)] || [],
     getReader: (id) => readerFor(id).reader,
     listAt,
+    tabs: () => tabs,
+    runJs,
+    FF_CHAT_SCRIPT,
     openChat: async (creatorId, name, fanRef, platform) => {
       platform = platform || 'privacy';
       await openConversation(creatorId, platform, null, name, fanRef);
