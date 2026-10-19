@@ -956,6 +956,16 @@ FIM DA CONVERSA:
     text, fixed = guard_prices(str(out['texto']).strip()[:800], allowed, floor=anchor)
     got = str(out.get('produto') or '').strip().lower()
     prod = next((p for p in prices if p['item'].lower() == got), None) or (next((p for p in prices if p['item'] == product), None) if product else None)
+    # lote 143b: valor escrito no texto sem produto ("R$ 250. Libera aí…") → vira a Solicitação do item com esse valor; o valor sai do texto
+    if not prod and body.mode == 'reply':
+        _m = re.search(r'R\$\s*(\d{1,5})(?:[.,](\d{2}))?', text or '')
+        if _m:
+            _c = int(_m.group(1)) * 100 + int(_m.group(2) or 0)
+            prod = next((p for p in prices if p['cents'] == _c), None)
+            if prod: fixed_here.append('valor-virou-solicitacao')
+    if body.mode == 'reply' and re.search(r'R\$\s*\d|\d+\s*reais\b', text or '', re.I):
+        _t = PM.PRICE_STRIP(text)
+        if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
     if prod and _gr and not product: prod = None; fixed_here.append('sem-oferta-na-saudacao')  # lote 142d: "tudo bem amor?" não recebe oferta (botão Vender do chatter continua valendo)
     if body.mode == 'reply':  # lote 142d: mesmo apelido em seguida ("bb" em 94% das respostas) → tira o apelido desta
         _t = PM.strip_pet(text, [m.text for m in msgs if m.ours])

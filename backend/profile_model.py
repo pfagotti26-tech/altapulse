@@ -691,7 +691,8 @@ def PRICE_STRIP(text):
     t = re.sub(r'\s*(,|\.|-|—)?\s*(por|só|so|apenas)?\s*R\$\s*\d+(?:[.,]\d{2})?\s*', ' ', text or '', flags=re.I)
     t = re.sub(r'\s*\d+\s*reais\b', ' ', t, flags=re.I)
     t = re.sub(r'\s+([?!.,…])', r'\1', t)
-    return re.sub(r'\s{2,}', ' ', t).strip(' ,')
+    t = re.sub(r'\s{2,}', ' ', t).strip(' ,').lstrip('.;:-— ')
+    return t[:1].upper() + t[1:] if (text or '').strip()[:1].isupper() or (text or '').strip()[:2].upper() == 'R$' else t
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
