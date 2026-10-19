@@ -660,7 +660,7 @@ async function tryMediaRequest(view, creatorId, product, cents, fanRef, essay) {
 }
 
 
-async function tryFatalFansGift(view, creatorId, item, cents, fanRef) {
+async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
   if (!item || !cents) return false;
   try {
     // Open gift modal (present icon)
@@ -672,6 +672,8 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef) {
     })()`, 2000).catch(() => false);
     if (!opened) { appLog('fila', 'FatalFans: presente falhou (não abriu)'); return false; }
     await new Promise(res => setTimeout(res, 1000));
+    const rawDesc = (caption || 'um mimo especial pra você 🍓');
+    const descText = rawDesc.length > 50 ? rawDesc.slice(0, 50).replace(/\s+\S*$/, '') : rawDesc;
     // Fill value and description
     const filled = await runJs(view, `(() => {
       const modal = document.querySelector('[class*="modal"], [role="dialog"]');
@@ -682,7 +684,7 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef) {
       val.focus();
       val.value = '${(cents/100).toFixed(2)}';
       val.dispatchEvent(new Event('input', {bubbles:true}));
-      if (desc) { desc.value = ${JSON.stringify(item.slice(0,50))}; desc.dispatchEvent(new Event('input', {bubbles:true})); }
+      if (desc) { desc.value = descText; desc.dispatchEvent(new Event('input', {bubbles:true})); }
       return val.value;
     })()`, 2000).catch(() => '');
     if (String(filled).replace(/\D/g,'') !== String(cents)) {
@@ -791,7 +793,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
             await api('POST', `/auto/sent/${r.log_id}`, {}).catch(() => {});
             if (platform === 'fatalfans' && r.product && r.product_cents) {
-              const giftOk = await tryFatalFansGift(tg.view, creatorId, r.product, r.product_cents, fan_ref);
+              const giftOk = await tryFatalFansGift(tg.view, creatorId, r.product, r.product_cents, fan_ref, r.caption);
               if (!giftOk) appLog('fila', 'FatalFans: presente falhou');
             }
             else if (r.product && r.product_cents) {
@@ -2059,12 +2061,13 @@ const READ_FF_MSGS = String.raw`(() => {
   for (const el of document.querySelectorAll('[data-message-id]')) {
     const row = el.querySelector(':scope > .relative'); const ours = !!(row && row.classList.contains('justify-end'));
     let t = [...el.querySelectorAll('p.whitespace-pre-wrap')].map(txt).join(' ').trim();
-    const gift = el.querySelector('[data-gift], .gift-card, [class*="presente"], [class*="gift"]');
+    const isGift = /Pedido de presente/i.test(el.textContent);
     const price = [...el.querySelectorAll('*')].find((x) => !x.children.length && /R\$\s*[\d.,]+/.test(x.textContent));
-    if (gift || (price && /presente|gift/i.test(el.textContent))) {
+    if (isGift) {
       const val = txt(price) || 'R$ ?';
-      const paid = /pago|paid/i.test(el.textContent);
-      t = '[presente solicitado: ' + val + ' — ' + (paid ? 'pago' : 'pendente') + ']';
+      const statusEl = [...el.querySelectorAll('*')].find(x => /aguardando|pago|pendente/i.test(x.textContent||'') && x.textContent.length < 30);
+      const status = statusEl ? txt(statusEl).toLowerCase() : 'aguardando';
+      t = '[presente solicitado: ' + val + ' — ' + status + ']';
     } else if (price) t = (t ? t + ' ' : '') + '[mídia paga enviada: ' + txt(price) + ']';
     else if (!t && el.querySelector('img, video')) t = '[mídia]';
     if (!t) continue;
