@@ -12,6 +12,7 @@ module.exports = function createFila(deps) {
   const firstUnanswered = new Map(); // ref → timestamp da primeira msg não respondida
   let lastServed = null; // ref do último atendido
   const tempRetry = new Map(); // ref → timestamp
+  const failCount = new Map(); // fKey → falhas seguidas
   const ffRooms = new Map(); // creatorId → rooms
   let lastFFUpdate = 0;
   let pendingNow = 0; // fãs esperando na última volta (define o ritmo)
@@ -117,12 +118,15 @@ module.exports = function createFila(deps) {
           openChat(creatorId, r.name, ref, platform, Number.isFinite(chosen.firstAge) ? Math.round(chosen.firstAge / 1000) : 0),
           new Promise(res => setTimeout(() => res('timeout'), 90000))
         ]) : null;
-        if (result === 'timeout') { seen.delete(key); lastServed = null; if (log) log('timeout 90s'); }
-        if (result === 'retry' || result === 'temp') {
+        // revisão Claude: fã que dá timeout/retry não pode voltar na hora (travava a fila inteira num fã só, ex.: conversa sem assinatura).
+        // Espera 5 min; a partir da 3ª falha seguida, 60 min.
+        if (result === 'timeout' || result === 'retry' || result === 'temp') {
           seen.delete(key);
           lastServed = null;
-          if (result === 'temp') tempRetry.set(fKey, Date.now());
-        }
+          const n = (failCount.get(fKey) || 0) + 1; failCount.set(fKey, n);
+          tempRetry.set(fKey, Date.now() + (n >= 3 ? 55 * 60 * 1000 : 0));
+          if (log) log(`${result}: ${r.name} (${platform}) volta em ${n >= 3 ? 60 : 5} min`);
+        } else failCount.delete(fKey);
 
         if (log) log(`abriu: ${r.name}`);
       }
