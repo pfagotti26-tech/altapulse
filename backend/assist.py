@@ -973,6 +973,12 @@ FIM DA CONVERSA:
     # lote 142c: nunca baixar o valor de uma oferta nossa que o fã ainda não pagou (aberta ou expirada): reclamou de R$ 800, não sai por 700.
     # Item bem mais barato (menos da metade) é "alternativa menor" e continua valendo.
     _pcents = fan_price(prod['cents'], anchor) if prod else None
+    if prod and not alt:  # lote 143: teste de faixa de preço (fã que ainda não comprou recebe sempre a mesma faixa)
+        import price_test as PT
+        _tp = await PT.price_for(body.creator_id, prod['item'], body.fan_ref, bool(anchor))
+        if _tp:
+            _pcents = _tp; fixed_here.append(f'faixa-{_tp}')
+            await PT.mark_offer(body.creator_id, prod['item'], body.fan_ref)
     if prod:
         _hi = max([mi['cents'] for m in msgs[-12:] if m.ours and re.search(r'n[aã]o pago', m.text or '', re.I)
                    for mi in [media_info(m.text)] if mi and not mi['free'] and mi['cents']] or [0])
@@ -1264,4 +1270,26 @@ async def blocked_del(bid: str, user=Depends(manager)):
     r = await db.assist_blocked.find_one_and_delete({'id': bid}, {'_id': 0})
     if not r: raise HTTPException(404, 'Bloqueio não encontrado.')
     await audit(user, 'Fã desbloqueado para a IA', 'assist', {'creator_id': r['creator_id'], 'fan_name': r.get('fan_name')}, None)
+    return {'ok': True}
+
+
+# lote 143: teste de faixas de preço (painel → Automação)
+class PriceTestIn(Strict):
+    creator_id: str
+    item: str = Field(max_length=80)
+    variants_cents: list[int] = Field(min_length=2, max_length=6)
+@router.get('/assist/price-tests')
+async def price_tests(creator_id: str = '', user=Depends(manager)):
+    import price_test as PT
+    return await PT.report(creator_id)
+@router.post('/assist/price-tests')
+async def price_test_create(body: PriceTestIn, user=Depends(manager)):
+    import price_test as PT
+    prof = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0, 'prices': 1}) or {}
+    if not any(p.get('item') == body.item for p in prof.get('prices') or []): raise HTTPException(422, 'Esse item não está na tabela da criadora.')
+    try: return await PT.create(body.creator_id, body.item, body.variants_cents, user)
+    except ValueError as e: raise HTTPException(422, str(e))
+@router.post('/assist/price-tests/{test_id}/stop')
+async def price_test_stop(test_id: str, user=Depends(manager)):
+    await db.price_tests.update_one({'id': test_id}, {'$set': {'active': False, 'ended_at': iso()}})
     return {'ok': True}
