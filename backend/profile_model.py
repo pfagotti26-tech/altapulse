@@ -201,6 +201,23 @@ import difflib as _dl
 def _norm(t):
     t = _ud.normalize('NFD', (t or '').lower()); t = ''.join(c for c in t if _ud.category(c) != 'Mn')
     return re.sub(r'[^a-z0-9 ]+', ' ', t).split()
+# lote 142: fã só "fechou" a conversa (ok, kkk, emoji, boa noite bjs) depois de uma fala nossa que não pedia resposta → não precisa responder
+ACK = {'ok', 'okay', 'okk', 'blz', 'beleza', 'rs', 'rsrs', 'rsrsrs', 'haha', 'hahaha', 'hehe', 'valeu', 'vlw', 'show', 'top', 'joia', 'tranquilo',
+       'certo', 'entendi', 'ta', 'bom', 'boa', 'noite', 'dia', 'tarde', 'bjs', 'bj', 'beijo', 'beijos', 'beijao', 'tchau', 'ate', 'amanha', 'durma', 'bem', 'tmj'}
+_LAUGH = re.compile(r'^(k{2,}|(ha){2,}h?|(he){2,}|(rs){1,}|(kk)+k*)$')
+def no_reply_needed(msgs):
+    rows = [(bool(m.get('ours') if isinstance(m, dict) else getattr(m, 'ours', False)), str((m.get('text') if isinstance(m, dict) else getattr(m, 'text', '')) or '')) for m in msgs]
+    last_ours = max((i for i, (o, _) in enumerate(rows) if o), default=-1)
+    if last_ours < 0: return False
+    ours = rows[last_ours][1].lower()
+    if '?' in ours or 'solicita' in ours or 'paga' in ours or 'libera' in ours or 'desbloque' in ours: return False
+    fan = [t for o, t in rows[last_ours + 1:] if not o and t.strip()]
+    if not fan or len(fan) > 3: return False
+    for t in fan:
+        if '?' in t or '[' in t: return False
+        w = _norm(t)
+        if len(w) > 4 or not all(x in ACK or _LAUGH.match(x) for x in w): return False
+    return True
 def avoid_now(recent_ours, prof):
     """O que a criadora acabou de dizer nesta conversa: aberturas, apelidos e bordões para NÃO repetir agora."""
     recent = [x for x in recent_ours if x and x.strip()][-6:]
