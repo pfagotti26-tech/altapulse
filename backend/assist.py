@@ -472,7 +472,11 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
     # lote 114 (Paulo): fã citou família/incesto → conversa encerrada na hora: bloqueia o fã para a IA (só gestor desbloqueia) e avisa a equipe
     if body.fan_ref and body.mode == 'reply':
         _fan_now = [m.text for m in body.messages[-4:] if not m.ours and m.text]
-        if any(PM.family_word(t) for t in _fan_now):
+        _fam_hit = any(PM.family_word(t) for t in _fan_now)
+        if _fam_hit and not any(PM.family_word(t, allow_tia=True) for t in _fan_now):  # lote 140: só "tia" como apelido → criadora madura não bloqueia
+            _p0 = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0, 'persona': 1, 'style': 1, 'voice': 1}) or {}
+            if PM.mature_persona(_p0): _fam_hit = False
+        if _fam_hit:
             await db.assist_blocked.update_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref},
                 {'$setOnInsert': {'id': uid(), 'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'fan_name': '', 'reason': 'tema proibido (automático)',
                                   'by_id': 'sistema', 'by_name': 'Sistema', 'at': iso()}}, upsert=True)
@@ -671,6 +675,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         goal = 'NÃO ofereça nada agora: "produto" vazio.'
         opener_block += (f'\nO FÃ PEDIU AO VIVO ("{_call}"): ela NÃO faz cam/show/ao vivo. Diga com charme que ao vivo não rola, sem prometer nada e sem falar de horário, '
                          'e puxe para a conversa aqui (ex.: "ao vivo não, amor… mas aqui eu te deixo louco do mesmo jeito 😈"). Preencha "aviso" para a equipe.')
+    if body.mode == 'reply' and any(PM.says_tia(m.text) for m in msgs[-4:] if not m.ours) and PM.mature_persona(prof):  # lote 140
+        opener_block += '\nO FÃ CHAMOU ELA DE "TIA" como apelido carinhoso de mulher madura (não é parente): responda normal, no clima, sem repetir a palavra "tia" e sem falar de parentes.'
     _dis = PM.disdain([m.text for m in msgs if not m.ours]) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 134
     if _dis:
         must_sell = False; pend = ''
