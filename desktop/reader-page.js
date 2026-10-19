@@ -42,6 +42,7 @@ module.exports = String.raw`(() => {
   // selo de conta verificada. A Privacy passou a envolver o avatar de TODO item da lista num
   // <div class="wrapper-room-avatar-verified"> (out/2026): caixas "wrapper-…" não são selo, só o elemento do selo em si conta.
   const VERIFIED = '[class*="verified" i]:not([class*="wrapper" i]), [class*="verificad" i]:not([class*="wrapper" i]), svg[data-icon*="badge-check"], svg[data-icon="circle-check"]:not(.vac-icon-check), img[alt*="verific" i]';
+  function hash8(s) { let h = 0; for (let i = 0; i < (s||'').length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36).slice(0,8); }
   const rooms = qsa('.vac-room-list .vac-room-item').map((r) => ({
     name: txt(r.querySelector('.name')),
     online: online(r),
@@ -53,6 +54,7 @@ module.exports = String.raw`(() => {
     // A frase é avaliada aqui e descartada: só o sim/não sai da página.
     rid: (r.id || r.getAttribute('data-room-id') || '').slice(0, 80) || null,
     intent: !isOurs(r) && INTENT.test(lastText(r).toLowerCase()),
+    lastHash: hash8(lastText(r)),
     typing: /est[aá] escrevendo|digitando/i.test(lastText(r)), // AUTO (Grok)
     // selo de conta verificada ao lado do nome = outra criadora (divulgação, venda de mídia): não é fã esperando
     verified: !!r.querySelector(VERIFIED),

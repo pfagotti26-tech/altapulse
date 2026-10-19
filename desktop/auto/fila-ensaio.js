@@ -13,6 +13,7 @@ module.exports = function createFila(deps) {
   let lastServed = null; // ref do último atendido
   const tempRetry = new Map(); // ref → timestamp
   const ffRooms = new Map(); // creatorId → rooms
+  let lastFFUpdate = 0;
   let cycleIdx = 0;
   let lastAction = Date.now();
 
@@ -62,32 +63,26 @@ module.exports = function createFila(deps) {
           if (log) log('fila reiniciada');
         }
       }
-      // Expande em (criadora, plataforma)
-      const pairs = [];
-      for (const c of enabled) {
-        for (const p of (c.platforms || ['privacy'])) pairs.push({ ...c, platform: p });
-      }
-      if (!pairs.length) return;
-      const pair = pairs[cycleIdx % pairs.length];
-      cycleIdx++;
-      const creatorId = pair.creator_id;
-      const platform = pair.platform;
-      if (pair.limit_hit) return;
-      let rooms = [];
-      if (platform === 'fatalfans') {
-        const view = (tabs && tabs() && tabs().get(creatorId) && tabs().get(creatorId).get('fatalfans'));
-        if (!view || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) { if (log) log('pulou fatalfans (fora de /chat)'); return; }
-        const data = await runJs(view, FF_CHAT_SCRIPT, 4000).catch(() => null);
-        rooms = (data && data.rooms) || [];
-        ffRooms.set(creatorId, rooms);
-      } else {
-        rooms = getLastRooms(creatorId, platform) || [];
-      }
-      if (!rooms.length) { if (log) log(`pulou ${platform} (deslogada/fechada)`); return; }
+      // Atualiza FatalFans a cada 30s (todas as criadoras ligadas)
       const now = Date.now();
-      // Fila por ordem de espera (mais antigo primeiro)
+      if (now - lastFFUpdate > 30000) {
+        for (const c of enabled) {
+          if (!(c.platforms || []).includes('fatalfans')) continue;
+          const view = (tabs && tabs() && tabs().get(c.creator_id) && tabs().get(c.creator_id).get('fatalfans'));
+          if (!view || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) continue;
+          const data = await runJs(view, FF_CHAT_SCRIPT, 4000).catch(() => null);
+          if (data && data.rooms) ffRooms.set(c.creator_id, data.rooms);
+        }
+        lastFFUpdate = now;
+      }
+      // Junta fãs esperando de todas as (criadora, plataforma)
       const waiting = [];
-      for (const r of rooms) {
+      for (const c of enabled) {
+        if (c.limit_hit) continue;
+        for (const platform of (c.platforms || ['privacy'])) {
+          const creatorId = c.creator_id;
+          const rooms = platform === 'fatalfans' ? (ffRooms.get(creatorId) || []) : (getLastRooms(creatorId, platform) || []);
+          for (const r of rooms) {
         if (r.ours) { firstUnanswered.delete(creatorId + ':' + platform + ':' + roomKey(creatorId, r.name)); continue; }
         if (r.typing || r.verified) continue;
         const ref = roomKey(creatorId, r.name);
@@ -98,18 +93,20 @@ module.exports = function createFila(deps) {
         const firstAge = firstUnanswered.has(fKey) ? (now - firstUnanswered.get(fKey).getTime()) : Infinity;
         if (r.typing && firstAge < 60 * 1000) continue;
         if (age < 30 * 1000 && firstAge < 60 * 1000) continue;
-        const key = creatorId + ':' + platform + ':' + ref + ':' + (r.when || '');
+        const key = creatorId + ':' + platform + ':' + ref + ':' + (r.lastHash || '');
         if (seen.has(key)) continue;
         const tr = tempRetry.get(fKey);
         if (tr && (now - tr) < 5 * 60 * 1000) continue;
-        waiting.push({ r, ref, fKey, firstAge, key });
+        waiting.push({ r, ref, fKey, firstAge, key, creatorId, platform, spent: r.spent || 0 });
+          }
+        }
       }
-      waiting.sort((a, b) => b.firstAge - a.firstAge); // mais antigo primeiro
+      waiting.sort((a, b) => b.firstAge - a.firstAge || (b.spent > 0) - (a.spent > 0));
       // Não atende o mesmo de novo se houver outro esperando
       let chosen = waiting[0];
       if (chosen && chosen.ref === lastServed && waiting.length > 1) chosen = waiting[1];
       if (chosen) {
-        const { r, ref, fKey, key } = chosen;
+        const { r, ref, fKey, key, creatorId, platform } = chosen;
         seen.add(key);
         firstUnanswered.delete(fKey);
         lastServed = ref;
@@ -124,7 +121,12 @@ module.exports = function createFila(deps) {
           lastServed = null;
           if (result === 'temp') tempRetry.set(fKey, Date.now());
         }
-        await new Promise(res => setTimeout(res, 3000));
+        // Espera a tela mudar (até 4s, checa a cada 300ms)
+        const start = Date.now();
+        while (Date.now() - start < 4000) {
+          await new Promise(res => setTimeout(res, 300));
+          break; // a confirmação é feita no tryAutoDecide
+        }
         if (log) log(`abriu: ${r.name}`);
       }
     } catch (e) { if (log) log(String(e)); }
@@ -161,5 +163,5 @@ module.exports = function createFila(deps) {
     running = false;
     if (timer) clearTimeout(timer);
   }
-  return { start, stop, markRecent, pendingCount, get running() { return running; } };
+  return { start, stop, markRecent, pendingCount, firstUnanswered, get running() { return running; } };
 };

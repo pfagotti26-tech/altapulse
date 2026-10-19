@@ -31,6 +31,7 @@ class ChatMsg(BaseModel):
 class DecideIn(BaseModel):
     creator_id: str
     platform: str = "privacy"
+    wait_s: int = 0
     fan_ref: str
     fan_name: Optional[str] = None
     messages: List[ChatMsg] = Field(default_factory=list, max_length=16)
@@ -224,7 +225,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         lid = uid()
         await db.auto_log.insert_one({
             "id": lid, "at": iso(), "day": today(),
-            "creator_id": body.creator_id, "platform": body.platform, "fan_ref": body.fan_ref,
+            "creator_id": body.creator_id, "platform": body.platform, "wait_s": body.wait_s, "fan_ref": body.fan_ref,
             "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
             "decision": decision, "reason": reason,
@@ -248,8 +249,12 @@ async def report(day: str = "", creator_id: str = "", user=Depends(manager)):
     ]).to_list(1)
     cost = usage[0]["cost"] if usage else 0
     calls = usage[0]["calls"] if usage else 0
+    waits = [r.get("wait_s") or 0 for r in rows if r.get("wait_s")]
     summary = {
         "day": d,
+        "wait_avg": round(sum(waits)/len(waits)/60, 1) if waits else 0,
+        "wait_max": round(max(waits)/60, 1) if waits else 0,
+        "wait_over5": sum(1 for w in waits if w > 300),
         "ensaios": sum(1 for r in rows if r.get("decision") == "ensaio"),
         "travados": sum(1 for r in rows if r.get("decision") == "travado"),
         "erros": sum(1 for r in rows if r.get("decision") == "erro"),

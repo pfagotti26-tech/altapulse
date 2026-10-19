@@ -18,12 +18,14 @@ module.exports = String.raw`(() => {
   // span.text-xs.text-muted, prévia span.truncate ("Você: …" = nossa), h3 em negrito = não lida.
   // A prévia só vira sim/não de "pediu preço" aqui dentro; o texto não sai da página.
   const INTENT = /quanto|valor|pre[cç]o|\bpix\b|tem (v[ií]deo|foto|conte[uú]do|pack)|manda(r)? (v[ií]deo|foto|mais|nude)|vende|comprar|quero (ver|comprar|um|uma|seu|sua)|\bpack\b|personalizad|custom|chamada|\bcall\b|exclusiv|mais (fotos|v[ií]deos)|desbloque/;
+  function hash8(s) { let h = 0; for (let i = 0; i < (s||'').length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36).slice(0,8); }
   const rooms = [...document.querySelectorAll('div.min-h-18.cursor-pointer')].map((r) => {
     const h3 = r.querySelector('h3');
     const prevs = [...r.querySelectorAll('span.truncate')].map(txt).filter(Boolean);
     const last = prevs[prevs.length - 1] || '';
     const ours = /^voc[eê]:/i.test(last);
-    return { name: txt(h3), ours, unread: h3 && /font-semibold/.test(h3.className) ? 1 : 0, when: txt(r.querySelector('span.text-xs.text-muted')),
+    const verified = !!(r.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
+    return { name: txt(h3), ours, verified, unread: h3 && /font-semibold/.test(h3.className) ? 1 : 0, when: txt(r.querySelector('span.text-xs.text-muted')), lastHash: hash8(last),
       intent: !ours && INTENT.test(prevs.join(' ').toLowerCase()) };
   }).filter((r) => r.name);
   return { page: 'chat', rooms, open: name ? { name, cid: 'ff:' + name, msgs, skeleton: !msgs.length } : null };

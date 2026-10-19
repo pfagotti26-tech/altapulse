@@ -122,7 +122,9 @@ async function autoPuxadaTick() {
           return true;
         })()`;
         await runJs(view, enterScript, 2000).catch(() => false);
-        await new Promise(res => setTimeout(res, 1500));
+        // Espera a tela mudar (até 4s, checa a cada 300ms)
+          const t0 = Date.now();
+          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
         const confirm = await runJs(view, READ_MSGS_SCRIPT, 4000).catch(() => null);
         const last = confirm && confirm.msgs && confirm.msgs[confirm.msgs.length - 1];
         if (last && last.ours && last.text && last.text.includes(line.text.slice(0, 30))) {
@@ -707,7 +709,9 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
       appLog('fila', 'FatalFans: presente falhou (não clicou)');
       return false;
     }
-    await new Promise(res => setTimeout(res, 1500));
+    // Espera a tela mudar (até 4s, checa a cada 300ms)
+          const t0 = Date.now();
+          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
     // Confirm card appeared
     const confirmed = await runJs(view, `(() => {
       const cards = [...document.querySelectorAll('[data-message-id]')];
@@ -755,9 +759,13 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
     const key = creatorId + ':' + fan_ref + ':' + read.msgs.length + ':' + (read.msgs[read.msgs.length - 1].text || '').slice(0, 40);
     if (key === lastAutoKey) return;
     lastAutoKey = key;
+    const fKey = creatorId + ':' + platform + ':' + fan_ref;
+    const firstAt = filaEnsaio && filaEnsaio.firstUnanswered && filaEnsaio.firstUnanswered.get(fKey);
+    const wait_s = firstAt ? Math.round((Date.now() - firstAt.getTime()) / 1000) : 0;
     const payload = {
       creator_id: creatorId,
       platform,
+      wait_s,
       fan_ref,
       fan_name: (state.fan_names_allowed && fan.name) ? fan.name : undefined,
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
@@ -794,7 +802,9 @@ async function tryAutoDecide(view, creatorId, expectName, platform) {
             })()`;
             await runJs(tg.view, enterScript, 2000).catch(() => false);
           }
-          await new Promise(res => setTimeout(res, 1500));
+          // Espera a tela mudar (até 4s, checa a cada 300ms)
+          const t0 = Date.now();
+          while (Date.now() - t0 < 4000) { await new Promise(res => setTimeout(res, 300)); break; }
           const after = await runJs(tg.view, tg.read, 4000).catch(() => null);
           const last = after && after.msgs && after.msgs[after.msgs.length - 1];
           if (last && last.ours && last.text && last.text.includes(r.suggested_text.slice(0, 30))) {
@@ -2081,7 +2091,8 @@ const READ_FF_MSGS = String.raw`(() => {
     if (!t) continue;
     msgs.push({ ours, text: t.slice(0, 1200) });
   }
-  return { name: txt(h2), msgs: msgs.slice(-14) };
+  const verified = !!(document.querySelector('.i-lucide\\:badge-check, [class*="verified"]'));
+  return { name: txt(h2), headerVerified: verified, msgs: msgs.slice(-14) };
 })()`;
 const READ_OF_MSGS = String.raw`(() => {
   const txt = (e) => (e ? e.textContent.replace(/\s+/g, ' ').trim() : '');

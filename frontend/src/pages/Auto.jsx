@@ -111,6 +111,7 @@ export default function Auto() {
         <Stat id="au-respostas" label="Respostas hoje" value={stats.respostas} caption={`${stats.respostas - stats.ensaioResp} enviadas · ${stats.ensaioResp} em ensaio`} icon={Sparkles}/>
         <Stat id="au-travadas" label="Travadas para a equipe" value={stats.travados} caption={stats.motivos || '—'} icon={AlertTriangle}/>
         <Stat id="au-gasto" label="Gasto de IA hoje" value={`US$ ${stats.gasto.toFixed(2)}`} caption={`US$ ${stats.porResp.toFixed(4)} por resposta`} icon={DollarSign}/>
+        <Stat id="au-espera" label="Espera média" value={`${d?.summary?.wait_avg || 0} min`} caption={`maior ${d?.summary?.wait_max || 0} min · ${d?.summary?.wait_over5 || 0} > 5 min`} icon={AlertTriangle}/>
       </div>
 
       <div style={{display:'flex',gap:12,alignItems:'center',margin:'16px 0',flexWrap:'wrap'}}>
