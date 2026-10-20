@@ -774,7 +774,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
       platform,
       wait_s,
       fan_ref,
-      fan_name: (state.fan_names_allowed && fan.name) ? fan.name : undefined,
+      fan_name: (state.fan_names_allowed && read.name) ? read.name : undefined,  // lote 144: nome da conversa lida (antes vinha do fã anterior)
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
     const r = await api('POST', '/auto/decide', payload);
