@@ -158,7 +158,7 @@ export default function Auto() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  {!c.enabled ? <Badge tone="neutral">Desligada</Badge> : c.mode_now === 'real' ? <Badge tone="good">Real agora</Badge> : <Badge tone="warn">Ensaio agora</Badge>}
+                  {!c.enabled ? <Badge tone="neutral">Desligada</Badge> : c.mode_now === 'real' ? <Badge tone="good">Real agora</Badge> : c.mode_now === 'ensaio' ? <Badge tone="warn">{c.mode_src === 'turno' ? 'Ensaio (chatter ativo)' : 'Ensaio agora'}</Badge> : <Badge tone="neutral">Fora do horário</Badge>}
                 </TableCell>
                 <TableCell>
                   <Switch checked={c.enabled} onCheckedChange={v => toggle(c, v)}/>

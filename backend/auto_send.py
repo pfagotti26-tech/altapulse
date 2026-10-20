@@ -100,8 +100,8 @@ def in_windows(windows, now=None):
 
 
 def current_mode(cfg, now=None, shift_active=False):
-    """Devolve 'ensaio', 'real' ou None. Ensaio vence sobreposição. Turno força ensaio."""
-    if shift_active: return "ensaio", "turno"
+    """Devolve (modo, origem): 'ensaio', 'real' ou None (fora das faixas). Ensaio vence sobreposição.
+    Turno de chatter ativo força ensaio dentro das faixas (revisão Claude: fora das faixas continua desligado)."""
     now = now or datetime.now(BR)
     h = now.hour
     dow = now.weekday()
@@ -113,6 +113,7 @@ def current_mode(cfg, now=None, shift_active=False):
         in_w = start == end or (start <= h < end if start < end else (h >= start or h < end))
         if in_w: modes.append(w.get("mode") or ("ensaio" if cfg.get("essay", True) else "real"))
     if not modes: return None, None
+    if shift_active: return "ensaio", "turno"
     if "ensaio" in modes: return "ensaio", "agenda"
     return modes[0], "agenda"
 
@@ -251,7 +252,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         essay_mode = mode == "ensaio"
         should = not essay_mode
         decision = "ensaio" if essay_mode else "aprovado"
-        reason = "ensaio (chatter ativo)" if mode_src == "turno" else ("modo ensaio — não envia" if essay_mode else "aprovado")
+        reason = "ensaio (turno do chatter)" if mode_src == "turno" else ("modo ensaio — não envia" if essay_mode else "aprovado")
         lid = uid()
         await db.auto_log.insert_one({
             "id": lid, "at": iso(), "day": today(),
@@ -262,7 +263,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             "suggested_text": suggested,
             "usage_id": (result.get("usage_id") if isinstance(result, dict) else None),
         })
-        return DecideOut(should_send=should, reason=reason, essay=cfg["essay"], suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents, caption=caption, after=after)
+        return DecideOut(should_send=should, reason=reason, essay=essay_mode, suggested_text=suggested, log_id=lid, product=product_item, product_cents=product_cents, caption=caption, after=after)
 
 
 @router.get("/report")
@@ -353,8 +354,9 @@ async def list_configs(user=Depends(manager)):
         remaining = max(0, cfg["max_per_day"] - today_count)
         prof = await db.assist_profiles.find_one({"creator_id": c["id"]}) or {}
         ficha = bool(prof.get("persona") and prof.get("prices"))
-        mode_now, _ = current_mode(cfg)
-        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "today_essay": today_essay, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha, "mode_now": mode_now})
+        _shift = await db.shifts.find_one({'creator_id': c["id"], 'active': True}, {'_id': 1})
+        mode_now, mode_src = current_mode(cfg, shift_active=bool(_shift))
+        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "today_essay": today_essay, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha, "mode_now": mode_now, "mode_src": mode_src})
     return out
 
 @router.get("/app-configs")

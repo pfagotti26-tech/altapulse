@@ -170,17 +170,17 @@ if (ALTA_TESTE) setInterval(async () => {
       if (!view || view.webContents.isDestroyed()) continue;
       const key = cfg.creator_id + ':' + platform;
       const att = reloginAttempts.get(key) || {count:0, lastAt:0, blocked:false};
-      if (att.blocked) continue;
+      if (att.blocked) { if (!(await probeLogin(view).catch(() => true))) reloginAttempts.delete(key); continue; }  // bloqueada até alguém entrar à mão
       if (Date.now() - att.lastAt < 5*60*1000) continue;
       if (att.count >= 3 && Date.now() - att.lastAt < 60*60*1000) continue;
       if (entering.has(cfg.creator_id)) continue;
-      if (!(await probeLogin(view))) continue;
+      if (!(await probeLogin(view))) { if (att.count || att.blocked) reloginAttempts.delete(key); continue; }  // revisão Claude: entrou (sozinho ou à mão) → zera as tentativas
       if (!credentials.some(c => c.creator_id === cfg.creator_id && c.platform === platform)) continue;
       att.count++; att.lastAt = Date.now();
       reloginAttempts.set(key, att);
       try {
         setLogin(cfg.creator_id, platform, true);
-        entering.add(cfg.creator_id);
+        entering.set(cfg.creator_id, platform); pushState();  // revisão Claude: entering é Map (.add quebrava o vigia)
         await vaultFill(cfg.creator_id, platform, view);
         for (let i = 0; i < 15; i++) { await sleep(700); if (view.webContents.isDestroyed()) break; if (!(await probeLogin(view))) break; }
         if (await probeLogin(view)) {
@@ -189,9 +189,12 @@ if (ALTA_TESTE) setInterval(async () => {
           if (sidebar) sidebar.webContents.send('toast', cfg.name + ': ' + platform + ' pediu verificação, entre manualmente');
         } else {
           await api('POST', '/extension/vault-result', {creator_id: cfg.creator_id, platform, auto: true, ok: true}).catch(()=>{});
-          view.webContents.loadURL(platform === 'fatalfans' ? 'https://fatalfans.com/chat' : 'https://privacy.com.br/chat');
+          view.webContents.loadURL(platform === 'fatalfans' ? 'https://fatalfans.com/chat' : 'https://privacy.com.br/chat', { userAgent: UA }).catch(() => {});
         }
-      } finally { entering.delete(cfg.creator_id); setLogin(cfg.creator_id, platform, false); }
+      } catch (error) {  // revisão Claude: erro no Cofre não derruba o vigia das outras criadoras
+        att.blocked = att.count >= 3;
+        await api('POST', '/extension/vault-result', {creator_id: cfg.creator_id, platform, auto: true, ok: false, reason: String(error && error.message || error).slice(0, 200)}).catch(()=>{});
+      } finally { entering.delete(cfg.creator_id); setLogin(cfg.creator_id, platform, !view.webContents.isDestroyed() && await probeLogin(view)); pushState(); }
     }
   }
 }, 2*60*1000);
