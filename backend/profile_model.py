@@ -173,7 +173,7 @@ def natural_rules(prof):
          '- Na oferta com mídia, um desafio leve funciona ("será que aguenta?", "me prova que vale a pena"). Fã pede mais barato: ofereça um item menor da tabela em uma linha, sem baixar o preço do mesmo item.',
          '- "rs" e "kkk" são bem-vindos. Letra esticada só de vez em quando e discreta (no máximo 2 letras a mais: "amorrr", "vidinhaa"); nunca exageros como "Ooiinnn".',
          '- Não presuma que o fã viu, gostou ou comentou uma mídia (vídeo de boas-vindas, foto, post) se ele não falou dela. "Bom dia safada", "oi safadinha" ou um elogio recebem resposta ao que ele disse; nunca "fico feliz que você gostou do vídeo", "tá com tesão pra continuar assistindo?" ou "o que te deixou excitado no vídeo?" sem o fã ter citado o vídeo. A curiosidade é sobre você ("o que te deixa excitado em mim?", "o que mais te chamou atenção em mim?"), nunca sobre vídeo, perfil ou página.',
-         '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é e o valor da tabela, curto e no seu tom ("é por chamada aqui no Privacy, ao vivo, R$ X; me diz quando e eu te chamo"). Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
+         '- Quando a sua última mensagem foi um convite ou oferta ("quer gozar ao vivo comigo?", "te mando um vídeo?") e o fã aceita ou pergunta "o que você propõe", "quanto", "como funciona": a próxima mensagem FECHA. Diga como é usando SÓ o que a tabela e a observação do item dizem (nunca invente duração, horário, "ao vivo" ou como funciona), curto e no seu tom. Nunca responda a um "quero" com outra pergunta de aquecimento nem volte para assunto antigo.',
          '- Provocar pedindo para ver ("hoje você me mostra primeiro 😈") pode, com bom senso, no papo quente. Quando o fã topa ou diz que quer mostrar/mandar ("quero te mostrar", "vou mandar", "quer ver?", "olha meu pau"), aí é venda: "manda pela solicitação que eu avalio todinho", com o item Avaliação da tabela (campo "produto" = esse item). Nunca aceite a mídia dele de graça no chat, e nada disso no "oi" ou com fã que ainda está se conhecendo.',
          '- Ela pode ser difícil e provocar, mas nunca cobra, acusa ou dá bronca no fã ("você só me usou", "tem que me valorizar", "que mentira", "quer de graça de novo", "não funciona assim"). Fã folgado leva corte com charme e uma oferta, não sermão.',
          '- Fã que diz que não tem dinheiro, que está caro ou que compra depois: responda a isso (nunca ignore). Sem pressão: ofereça o item mais barato da tabela ou deixe a porta aberta ("quando der você me chama 😘").',
@@ -549,7 +549,9 @@ def goodbye(fan_last, talked=False):
     t = (fan_last or '').strip()
     if not t or len(_norm(t)) > 8: return False
     if GOODBYE.search(t): return True
-    return talked and '?' not in t and bool(re.search(r'\bboa noite\b', t, re.I))
+    # lote 146: "boa noite" sem sinal de ir embora é ambíguo (quase sempre cumprimento: "Boa noite minha musa", "Boa noite bem e vc")
+    if re.search(r'\b(e (voc[eê]|vc|tu)|tudo bem|td bem|tudo bom|como (voc[eê]|vc|tu|vai|est[aá]))\b', t, re.I): return False
+    return 'ambiguo' if talked and '?' not in t and re.search(r'\bboa noite\b', t, re.I) else False
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''
@@ -694,10 +696,10 @@ def PRICE_STRIP(text):
     t = re.sub(r'\s{2,}', ' ', t).strip(' ,').lstrip('.;:-— ')
     return t[:1].upper() + t[1:] if (text or '').strip()[:1].isupper() or (text or '').strip()[:2].upper() == 'R$' else t
 # lote 144: valor sem "R$" ("por 105", "solicitação de 45", "sai por 500") também sai do texto
-LOOSE_PRICE = re.compile(r'\s*,?\s*\b(?:sai|fica|custa|cobro)?\s*(?:por|de)\s+(\d{2,4})(?:[.,]\d{2})?\b(?!\s*(?:anos|ano|min|minutos?|seg|segundos?|cm|kg|vezes|x|%|fotos?|v[ií]deos?|mil|dias?|horas?|h)\b)', re.I)
+LOOSE_PRICE = re.compile(r'\s*,?\s*\b(?:sai|fica|custa|cobro|[eé])\s+(\d{1,4}),\d{2}\b|\s*,?\s*\b(?:sai|fica|custa|cobro)?\s*(?:por|de)\s+(\d{2,4})(?:[.,]\d{2})?\b(?!\s*(?:anos|ano|min|minutos?|seg|segundos?|cm|kg|vezes|x|%|fotos?|v[ií]deos?|mil|dias?|horas?|h)\b)', re.I)
 def loose_price(text):
     m = LOOSE_PRICE.search(text or '')
-    return int(m.group(1)) if m else None
+    return int(m.group(1) or m.group(2)) if m else None
 def LOOSE_STRIP(text):
     t = LOOSE_PRICE.sub(' ', text or '')
     t = re.sub(r'\s+([?!.,…])', r'\1', t)
@@ -712,6 +714,11 @@ def strip_age(text):
     parts = re.split(r'(?<=[.!?…])\s+', text or '')
     keep = [x for x in parts if not AGE_TALK.search(x)]
     return ' '.join(keep).strip() or 'isso é segredinho meu 😏'
+# lote 146: fã diz que pagou e não recebeu ("paguei pra ver esse vídeo e não tem") → nunca a IA responde: vai para a equipe
+PAID_COMPLAINT = re.compile(r'\b(paguei|comprei|liberei|desbloqueei|j[aá] paguei)\b.{0,60}\b(n[aã]o (tem|veio|chegou|recebi|abre|abriu|carrega|carregou|apareceu|aparece|t[aá] aparecendo)|cad[eê]|nada)\b|\bn[aã]o (recebi|chegou) (o|a|meu|minha|nada)\b', re.I)
+def paid_complaint(text):
+    m = PAID_COMPLAINT.search(text or '')
+    return m.group(0) if m else ''
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
