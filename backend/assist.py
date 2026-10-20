@@ -675,6 +675,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _bye_soft = _byev == 'ambiguo'  # lote 146
     _paidc = PM.paid_complaint(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 146
     _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
+    _sch = PM.school_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 148
+    if _sch: opener_block += (f'\nO FÃ PUXOU TEMA ESCOLAR ("{_sch}"): é PROIBIDO (ageplay). Não entre: nada de colegial, saia de colégio, aluna, professor ou escola, e não repita a palavra dele. '
+                              'Traga para adultos com charme (ex.: "prefiro te provocar do meu jeito, bem mulher… o que você faria comigo agora? 😈"). Nada de oferta nesta mensagem.')
     if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
                               'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
     if _call_nosale and not mreq:  # lote 138
@@ -798,6 +801,7 @@ FIM DA CONVERSA:
     if longo and PM.asks_about_her(_fl) and longo[0] <= 22: longo = None  # lote 119: falar de si pede um pouco mais de texto
     dodge = PM.dodges_about_her(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     claim = PM.personal_claim(txt0, profile_block(creator, prof)) if out and not out.get('alerta') else ''
+    if not claim and _pq and out and not out.get('alerta') and re.search(r'onde|cidade|mora', _pq, re.I): claim = PM.says_city(txt0)  # lote 148
     mech = PM.mechanical(txt0) if out and not out.get('alerta') and body.mode == 'reply' else ''
     if _gr and out and not out.get('alerta') and not mech and (PM.misses_greeting(txt0) or re.search(r'gostou do que viu|viu (o|meu) (post|v[ií]deo)', txt0, re.I)): mech = 'não respondeu ao cumprimento'
     if out and not out.get('alerta') and _ck == 'neutro' and not mech and not must_sell:
@@ -850,7 +854,11 @@ FIM DA CONVERSA:
         if longo and body.mode == 'reply':
             _t = PM.trim_sentences(txt0, longo[1])
             if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
-    retry_keys = [k for k, v in (('guiada-item', guidx), ('ao-vivo', livex), ('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
+    _asked = bool(PM.fan_asked(_lastfan) or close or callx or _call_item or _guided_item or pend)  # lote 148
+    coldoff = bool(body.mode == 'reply' and out and not out.get('alerta') and str(out.get('produto') or '').strip() and not _asked and not PM.offer_hook(txt0, _lastfan))
+    schl = PM.plays_school(txt0) if _sch and out and not out.get('alerta') else ''
+    expl = PM.claims_explicit(txt0, _lastfan) if out and not out.get('alerta') and PM.no_explicit(str(prof.get('limits') or '') + ' ' + str((prof.get('persona') or {}).get('outros_limites') or '')) else ''
+    retry_keys = [k for k, v in (('oferta-fria', coldoff), ('colegial', schl), ('explicito', expl), ('guiada-item', guidx), ('ao-vivo', livex), ('negocia', budg), ('feito-pra-ele', madef), ('pagar', payw), ('infantil', infp), ('eco', echo), ('chamada-item', callx), ('caro-1a-compra', dear),
         ('cobrou', cbk), ('generica', gen), ('puxada-sem-?', pxq), ('repetiu', rep), ('rotina', rot), ('midia', med), ('encontro', meet), ('nao-fechou', close), ('gravada', recd),
         ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
         ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
@@ -863,6 +871,9 @@ FIM DA CONVERSA:
     if skipped_style:
         fixed_here.append('aceito-estilo:' + ','.join(skipped_style)); retry_keys = []
     if retry_keys:
+        if coldoff: why.append('a oferta saiu fria: o "texto" não cria vontade nem se liga ao que ele disse. A oferta nasce da conversa: reaja ao que ELE escreveu e faça ele imaginar a cena como próximo passo ("já imaginou eu…", "quer ver como eu…", "do jeitinho que você falou…"), e a "legenda" continua essa cena. Se não houver gancho, NÃO ofereça agora: "produto" vazio')
+        if schl: why.append(f'entrou no tema escolar ("{schl}"); é PROIBIDO: não fale de colegial, saia, aluna, escola; traga para adultos com charme, sem oferta')
+        if expl: why.append(f'disse "{expl}" sobre vídeo de sexo, mas ela NÃO tem conteúdo explícito; nunca confirme nem negue: responda com mistério e provocação ("só vendo pra saber 😏", "o que você acha que rola?") e não descreva sexo')
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
@@ -978,6 +989,9 @@ FIM DA CONVERSA:
     if body.mode == 'reply' and re.search(r'R\$\s*\d|\d+\s*reais\b', text or '', re.I):
         _t = PM.PRICE_STRIP(text)
         if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
+    # lote 148: oferta fria (sem gancho) depois da refeita não vai; item caro (R$ 300+) só se ele pediu ou já compra nesse nível
+    if prod and body.mode == 'reply' and not _asked and not PM.offer_hook(text, _lastfan): prod = None; fixed_here.append('oferta-fria-segurada')
+    if prod and body.mode == 'reply' and prod['cents'] >= 30000 and not _asked and not (anchor and anchor * 2 >= prod['cents']): prod = None; fixed_here.append('caro-sem-pedido')
     if body.mode == 'reply' and PM.loose_price(text):
         _t = PM.LOOSE_STRIP(text)
         if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
