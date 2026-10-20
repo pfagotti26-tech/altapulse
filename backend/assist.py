@@ -591,6 +591,7 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _guided = PM.asks_guided([m.text for m in msgs[-3:] if not m.ours]) if body.mode == 'reply' and items and msgs and not msgs[-1].ours and not _call else ''
     _guided_item = PM.guided_item(prices) if _guided else ''
     if _guided_item: must_sell = True; _n_off = max(_n_off, 1)
+    _trig = bool(pend or _hot or _call_item or _guided_item)  # lote 149: venda pedida pelo fã (não só pela contagem de trocas)
     _first = not (card or {}).get('purchases')
     _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
     # lote 131: já tem Solicitação de mídia nossa sem pagar (na conversa ou sugerida nas últimas 6 h) → não manda outra
@@ -613,6 +614,22 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         if _call_item: goal += f' O FÃ PEDIU CHAMADA ("{_call}"): diga com charme que faz, sem combinar horário e sem valor no texto, e preencha "produto" com "{_call_item}" (a Solicitação de mídia leva o valor). Nunca diga "gravada".'
         elif _guided_item: goal += f' O FÃ PEDIU PUNHETA GUIADA ("{_guided}"): diga com charme que tem sim, em VÍDEO, ela guiando ele, e preencha "produto" com "{_guided_item}". Nunca diga ou insinue que é ao vivo, agora ou chamada; se ele pedir ao vivo, aí é a chamada (outro valor).'
         elif _first and _cheap: goal += ' O fã AINDA NÃO COMPROU nada: na primeira compra ofereça um item BARATO (' + ', '.join(p['item'] for p in _cheap[:3]) + '), para ele começar.'
+    # lote 149: venda logo depois da compra. Fã pagou uma Solicitação há pouco, ainda não houve nova oferta e ele reagiu quente → próximo degrau
+    _post = None
+    if body.mode == 'reply' and items and msgs and not msgs[-1].ours and not mreq and not _wait_pay and body.style != 'vendedora':
+        _pi = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].ours and PM.paid_request_in([msgs[i].text])), None)
+        if _pi is not None and len(msgs) - _pi <= 12 and not any(m.ours and PM.is_offer(m.text, items) for m in msgs[_pi + 1:]) and PM.post_sale_hot(_lastfan):
+            _mi = media_info(msgs[_pi].text) or {}
+            _post = _mi.get('cents') or 0
+    if _post is not None:
+        _up = [p for p in sorted(prices, key=lambda p: p['cents']) if p['cents'] >= (_post or 0) and 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower()]
+        must_sell = True; _trig = True
+        goal = ("OBJETIVO: PÓS-VENDA. Ele acabou de comprar e reagiu quente. Responda à reação dele com tesão, curto, e ofereça o PRÓXIMO DEGRAU como continuação do que ele viu "
+                "(ex.: texto \"esse foi só o começo… quer ver como termina? 😈\", legenda \"a parte que eu não te mostrei…\", depois \"libera que é todo seu\"). "
+                "Preencha \"produto\" com UM destes itens: " + ', '.join(p['item'] for p in _up[:4]) + ". Sem valor no texto, sem descrever o conteúdo, sem dizer que gravou pra ele.") if _up else goal
+    if must_sell and not _trig and body.style != 'vendedora' and not _wait_pay:  # lote 149: pela contagem, só vende se ele estiver quente
+        goal += (' ESCADA: só faça a oferta se a "temperatura" dele for 45 ou mais. Se ele ainda está frio ou morno (abaixo de 45), NÃO ofereça ("produto" vazio): '
+                 'suba um degrau no clima, deixando ele com vontade, e a oferta vem quando ele esquentar.')
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
@@ -812,7 +829,9 @@ FIM DA CONVERSA:
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
     vibe = PM.same_vibe(txt0, other_texts) if out and not out.get('alerta') and not reused else None
-    nosale = bool(must_sell and out and not out.get('alerta') and not meet and not str(out.get('produto') or '').strip())  # lote 130: venda é sempre com a Solicitação (produto preenchido)
+    try: _temp = int((out or {}).get('temperatura') or 0)
+    except (TypeError, ValueError): _temp = 0
+    nosale = bool(must_sell and (_trig or _temp >= 45) and out and not out.get('alerta') and not meet and not str(out.get('produto') or '').strip())  # lote 149: sem pedido do fã, só cobra oferta se ele está quente  # lote 130: venda é sempre com a Solicitação (produto preenchido)
     obj = PM.ignores_objection(txt0, _fl) if out and not out.get('alerta') and _fl else ''
     dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
     fam = PM.family_word(txt0) if out and not out.get('alerta') else ''
@@ -854,7 +873,7 @@ FIM DA CONVERSA:
         if longo and body.mode == 'reply':
             _t = PM.trim_sentences(txt0, longo[1])
             if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
-    _asked = bool(PM.fan_asked(_lastfan) or close or callx or _call_item or _guided_item or pend)  # lote 148
+    _asked = bool(PM.fan_asked(_lastfan) or close or callx or _call_item or _guided_item or pend or _post is not None)  # lote 148/149
     coldoff = bool(body.mode == 'reply' and out and not out.get('alerta') and str(out.get('produto') or '').strip() and not _asked and not PM.offer_hook(txt0, _lastfan))
     schl = PM.plays_school(txt0) if _sch and out and not out.get('alerta') else ''
     expl = PM.claims_explicit(txt0, _lastfan) if out and not out.get('alerta') and PM.no_explicit(str(prof.get('limits') or '') + ' ' + str((prof.get('persona') or {}).get('outros_limites') or '')) else ''
@@ -991,6 +1010,9 @@ FIM DA CONVERSA:
         if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
     # lote 148: oferta fria (sem gancho) depois da refeita não vai; item caro (R$ 300+) só se ele pediu ou já compra nesse nível
     if prod and body.mode == 'reply' and not _asked and not PM.offer_hook(text, _lastfan): prod = None; fixed_here.append('oferta-fria-segurada')
+    try: _temp2 = int((out or {}).get('temperatura') or 0)
+    except (TypeError, ValueError): _temp2 = 0
+    if prod and body.mode == 'reply' and body.style != 'vendedora' and not _asked and not _trig and _temp2 < 45: prod = None; fixed_here.append('frio-sem-oferta')  # lote 149
     if prod and body.mode == 'reply' and prod['cents'] >= 30000 and not _asked and not (anchor and anchor * 2 >= prod['cents']): prod = None; fixed_here.append('caro-sem-pedido')
     if body.mode == 'reply' and PM.loose_price(text):
         _t = PM.LOOSE_STRIP(text)

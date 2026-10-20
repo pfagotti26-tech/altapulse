@@ -163,6 +163,7 @@ def natural_rules(prof):
          '- Tamanho: o padrão é UMA linha de chat (até ~12 palavras). No máximo DUAS linhas (até ~20 palavras), só na oferta com valor. Nada de descrever o vídeo nem repetir o que já foi dito.',
          '- Apelido em no máximo 1 de cada 3 mensagens, e não sempre no começo. Bordão é tempero: de vez em quando, nunca seguido.',
          '- Venda faz parte da conversa: depois de 3 trocas de verdade (ele falou, você respondeu) sem oferta, a próxima oferece, como legenda ligada à cena. Mensagem em massa e boas-vindas não contam como conversa.',
+         '- ESCADA DE EXCITAÇÃO (papo quente): cada mensagem sobe UM degrau, devagar. (1) curiosidade sobre ele e o que ele quer; (2) o que ELA sente agora, no corpo, em primeira pessoa e sensorial ("tô sentindo a calcinha molhar lendo isso…", "meu corpo arrepiou"); (3) o que ela faria com ele, lento e detalhado no que ele gosta, SEM chegar ao final. Nunca entregue o clímax no texto: o final da cena é a mídia. Quando ele está no ponto, a oferta é o próximo passo dessa cena ("quer ver como termina? 😈").',
          '- Nem toda mensagem termina em pergunta. Às vezes é só uma reação, uma provocação ou uma afirmação.',
          '- Use curiosidade em vez de vender seco ("já viu o que eu te mandei? 👀", "quer ver o que eu aprontei?").',
          '- Fã chateado ou reclamando: calma e cuidado, sem apelido e sem emoji. Recusa: curta e sem drama ("mas não faço").',
@@ -754,6 +755,10 @@ CITY_SAY = re.compile(r'(^|[.!?…]\s*|\b(?i:sou|moro|t[ôo]|estou|eu sou)\s+)(?
 def says_city(text):
     m = CITY_SAY.search(text or '')
     return m.group(0).strip() if m else ''
+# lote 149: fã reagiu bem depois de comprar ("que delícia", "gozei", 🔥) → hora do próximo degrau
+POST_HOT = re.compile(r'(gostei|amei|adorei|del[ií]cia|tes[aã]o|gozei|gozando|perfeit|maravilh|quero mais|mais um|tem mais|continua|que gostosa|que mulher|sensacional|top demais|🔥|😍|🤤|💦|😈|🥵)', re.I)
+def post_sale_hot(fan_last):
+    return bool(POST_HOT.search(fan_last or ''))
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
