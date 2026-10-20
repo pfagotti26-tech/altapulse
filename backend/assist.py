@@ -670,7 +670,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _talked = any(m.ours and not PM._mass(m.text) for m in msgs[:-1])  # lote 127: já havia conversa de verdade antes deste "oi"
     _prev_ours = next((m for m in reversed(msgs[:-1]) if m.ours), None)  # lote 131: "boa noite" depois de mensagem em massa é cumprimento, não despedida
     _live = bool(_prev_ours and not PM._mass(_prev_ours.text))
-    _bye = bool(body.mode == 'reply' and msgs and not msgs[-1].ours and PM.goodbye(_lastfan, _talked and _live))
+    _byev = PM.goodbye(_lastfan, _talked and _live) if body.mode == 'reply' and msgs and not msgs[-1].ours else False
+    _bye = _byev is True
+    _bye_soft = _byev == 'ambiguo'  # lote 146
+    _paidc = PM.paid_complaint(_lastfan) if body.mode == 'reply' and msgs and not msgs[-1].ours else ''  # lote 146
     _inf = PM.infant_theme([m.text for m in msgs if not m.ours]) if body.mode == 'reply' else ''  # lote 130
     if _inf: opener_block += (f'\nO FÃ PUXOU FANTASIA DE BEBÊ/INFANTIL ("{_inf}"): NUNCA entre nesse jogo (nada de mamar como neném, cuidar dele como bebê, mamãe, papai, colinho). '
                               'Traga para adultos com charme, sem dar bronca e sem repetir a palavra dele (ex.: "prefiro você bem homem comigo, bb… o que você faria comigo agora? 😈").')
@@ -694,6 +697,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if _bye: _gr = False; must_sell = False; goal = 'NÃO ofereça nada agora: ele está se despedindo. "produto" vazio.'
     if _gr and _talked: opener_block += '\nO FÃ VOLTOU COM UM CUMPRIMENTO e vocês já estavam conversando: cumprimente com carinho e RETOME de onde parou (o último assunto da conversa), sem recomeçar do zero e sem pergunta genérica (ex.: "oi amor! tava te esperando… e aí, ficou pensando no que te falei? 😈").'
     elif _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
+    if _bye_soft:
+        _gr = False; must_sell = False; goal = 'NÃO ofereça nada agora. "produto" vazio.'
+        opener_block += '\nO FÃ MANDOU "BOA NOITE" (pode ser cumprimento ou despedida): devolva o boa noite com carinho e uma provocação leve, curto. NÃO mande ele descansar/dormir, NÃO diga "sonha comigo" nem "amanhã" (ex.: "boa noite, amor 😘 chegou agora ou já tá deitadinho?", "boa noite, bb… tava pensando em você 😏").'
     if _bye:
         opener_block += '\nO FÃ ESTÁ SE DESPEDINDO: despeça com carinho, curto, e deixe a porta aberta com uma provocação leve (ex.: "boa noite, amor… vai dormir pensando em mim? 😈", "descansa, bb… amanhã quero saber se sonhou comigo"). Nada de oferta nem pergunta longa.'
     if _ck == 'neutro' and not must_sell: opener_block += '\nO FÃ SÓ ELOGIOU: agradeça CURTO, no máximo 6 palavras, sem pergunta e sem "fico feliz que gostou" (ex.: "obrigada amor! 😘", "ai, assim eu fico boba 🙈", "você que é, amor 😏"). Se ele não continuar, a próxima mensagem puxa assunto dele.'
@@ -770,6 +776,8 @@ FIM DA CONVERSA:
     # lote 137: a xAI recusou o CONTEÚDO (ex.: fã possível menor) → vira alerta para a equipe, nunca erro nem resposta
     data = {} if _refused else r.json()
     out = {'alerta': True, 'motivo': 'a IA recusou responder esta conversa (possível menor ou tema proibido); veja e responda à mão'} if _refused else parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', ''))
+    if _paidc and out and not out.get('alerta'):  # lote 146: reclamação de compra não entregue nunca é respondida pela IA
+        out = {'alerta': True, 'motivo': f'fã diz que pagou e não recebeu ("{_paidc[:40]}"): a equipe confere a entrega e responde'}
     usage = data.get('usage') or {}
     # anti-repetição: começou igual a uma das últimas mensagens da criadora? pede outra uma vez, sem o chatter perceber
     # coerência de tempo: inventou rotina ("bom dia de todo dia") que a conversa não mostra? também pede outra uma vez
