@@ -22,7 +22,7 @@ import mailer
 router = APIRouter()
 log = logging.getLogger('media_requests')
 MEDIA_EMAIL = os.environ.get('MEDIA_EMAIL', 'contato@altaagencydigital.com').strip()
-FRESH = timedelta(hours=3)  # lote 111: solicitação paga mais antiga que isso (lida pela 1ª vez agora) não abre pedido: é histórico
+FRESH = timedelta(hours=24)  # lote 151 (antes 3 h) · lote 111: solicitação paga mais antiga que isso (lida pela 1ª vez agora) não abre pedido: é histórico
 money = lambda c: 'R$ ' + f"{(c or 0) / 100:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
@@ -87,7 +87,17 @@ async def on_paid(ev, old):
     if old and old.get('offer_status') == 'paid': return
     t = now()
     try:
-        if not old and ev.get('offered_at') and datetime.fromisoformat(ev['offered_at']) < t - FRESH: return  # histórico lido agora
+        # lote 151: a automação manda a Solicitação e segue para outro fã; o app muitas vezes só lê a conversa horas depois, já paga
+        # (Julioiparsilva, Aline: Solicitação 04:23, paga, lida depois das 7h → caía como "histórico" e não avisava).
+        # Agora: até 24 h vale sempre; mais antiga só se a automação criou essa Solicitação nos últimos 3 dias.
+        if not old and ev.get('offered_at'):
+            _off = datetime.fromisoformat(ev['offered_at'])
+            if _off.tzinfo is None: _off = _off.replace(tzinfo=t.tzinfo)
+            if _off < t - FRESH:
+                _amt = int(ev.get('amount_cents') or 0)
+                _auto = await db.auto_log.find_one({'creator_id': ev['creator_id'], 'fan_ref': ev['fan_ref'], 'decision': 'solicitação', 'reason': 'criada', 'essay': {'$ne': True},
+                                                    'cents': {'$gte': _amt - 10, '$lte': _amt + 10}, 'at': {'$gte': (t - timedelta(hours=72)).isoformat()}}, {'_id': 1})
+                if not _auto: return  # histórico lido agora
     except Exception: pass
     if await db.media_requests.find_one({'creator_id': ev['creator_id'], 'event_ref': ev['event_ref']}, {'_id': 1}): return
     creator = await db.creators.find_one({'id': ev['creator_id']}, {'_id': 0, 'name': 1}) or {}
