@@ -630,6 +630,33 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if must_sell and not _trig and body.style != 'vendedora' and not _wait_pay:  # lote 149: pela contagem, só vende se ele estiver quente
         goal += (' ESCADA: só faça a oferta se a "temperatura" dele for 45 ou mais. Se ele ainda está frio ou morno (abaixo de 45), NÃO ofereça ("produto" vazio): '
                  'suba um degrau no clima, deixando ele com vontade, e a oferta vem quando ele esquentar.')
+    # lote 152: escada de objeção de preço (1ª: aumenta a vontade, mesmo preço; 2ª: aperitivo barato; 3ª ou sem dinheiro 2x: só conversa)
+    _objstep = 0
+    if body.mode == 'reply' and items and msgs and not msgs[-1].ours and not mreq and body.style != 'vendedora':
+        _ok = PM.price_objection(_lastfan)
+        if _ok:
+            _fan_obj = [PM.price_objection(m.text) for m in msgs[-14:] if not m.ours]
+            _n_obj = sum(1 for x in _fan_obj if x); _n_money = sum(1 for x in _fan_obj if x == 'dinheiro')
+            _objstep = 3 if (_n_obj >= 3 or _n_money >= 2) else _n_obj
+    if _objstep == 1:
+        must_sell = False; pend = ''; _trig = False
+        goal = ('OBJETIVO: O FÃ ACHOU CARO (1ª vez). NÃO fale de dinheiro, NÃO baixe o preço, NÃO ofereça outro item ("produto" vazio). Aumente a vontade: '
+                'traga de volta a fantasia que ELE contou e faça ele sentir o que está perdendo, curto e no tom dela, e lembre com charme que a solicitação está ali esperando '
+                '(ex.: "caro é ficar só imaginando, bb… eu de quatro olhando pra trás pra você 😏 tá ali te esperando"). Pode desafiar de leve, brincando, sem humilhar '
+                '("achei que você aguentava 😈"). Nunca diga "desconto", "por menos" ou "só hoje".')
+    elif _objstep == 2:
+        _ape = _cheap[0] if _cheap else None
+        if _ape:
+            must_sell = True; pend = ''; _trig = True; _wait_pay = False
+            goal = (f'OBJETIVO: O FÃ ACHOU CARO DE NOVO. Ofereça um APERITIVO: o item "{_ape["item"]}" (preencha "produto" com ele), como prova/começo do que ele quer, '
+                    'nunca como desconto. Texto curto ligado à fantasia dele ("então começa por aqui, gato… uma prova de como eu fico pensando em você 😈"), '
+                    'legenda "isso é só o começo…", depois chamando para abrir. Sem valor no texto, sem "mais barato", sem "desconto".')
+        else:
+            must_sell = False; goal = 'O fã achou caro de novo: converse com carinho, sem oferta e sem falar de dinheiro. "produto" vazio.'
+    elif _objstep >= 3:
+        must_sell = False; pend = ''; _trig = False
+        goal = ('OBJETIVO: O FÃ NÃO PODE AGORA. Pare de vender HOJE: nada de oferta, nada de lembrar da solicitação, nada de falar de dinheiro ("produto" vazio). '
+                'Responda com carinho e leveza, no clima dela, deixando ele à vontade (ex.: "tudo bem, amor 🍓 fica aqui comigo assim mesmo"). Nunca faça ele se sentir mal.')
     if mreq:
         must_sell = False; pend = ''
         goal = ("OBJETIVO: O FÃ ACABOU DE PAGAR a solicitação de mídia" + (f" ({mreq['item']})" if mreq.get('item') else '') + ". Agradeça curto e carinhoso, no tom dela, "
@@ -873,7 +900,7 @@ FIM DA CONVERSA:
         if longo and body.mode == 'reply':
             _t = PM.trim_sentences(txt0, longo[1])
             if _t: out['texto'] = txt0 = _t; fixed_here.append(f'cortada({longo[0]}>{longo[1]})'); longo = None
-    _asked = bool(PM.fan_asked(_lastfan) or close or callx or _call_item or _guided_item or pend or _post is not None)  # lote 148/149
+    _asked = bool(PM.fan_asked(_lastfan) or close or callx or _call_item or _guided_item or pend or _post is not None or _objstep == 2)  # lote 148/149/152
     coldoff = bool(body.mode == 'reply' and out and not out.get('alerta') and str(out.get('produto') or '').strip() and not _asked and not PM.offer_hook(txt0, _lastfan))
     schl = PM.plays_school(txt0) if _sch and out and not out.get('alerta') else ''
     expl = PM.claims_explicit(txt0, _lastfan) if out and not out.get('alerta') and PM.no_explicit(str(prof.get('limits') or '') + ' ' + str((prof.get('persona') or {}).get('outros_limites') or '')) else ''
@@ -918,7 +945,7 @@ FIM DA CONVERSA:
         if fam: why.append('usou palavra de família ou de tema proibido; é PROIBIDO citar qualquer parente ou esse tema, nem para recusar: mude de assunto com charme sem mencionar nada disso')
         if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
         if dur: why.append(f'falou a duração do vídeo ("{dur}"); nunca diga tempo nem descreva o vídeo: diga só que ele vai gostar, que é gostoso, ligado ao que ele disse, + o valor')
-        if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso no tom dela, sem pressão: ofereça o item mais barato da tabela com o valor ou deixe a porta aberta para quando ele puder')
+        if obj: why.append(f'o fã disse "{obj}" e a resposta ignorou; responda a isso primeiro, no tom dela: ' + ('aumente a vontade dele pela fantasia que ele contou e lembre que a solicitação está esperando, sem baixar preço' if _objstep == 1 else 'ofereça o aperitivo da tabela como começo, sem falar em desconto' if _objstep == 2 else 'com carinho, sem nova oferta, deixando ele à vontade'))
         if scold: why.append(f'deu bronca/cobrou o fã ("{scold}"); ela pode provocar e se fazer de difícil, mas sem acusar nem cobrar: corte com charme e ofereça algo')
         if nosale: why.append(f'não ofereceu nada, e já são {_n_off} mensagens da criadora sem oferta; responda curto ao que ele disse e ofereça UM item da tabela com o valor, ligado ao assunto, preenchendo "produto"')
         if vibe and vibe[0] == 'abertura': why.append(f'começou com "{vibe[1]}", do mesmo jeito que várias mensagens a outros fãs hoje; comece de outro jeito (não agradeça de novo, reaja ao que ESTE fã disse)')

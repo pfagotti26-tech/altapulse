@@ -394,6 +394,17 @@ OBJECTION = ['nao tenho dinheiro', 'nao tenho grana', 'sem dinheiro', 'sem grana
              'quando receber', 'quando eu receber', 'sem condicoes', 'to sem', 'tou sem', 'estou sem', 'nao tenho como pagar', 'so tenho', 'nao vou pagar', 'nao pago']
 OBJ_OK = ['dinheiro', 'grana', 'caro', 'valor', 'preco', 'barato', 'baratinho', 'mais em conta', 'menor', 'tranquilo', 'sem pressa', 'quando der', 'quando puder', 'quando receber',
           'fim do mes', 'entendo', 'relaxa', 'de boa', 'tudo bem', 'sem problema', 'depois', 'outra hora', 'te espero', 'fico esperando', 'me chama']
+# lote 152: escada de objeção de preço. 'dinheiro' = falta de dinheiro (não insistir); 'preco' = achou caro
+OBJ_MONEY = ['nao tenho dinheiro', 'nao tenho grana', 'sem dinheiro', 'sem grana', 'to liso', 'tou liso', 'estou liso', 'ta liso', 'duro de grana', 'to duro', 'tou duro', 'estou duro',
+             'nao tenho esse valor', 'nao tenho como pagar', 'sem condicoes', 'to sem', 'tou sem', 'estou sem', 'quando receber', 'quando eu receber', 'fim do mes', 'desempregado',
+             'apertado', 'nao consigo pagar', 'nao posso pagar', 'nao da pra pagar', 'so tenho']
+OBJ_PRICE = ['ta caro', 'muito caro', 'caro demais', 'achei caro', 'meio caro', 'bem caro', 'carinho demais', 'valor alto', 'muito alto', 'acima do que', 'esse valor nao', 'nao consigo',
+             'faz mais barato', 'mais barato', 'faz por menos', 'faz por', 'acima do q', 'posso gastar', 'posso gasta', 'pesado pra mim', 'por menos', 'desconto', 'mais em conta', 'abaixa', 'baixa o valor', 'e caro', 'caro pra mim', 'caro hein', 'caro ne', 'caro amor', 'caro bb']
+def price_objection(text):
+    f = ' ' + ' '.join(_norm(text)) + ' '
+    if any(' ' + k + ' ' in f for k in OBJ_MONEY): return 'dinheiro'
+    if any(' ' + k + ' ' in f for k in OBJ_PRICE): return 'preco'
+    return ''
 def ignores_objection(text, fan_last):
     """O fã deu objeção de dinheiro/preço/depois e a sugestão não trata disso. Devolve a objeção ou ''."""
     f = ' ' + ' '.join(_norm(fan_last)) + ' '
