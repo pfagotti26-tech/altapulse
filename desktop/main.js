@@ -145,6 +145,58 @@ async function autoPuxadaTick() {
 }
 if (ALTA_TESTE) setInterval(autoPuxadaTick, 3 * 60 * 1000);
 
+// AUTO (Grok) — reabre criadoras no início
+if (ALTA_TESTE) setTimeout(async () => {
+  const configs = await api('GET', '/auto/app-configs').catch(() => []);
+  let delay = 0;
+  for (const cfg of configs || []) {
+    if (!cfg.enabled) continue;
+    for (const platform of (cfg.platforms || ['privacy'])) {
+      setTimeout(() => openConversation(cfg.creator_id, platform, null, '', ''), delay);
+      delay += 5000;
+    }
+  }
+}, 10000);
+
+
+// AUTO (Grok) — vigia de sessão: entra de novo sozinho
+const reloginAttempts = new Map(); // creatorId:platform → {count, lastAt, blocked}
+if (ALTA_TESTE) setInterval(async () => {
+  const configs = await api('GET', '/auto/app-configs').catch(() => []);
+  for (const cfg of configs || []) {
+    if (!cfg.enabled) continue;
+    for (const platform of (cfg.platforms || ['privacy'])) {
+      const view = (tabs.get(cfg.creator_id) || new Map()).get(platform);
+      if (!view || view.webContents.isDestroyed()) continue;
+      const key = cfg.creator_id + ':' + platform;
+      const att = reloginAttempts.get(key) || {count:0, lastAt:0, blocked:false};
+      if (att.blocked) continue;
+      if (Date.now() - att.lastAt < 5*60*1000) continue;
+      if (att.count >= 3 && Date.now() - att.lastAt < 60*60*1000) continue;
+      if (entering.has(cfg.creator_id)) continue;
+      if (!(await probeLogin(view))) continue;
+      if (!credentials.some(c => c.creator_id === cfg.creator_id && c.platform === platform)) continue;
+      att.count++; att.lastAt = Date.now();
+      reloginAttempts.set(key, att);
+      try {
+        setLogin(cfg.creator_id, platform, true);
+        entering.add(cfg.creator_id);
+        await vaultFill(cfg.creator_id, platform, view);
+        for (let i = 0; i < 15; i++) { await sleep(700); if (view.webContents.isDestroyed()) break; if (!(await probeLogin(view))) break; }
+        if (await probeLogin(view)) {
+          att.blocked = true;
+          await api('POST', '/extension/vault-result', {creator_id: cfg.creator_id, platform, auto: true, ok: false, reason: 'pediu verificação'}).catch(()=>{});
+          if (sidebar) sidebar.webContents.send('toast', cfg.name + ': ' + platform + ' pediu verificação, entre manualmente');
+        } else {
+          await api('POST', '/extension/vault-result', {creator_id: cfg.creator_id, platform, auto: true, ok: true}).catch(()=>{});
+          view.webContents.loadURL(platform === 'fatalfans' ? 'https://fatalfans.com/chat' : 'https://privacy.com.br/chat');
+        }
+      } finally { entering.delete(cfg.creator_id); setLogin(cfg.creator_id, platform, false); }
+    }
+  }
+}, 2*60*1000);
+
+
 const crypto = require('crypto');
 
 // ---------- identificação do navegador ----------

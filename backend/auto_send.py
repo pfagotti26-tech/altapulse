@@ -98,6 +98,24 @@ def in_windows(windows, now=None):
             if h >= start or h < end: return True
     return False
 
+
+def current_mode(cfg, now=None, shift_active=False):
+    """Devolve 'ensaio', 'real' ou None. Ensaio vence sobreposição. Turno força ensaio."""
+    if shift_active: return "ensaio", "turno"
+    now = now or datetime.now(BR)
+    h = now.hour
+    dow = now.weekday()
+    modes = []
+    for w in cfg.get("windows") or []:
+        start, end = w.get("start", 0), w.get("end", 24)
+        days = w.get("days")
+        if days and dow not in days: continue
+        in_w = start == end or (start <= h < end if start < end else (h >= start or h < end))
+        if in_w: modes.append(w.get("mode") or ("ensaio" if cfg.get("essay", True) else "real"))
+    if not modes: return None, None
+    if "ensaio" in modes: return "ensaio", "agenda"
+    return modes[0], "agenda"
+
 def today():
     return datetime.now(BR).strftime('%Y-%m-%d')
 
@@ -117,10 +135,11 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     if body.platform not in (cfg.get("platforms") or ["privacy"]):
         raise HTTPException(403, "plataforma desligada")
 
-    # Presence: active shift (same pattern as extension_routes.py)
+    # Presence: active shift forces essay
     shift = await db.shifts.find_one({'creator_id': body.creator_id, 'active': True})
-    if shift:
-        return DecideOut(should_send=False, reason="chatter ativo", essay=cfg["essay"])
+    mode, mode_src = current_mode(cfg, shift_active=bool(shift))
+    if mode is None:
+        return DecideOut(should_send=False, reason="fora do horário", essay=True)
 
     # Plantao: window and recent approaches
     pcfg = await db.plantao_configs.find_one({'creator_id': body.creator_id}) or {}
@@ -229,16 +248,17 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             })
             return DecideOut(should_send=False, reason="erro interno", essay=cfg["essay"])
 
-        should = not cfg["essay"]
-        decision = "ensaio" if cfg["essay"] else "aprovado"
-        reason = "modo ensaio — não envia" if cfg["essay"] else "aprovado"
+        essay_mode = mode == "ensaio"
+        should = not essay_mode
+        decision = "ensaio" if essay_mode else "aprovado"
+        reason = "ensaio (chatter ativo)" if mode_src == "turno" else ("modo ensaio — não envia" if essay_mode else "aprovado")
         lid = uid()
         await db.auto_log.insert_one({
             "id": lid, "at": iso(), "day": today(),
             "creator_id": body.creator_id, "platform": body.platform, "wait_s": body.wait_s, "fan_ref": body.fan_ref,
             "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
-            "decision": decision, "reason": reason,
+            "decision": decision, "reason": reason, "mode_src": mode_src,
             "suggested_text": suggested,
             "usage_id": (result.get("usage_id") if isinstance(result, dict) else None),
         })
@@ -333,7 +353,8 @@ async def list_configs(user=Depends(manager)):
         remaining = max(0, cfg["max_per_day"] - today_count)
         prof = await db.assist_profiles.find_one({"creator_id": c["id"]}) or {}
         ficha = bool(prof.get("persona") and prof.get("prices"))
-        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "today_essay": today_essay, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha})
+        mode_now, _ = current_mode(cfg)
+        out.append({"creator_id": c["id"], "name": c["name"], "avatar": c.get("avatar"), **cfg, "today": today_count, "today_essay": today_essay, "remaining": remaining, "limit_hit": remaining <= 0, "ficha_pronta": ficha, "mode_now": mode_now})
     return out
 
 @router.get("/app-configs")
@@ -374,6 +395,8 @@ async def set_config(body: ConfigIn, user=Depends(manager)):
             if w.get("days"):
                 if not all(isinstance(d, int) and 0 <= d <= 6 for d in w["days"]):
                     raise HTTPException(400, "days deve conter apenas números de 0 a 6")
+            if w.get("mode") and w["mode"] not in ("ensaio", "real"):
+                raise HTTPException(400, "mode deve ser ensaio ou real")
     await db.auto_config.update_one({"id": f"creator:{cid}"}, {"$set": {**upd, "creator_id": cid}}, upsert=True)
     return {"ok": True}
 

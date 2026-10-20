@@ -158,7 +158,7 @@ export default function Auto() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  {!c.enabled ? <Badge tone="neutral">Desligada</Badge> : c.essay ? <Badge tone="warn">Ensaio</Badge> : <Badge tone="good">Envio real</Badge>}
+                  {!c.enabled ? <Badge tone="neutral">Desligada</Badge> : c.mode_now === 'real' ? <Badge tone="good">Real agora</Badge> : <Badge tone="warn">Ensaio agora</Badge>}
                 </TableCell>
                 <TableCell>
                   <Switch checked={c.enabled} onCheckedChange={v => toggle(c, v)}/>
@@ -238,6 +238,7 @@ export default function Auto() {
                   <div key={i} style={{border:'1px solid #ddd',borderRadius:8,padding:8,marginBottom:8}}>
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
                       <span>De</span>
+                      <select value={w.mode || (edit.essay ? 'ensaio' : 'real')} onChange={e => setEdit({...edit, windows: edit.windows.map((x,j) => j===i ? {...x, mode:e.target.value} : x)})}><option value="ensaio">Ensaio</option><option value="real">Real</option></select>
                       <select value={w.start} onChange={e => setEdit({...edit, windows: edit.windows.map((x,j) => j===i ? {...x, start:+e.target.value} : x)})}>{[...Array(25)].map((_,h) => <option key={h} value={h}>{h}h</option>)}</select>
                       <span>até</span>
                       <select value={w.end} onChange={e => setEdit({...edit, windows: edit.windows.map((x,j) => j===i ? {...x, end:+e.target.value} : x)})}>{[...Array(25)].map((_,h) => <option key={h} value={h}>{h}h</option>)}</select>
