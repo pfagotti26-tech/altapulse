@@ -885,15 +885,36 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
               if (!mediaOk) {
                 appLog('fila', `solicitação falhou: ${r.product}`);
               } else {
-                if (r.caption) {
-                  await runJs(tg.view, tg.fill(r.caption), 4000).catch(() => false);
-                  await runJs(tg.view, enterScript, 2000).catch(() => false);
-                  await new Promise(res => setTimeout(res, 1000));
+                // lote 148 (revisão Claude): legenda e "depois" saíam logo após o clique na Solicitação, com o modal ainda fechando:
+                // o Enter se perdia e o texto ficava parado na caixa (a oferta chegava sem contexto). Agora espera o card aparecer,
+                // confere cada envio, tenta o Enter mais uma vez e, se não sair, limpa a caixa para não sobrar texto.
+                const sleepMs = (ms) => new Promise(res => setTimeout(res, ms));
+                for (let i = 0; i < 12; i++) {
+                  const rd = await runJs(tg.view, tg.read, 2000).catch(() => null);
+                  const lm = rd && rd.msgs && rd.msgs[rd.msgs.length - 1];
+                  if (lm && lm.ours && /solicita/i.test(lm.text || '')) break;
+                  await sleepMs(500);
                 }
-                if (r.after) {
-                  await runJs(tg.view, tg.fill(r.after), 4000).catch(() => false);
-                  await runJs(tg.view, enterScript, 2000).catch(() => false);
-                }
+                await sleepMs(1200);
+                const sendLine = async (line) => {
+                  const key = String(line).slice(0, 25);
+                  await runJs(tg.view, tg.fill(line), 4000).catch(() => false);
+                  await sleepMs(400);
+                  for (let attempt = 0; attempt < 2; attempt++) {
+                    await runJs(tg.view, enterScript, 2000).catch(() => false);
+                    for (let i = 0; i < 10; i++) {
+                      await sleepMs(300);
+                      const rd = await runJs(tg.view, tg.read, 2000).catch(() => null);
+                      const lm = rd && rd.msgs && rd.msgs[rd.msgs.length - 1];
+                      if (lm && lm.ours && (lm.text || '').includes(key)) return true;
+                    }
+                  }
+                  await runJs(tg.view, tg.fill(''), 2000).catch(() => false);
+                  appLog('fila', 'texto depois da solicitação não saiu: ' + key);
+                  return false;
+                };
+                if (r.caption) { await sendLine(r.caption); await sleepMs(900); }
+                if (r.after) await sendLine(r.after);
               }
             }
           } else {
