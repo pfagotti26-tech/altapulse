@@ -103,6 +103,30 @@ async def on_paid(ev, old):
     await db.media_requests.update_one({'id': req['id']}, {'$set': {'mailed': req['mailed']}})
 
 
+async def on_list_sale(ev, old):
+    """Lote 150: o fã pagou a Solicitação sem escrever nada depois → a conversa não é reaberta e o 'pago' nunca é lido no chat
+    (3 vendas da Aline na madrugada de 20/10 sem aviso). A lista da Privacy mostra o total gasto pelo fã; quando ele sobe no mesmo
+    valor de uma Solicitação nossa aberta (lida no chat ou criada pela automação) nas últimas 72 h, abre o pedido de entrega e avisa."""
+    if old or ev.get('kind') != 'sale' or ev.get('sale_origin') != 'chat' or not ev.get('fan_ref'): return
+    delta = int(ev.get('amount_cents') or 0)
+    if delta <= 0: return
+    since = (now() - timedelta(hours=72)).isoformat()
+    near = {'$gte': delta - 10, '$lte': delta + 10}
+    off = await db.events.find_one({'creator_id': ev['creator_id'], 'fan_ref': ev['fan_ref'], 'kind': 'offer', 'offer_type': 'request', 'offer_status': {'$ne': 'paid'},
+                                    'amount_cents': near, 'offered_at': {'$gte': since[:19]}}, {'_id': 0}, sort=[('offered_at', -1)])
+    if off:
+        await db.events.update_one({'creator_id': ev['creator_id'], 'event_ref': off['event_ref']}, {'$set': {'offer_status': 'paid', 'paid_via': 'lista'}})
+        await on_paid({**off, 'offer_status': 'paid', 'fan_name': off.get('fan_name') or ev.get('fan_name')}, off)
+        return
+    log_ = await db.auto_log.find_one({'creator_id': ev['creator_id'], 'fan_ref': ev['fan_ref'], 'decision': 'solicitação', 'reason': 'criada', 'essay': {'$ne': True},
+                                       'cents': near, 'at': {'$gte': since}, 'paid_via': {'$exists': False}}, {'_id': 0}, sort=[('at', -1)])
+    if not log_: return
+    await db.auto_log.update_one({'id': log_['id']}, {'$set': {'paid_via': 'lista'}})
+    fake = {'kind': 'offer', 'offer_type': 'request', 'offer_status': 'paid', 'creator_id': ev['creator_id'], 'fan_ref': ev['fan_ref'], 'fan_name': ev.get('fan_name'),
+            'event_ref': 'auto-pago:' + log_['id'], 'amount_cents': log_['cents'], 'offered_at': log_['at']}
+    await on_paid(fake, {'offer_status': 'sent'})
+
+
 async def open_for(creator_id, fan_ref):
     """Pedido pago ainda sem entrega deste fã (ou None) — a Alta Ajuda usa para agradecer uma vez e depois pausar."""
     if not fan_ref: return None

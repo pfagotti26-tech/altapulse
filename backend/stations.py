@@ -148,6 +148,13 @@ async def ingest(body: Observation, source: dict):
             await on_paid({**row, 'creator_id': body.creator_id, 'event_ref': body.event_ref}, old)
         except Exception:
             import logging; logging.exception('mídia paga')
+    # lote 150: total gasto do fã subiu na lista no valor de uma Solicitação nossa aberta → mesma coisa (pedido + aviso)
+    if body.kind == 'sale' and body.sale_origin == 'chat' and not old:
+        try:
+            from media_requests import on_list_sale
+            await on_list_sale({**row, 'kind': 'sale', 'sale_origin': 'chat', 'creator_id': body.creator_id, 'event_ref': body.event_ref}, old)
+        except Exception:
+            import logging; logging.exception('venda pela lista')
     return {'ok': True}
 @router.get('/station/download')
 async def download_agent(user=Depends(manager)):
