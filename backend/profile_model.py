@@ -41,7 +41,7 @@ FAN_CATALOG = [
     {'key': 'baunilha', 'label': 'Baunilha / Namoradinho', 'level': 'picante', 'about': 'Quer carinho, conversa e atenção.',
      'tone': 'Quer carinho, conversa e atenção, sem dominação. Tom de namoro: chama de amor, pergunta do dia, elogia, provoca com doçura e vai esquentando aos poucos. Venda como presente ou surpresa para o fã.'},
     {'key': 'carente', 'label': 'Carente', 'level': 'picante', 'about': 'Solitário, quer se sentir especial e lembrado.',
-     'tone': 'Solitário, quer se sentir especial e lembrado. Use o que o fã já contou (memória), diga que sentiu falta, faça ele se sentir único. Sem pressa na venda: conteúdo exclusivo "só pra você".'},
+     'tone': 'Solitário, quer se sentir especial e lembrado. Use o que o fã já contou (memória), diga que sentiu falta, faça ele se sentir único. Sem pressa na venda.'},
     {'key': 'servo', 'label': 'Servo / Submisso', 'level': 'explicito', 'about': 'Gosta de ser mandado e humilhado de leve.',
      'tone': 'Gosta de ser mandado e de humilhação leve. Tom dominante: manda, não pede; chama de servo ou cachorrinho; elogio é recompensa. Venda como ordem ou tributo ("vai comprar porque eu mandei"). Nada de humilhação pesada além dos limites da ficha.'},
     {'key': 'cuck', 'label': 'Cuck', 'level': 'explicito', 'about': 'Fantasia de corno manso.',
@@ -693,6 +693,25 @@ def PRICE_STRIP(text):
     t = re.sub(r'\s+([?!.,…])', r'\1', t)
     t = re.sub(r'\s{2,}', ' ', t).strip(' ,').lstrip('.;:-— ')
     return t[:1].upper() + t[1:] if (text or '').strip()[:1].isupper() or (text or '').strip()[:2].upper() == 'R$' else t
+# lote 144: valor sem "R$" ("por 105", "solicitação de 45", "sai por 500") também sai do texto
+LOOSE_PRICE = re.compile(r'\s*,?\s*\b(?:sai|fica|custa|cobro)?\s*(?:por|de)\s+(\d{2,4})(?:[.,]\d{2})?\b(?!\s*(?:anos|ano|min|minutos?|seg|segundos?|cm|kg|vezes|x|%|fotos?|v[ií]deos?|mil|dias?|horas?|h)\b)', re.I)
+def loose_price(text):
+    m = LOOSE_PRICE.search(text or '')
+    return int(m.group(1)) if m else None
+def LOOSE_STRIP(text):
+    t = LOOSE_PRICE.sub(' ', text or '')
+    t = re.sub(r'\s+([?!.,…])', r'\1', t)
+    t = re.sub(r'([.!?…]),', r'\1', t)
+    return re.sub(r'\s{2,}', ' ', t).strip(' ,')
+# lote 144: "só pra você" nunca vai (regra do Paulo); idade inventada nunca vai ("Tenho 34, bb")
+def no_only_you(text):
+    return re.sub(r'\bs[oó]\s+(pra|para)\s+(voc[eê]|vc|ti)\b', r'\1 \2', text or '', flags=re.I)
+AGE_TALK = re.compile(r'\b(tenho|fiz|completei)\s+\d{2}\b(\s*anos)?|\b\d{2}\s+anos\s+(eu\s+)?tenho\b', re.I)
+def strip_age(text):
+    if not AGE_TALK.search(text or ''): return text
+    parts = re.split(r'(?<=[.!?…])\s+', text or '')
+    keep = [x for x in parts if not AGE_TALK.search(x)]
+    return ' '.join(keep).strip() or 'isso é segredinho meu 😏'
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')

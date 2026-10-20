@@ -963,9 +963,21 @@ FIM DA CONVERSA:
             _c = int(_m.group(1)) * 100 + int(_m.group(2) or 0)
             prod = next((p for p in prices if p['cents'] == _c), None)
             if prod: fixed_here.append('valor-virou-solicitacao')
+        elif PM.loose_price(text):  # lote 144: "por 105" / "solicitação de 45" sem R$
+            _n = PM.loose_price(text)
+            prod = next((p for p in prices if p['cents'] // 100 == _n or round(p['cents'] / 100) == _n), None)
+            if prod: fixed_here.append('valor-virou-solicitacao')
     if body.mode == 'reply' and re.search(r'R\$\s*\d|\d+\s*reais\b', text or '', re.I):
         _t = PM.PRICE_STRIP(text)
         if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
+    if body.mode == 'reply' and PM.loose_price(text):
+        _t = PM.LOOSE_STRIP(text)
+        if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')
+    if body.mode == 'reply':  # lote 144
+        _t = PM.no_only_you(text)
+        if _t != text: text = _t; fixed_here.append('so-pra-voce')
+        _t = PM.strip_age(text)
+        if _t != text: text = _t; fixed_here.append('idade-inventada')
     if prod and _gr and not product: prod = None; fixed_here.append('sem-oferta-na-saudacao')  # lote 142d: "tudo bem amor?" não recebe oferta (botão Vender do chatter continua valendo)
     if body.mode == 'reply':  # lote 142d: mesmo apelido em seguida ("bb" em 94% das respostas) → tira o apelido desta
         _t = PM.strip_pet(text, [m.text for m in msgs if m.ours])
