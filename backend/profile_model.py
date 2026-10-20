@@ -720,6 +720,40 @@ PAID_COMPLAINT = re.compile(r'\b(paguei|comprei|liberei|desbloqueei|j[aá] pague
 def paid_complaint(text):
     m = PAID_COMPLAINT.search(text or '')
     return m.group(0) if m else ''
+# lote 148: oferta precisa nascer da conversa (gancho de desejo ligado ao que ele disse); "tô bem delícia…" + Solicitação não vende
+OFFER_HOOK = re.compile(r'\b(j[aá] (imaginou|pensou|se imaginou)|imagina|imaginando|quer (ver|me ver|assistir|sentir)|t[aá] a?fim de (ver|me ver|sentir)|aguenta(ria|r)?|vai (amar|gostar|enlouquecer|ficar (louco|maluco|doido))|te deixar (louco|maluco|doido)|deixa eu te mostrar|olha (s[oó]|isso|como)|do jeitinho que|era isso que|igualzinho|bem assim|desse jeito|libera|desbloqueia|abre a[ií]|me ver)\b', re.I)
+def offer_hook(text, fan_last=''):
+    t = text or ''
+    if OFFER_HOOK.search(t): return True
+    w = [x for x in _norm(t) if len(x) >= 5]
+    f = set(x for x in _norm(fan_last) if len(x) >= 5)
+    return len(_norm(t)) >= 7 and any(x in f for x in w)
+FAN_ASKED = re.compile(r'\b(quanto|valor|pre[cç]o|quero (ver|comprar|o v[ií]deo|a foto|o pack|isso)|me manda|manda (a[ií]|um|uma|o|a)|tem (v[ií]deo|foto|pack|conte[uú]do)|compro|eu pago|pago sim|faz (v[ií]deo|chamada|personalizado)|como funciona|topo|bora|libera|quero sim)\b', re.I)
+def fan_asked(fan_last):
+    return bool(FAN_ASKED.search(fan_last or ''))
+# lote 148: tema escolar (colegial, aluna, professor) é ageplay: nunca entrar
+SCHOOL = re.compile(r'\b(colegial|colegiais|uniforme (escolar|de escola|de colegial)|aluninha|aluna|estudante|escolinha|na escola|de escola|saia de colegial|professor(a)? e aluna|novinha)\b', re.I)
+def school_theme(fan_texts):
+    for t in reversed([x for x in fan_texts if x][-4:]):
+        m = SCHOOL.search(t)
+        if m: return m.group(0)
+    return ''
+def plays_school(text):
+    m = SCHOOL.search(text or '') or re.search(r'\bde saia\b|\bsainha\b', text or '', re.I)
+    return m.group(0) if m else ''
+# lote 148: criadora sem explícito (ficha diz) nunca confirma que tem sexo/transa em vídeo
+def no_explicit(limits_text):
+    return bool(re.search(r'n[aã]o tem (conte[uú]do )?expl[ií]cito|sem (conte[uú]do )?expl[ií]cito', limits_text or '', re.I))
+SEX_ASK = re.compile(r'\b(transando|transa|fodendo|sexo|metendo|dando pra|com (um )?homem|penetra|chupando (pau|rola)|boquete|anal)\b', re.I)
+def claims_explicit(text, fan_last):
+    if not SEX_ASK.search(fan_last or ''): return ''
+    m = re.search(r'\b(tenho sim|tem sim|tenho v[ií]deo|tenho um v[ií]deo|claro que tenho|tenho muito)\b', text or '', re.I)
+    return m.group(0) if m else ''
+# lote 148: "de onde vc é?" → "De João Pessoa." (cidade nunca vai ao fã)
+CITY_SAY = re.compile(r'(^|[.!?…]\s*|\b(?i:sou|moro|t[ôo]|estou|eu sou)\s+)(?i:de|em|no|na)\s+[A-ZÁÉÍÓÚÂÊÔ][a-zà-ú]+(\s+[A-ZÁÉÍÓÚ][a-zà-ú]+)?')
+def says_city(text):
+    m = CITY_SAY.search(text or '')
+    return m.group(0).strip() if m else ''
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
