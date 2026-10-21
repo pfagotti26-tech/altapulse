@@ -796,7 +796,9 @@ async function tryFatalFansGift(view, creatorId, item, cents, fanRef, caption) {
 async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
   platform = platform || 'privacy';
   if (!ALTA_TESTE) return;
-  const key = creatorId + ':' + (expectName || '');
+  // lote 159 (revisão Claude): uma decisão por VIEW da criadora (antes era por fã: a leitura periódica e a fila decidiam
+  // ao mesmo tempo na mesma aba, e a legenda/"depois" de uma oferta caíram na conversa de outra pessoa — Bruninha, 21/10 10h43)
+  const key = creatorId + ':' + (platform || 'privacy');
   if (autoInProgress.has(key)) return;
   autoInProgress.add(key);
   const p = (async () => {
@@ -899,6 +901,13 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
                 await sleepMs(1200);
                 const sendLine = async (line) => {
                   const key = String(line).slice(0, 25);
+                  // lote 159: só manda se a conversa aberta ainda é a do fã desta oferta
+                  const chk = await runJs(tg.view, tg.read, 2000).catch(() => null);
+                  if (!chk || !read.name || norm(chk.name) !== norm(read.name)) {
+                    await runJs(tg.view, tg.fill(''), 2000).catch(() => false);
+                    appLog('fila', 'legenda/depois NÃO enviados: a conversa mudou (' + (chk && chk.name) + ' ≠ ' + read.name + ')');
+                    return false;
+                  }
                   await runJs(tg.view, tg.fill(line), 4000).catch(() => false);
                   await sleepMs(400);
                   for (let attempt = 0; attempt < 2; attempt++) {
@@ -2352,6 +2361,7 @@ if (ALTA_TESTE) {
     FF_CHAT_SCRIPT,
     openChat: async (creatorId, name, fanRef, platform, waitS) => {
       platform = platform || 'privacy';
+      if (global.autoBusy) await global.autoBusy.catch(() => {});  // lote 159: não troca de conversa enquanto uma oferta ainda está mandando legenda/depois
       await openConversation(creatorId, platform, null, name, fanRef);
       const view = (tabs.get(creatorId) || new Map()).get(platform);
       let result = null;
