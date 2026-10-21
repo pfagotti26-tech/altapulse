@@ -445,6 +445,7 @@ class SuggestIn(Strict):
     mode: Literal['reply', 'followup', 'puxada'] = 'reply'  # followup: a última é nossa (puxar conversa, reativar); puxada (lote 118): fã online, conversa parada — só via /extension/puxada/line
     level: Optional[Literal['leve', 'picante', 'explicito']] = None
     platform: Literal['privacy', 'fatalfans', 'onlyfans'] = 'privacy'  # onde está a conversa aberta
+    max_cents: Optional[int] = Field(default=None, ge=0, le=10_000_000)  # lote 160: passagem sem chatter de turno → IA segue sem oferta acima disso
 
 def profile_block(creator, prof):
     return PM.compile_block(creator, prof, money_br, PERSONA)
@@ -1084,6 +1085,7 @@ FIM DA CONVERSA:
     except (TypeError, ValueError): _temp2 = 0
     if prod and body.mode == 'reply' and body.style != 'vendedora' and not _asked and not _trig and _temp2 < 45: prod = None; fixed_here.append('frio-sem-oferta')  # lote 149
     if prod and body.mode == 'reply' and prod['cents'] >= 30000 and not _asked and not (anchor and anchor * 2 >= prod['cents']): prod = None; fixed_here.append('caro-sem-pedido')
+    if prod and body.max_cents is not None and prod['cents'] > body.max_cents: prod = None; fixed_here.append('passagem-sem-caro')  # lote 160: fã esperando o chatter
     if body.mode == 'reply' and PM.loose_price(text):
         _t = PM.LOOSE_STRIP(text)
         if _t and len(PM._norm(_t)) >= 2: text = _t; fixed_here.append('valor-fora-do-texto')

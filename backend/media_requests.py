@@ -111,6 +111,11 @@ async def on_paid(ev, old):
     await _opportunity(req, t)
     req['mailed'] = await _email(req)
     await db.media_requests.update_one({'id': req['id']}, {'$set': {'mailed': req['mailed']}})
+    try:  # lote 160: popup no app + Telegram para quem tem a criadora atribuída
+        import handover as H
+        _v = f"R$ {(req.get('amount_cents') or 0) / 100:.2f}".replace('.', ',')
+        await H.notify('pagamento', req['creator_id'], 'Pagamento recebido', f"{req.get('item') or 'Solicitação'} · {_v}: entregar a mídia", req['fan_ref'], req.get('fan_name'), {'media_request_id': req['id']})
+    except Exception: pass
 
 
 async def on_list_sale(ev, old):
