@@ -144,6 +144,23 @@ function ConfigEditor({ creator, creators, onSwitch, onClose }) {
   </div>;
 }
 
+function MpConnect({ creatorId, descriptor, setDescriptor }) {
+  const [st, setSt] = useState(null), [link, setLink] = useState(''), [busy, setBusy] = useState(false);
+  const load = useCallback(() => api.get(`/wa/mp/status/${creatorId}`).then(r => setSt(r.data)).catch(() => {}), [creatorId]);
+  useEffect(() => { load(); }, [load]);
+  async function gen() { setBusy(true); try { const r = await api.post(`/wa/mp/link/${creatorId}`); setLink(r.data.url); await navigator.clipboard?.writeText(r.data.url).catch(() => {}); toast.success('Link copiado. Mande para a criadora (vale 3 dias).'); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
+  async function off() { setBusy(true); try { await api.post(`/wa/mp/disconnect/${creatorId}`); setLink(''); await load(); toast.success('Conta desconectada.'); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
+  if (!st) return null;
+  return <div style={{ border: '1px solid #e7e7e9', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <strong>Conta Mercado Pago da criadora</strong>
+    {!st.ready ? <Notice id="wa-mp-off" tone="amber">O Mercado Pago ainda não foi ligado no servidor (MP_CLIENT_ID e MP_CLIENT_SECRET). Até lá, a IA usa o texto de Pix abaixo.</Notice>
+      : st.connected ? <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span><Badge tone="green">conectada</Badge> <span className="body-muted" style={{ fontSize: 12 }}>desde {dateTime(st.connected_at)} · o cliente paga na conta dela e a parte da agência sai na hora</span></span><Button type="button" variant="outline" disabled={busy} onClick={off}>Desconectar</Button></div>
+      : <><span className="body-muted" style={{ fontSize: 13 }}>Ainda não conectada. Gere o link, mande para ela: ela entra na conta Mercado Pago dela e toca em Autorizar. Ela precisa ter uma chave Pix cadastrada lá.</span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button type="button" disabled={busy} onClick={gen}>Gerar link de autorização</Button>{link && <Button type="button" variant="outline" onClick={() => navigator.clipboard?.writeText(link).then(() => toast.success('Link copiado.'))}>Copiar de novo</Button>}<Button type="button" variant="outline" onClick={load}>Já autorizou? Atualizar</Button></div></>}
+    <Field id="wa-desc" label="Nome na fatura do cartão (até 13 letras, sem espaço)" value={descriptor || ''} maxLength={13} onChange={e => setDescriptor(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} placeholder="CREATORALTA"/>
+  </div>;
+}
+
 function EditorSections({ cfg, setCfg, d }) {
   const set = (k, v) => setCfg(c => ({ ...c, [k]: v })); const sub = (k, f, v) => setCfg(c => ({ ...c, [k]: { ...c[k], [f]: v } }));
   const setItem = (i, f, v) => setCfg(c => ({ ...c, items: c.items.map((x, j) => j === i ? { ...x, [f]: v } : x) }));
@@ -180,9 +197,10 @@ function EditorSections({ cfg, setCfg, d }) {
     <Field id="wa-blocked" label="Dias bloqueados (AAAA-MM-DD, separados por vírgula)" value={(cfg.agenda.blocked || []).join(', ')} onChange={e => sub('agenda', 'blocked', e.target.value.split(',').map(x => x.trim()).filter(Boolean))}/>
     </Card>
     <Card id="pagamento" title="Pagamento">
-    <div className="form-grid"><Field id="wa-prov" label="Meio de pagamento"><Select id="wa-prov" value={cfg.pay.provider} onChange={e => sub('pay', 'provider', e.target.value)}><option value="manual">Manual (chatter confere o Pix)</option><option value="asaas">Asaas (em breve)</option><option value="mercadopago">Mercado Pago (em breve)</option></Select></Field>
+    <div className="form-grid"><Field id="wa-prov" label="Meio de pagamento"><Select id="wa-prov" value={cfg.pay.provider} onChange={e => sub('pay', 'provider', e.target.value)}><option value="manual">Manual (chatter confere o Pix)</option><option value="mercadopago">Mercado Pago (conta da criadora, com split)</option></Select></Field>
       <Field id="wa-pct" label="Parte da criadora (%)" type="number" min={0} max={100} value={cfg.pay.creator_pct} onChange={e => sub('pay', 'creator_pct', +e.target.value)}/><Field id="wa-hold" label="Segurar horário esperando Pix (min)" type="number" min={5} max={120} value={cfg.pay.hold_min} onChange={e => sub('pay', 'hold_min', +e.target.value)}/></div>
-    <Field id="wa-pix" label="Texto do Pix que a IA manda (chave da agência)"><textarea id="wa-pix" className="assist-textarea" rows={2} maxLength={600} value={cfg.pay.pix_text} onChange={e => sub('pay', 'pix_text', e.target.value)}/></Field>
+    {cfg.pay.provider === 'mercadopago' && <MpConnect creatorId={cfg.creator_id} descriptor={cfg.pay.descriptor} setDescriptor={v => sub('pay', 'descriptor', v)}/>}
+    <Field id="wa-pix" label={cfg.pay.provider === 'mercadopago' ? 'Texto do Pix de reserva (usado só se a conta Mercado Pago dela cair)' : 'Texto do Pix que a IA manda (chave da agência)'}><textarea id="wa-pix" className="assist-textarea" rows={2} maxLength={600} value={cfg.pay.pix_text} onChange={e => sub('pay', 'pix_text', e.target.value)}/></Field>
     </Card>
     <Card id="conversa" title="Conversa e chamada">
     <Field id="wa-welcome" label="Primeira mensagem (sempre pergunta se tem mais de 18)"><textarea id="wa-welcome" className="assist-textarea" rows={2} maxLength={600} value={cfg.welcome} onChange={e => set('welcome', e.target.value)}/></Field>

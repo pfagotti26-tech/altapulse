@@ -40,7 +40,7 @@ def default_cfg(creator_id):
             'agenda': {'week': {'0': [['19:00', '22:00']], '1': [['19:00', '22:00']], '2': [['19:00', '22:00']], '3': [['19:00', '22:00']],
                                 '4': [['20:00', '23:00']], '5': [['15:00', '18:00']], '6': []},
                        'gap_min': 10, 'lead_h': 2, 'max_day': 4, 'blocked': []},
-            'pay': {'provider': 'manual', 'hold_min': 15, 'creator_pct': 60, 'pix_text': ''},
+            'pay': {'provider': 'manual', 'hold_min': 15, 'creator_pct': 60, 'pix_text': '', 'descriptor': 'CREATORALTA'},
             'room_link': '', 'welcome': 'oi, amor! que bom que você veio. antes de tudo: você tem mais de 18 anos?',
             'reminders': True, 'after_call': True, 'templates': {'reminder': '', 'lang': 'pt_BR'}, 'max_ai_day': 400}
 
@@ -189,7 +189,7 @@ async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
     await db.wa_orders.insert_one(dict(o))
     await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'aguardando_pix', 'order_id': o['id']}})
     what = f"{item['name']} · {money(o['cents'])}" + (f" · {slot_label(slot)}" if slot else '')
-    msg = (f"separei {slot_label(slot)} pra você! " if slot else 'perfeito! ') + f"pra confirmar é só pagar o Pix ({what}). seguro por {hold} min:\n\n{charge.get('text') or ''}".rstrip()
+    msg = (f"separei {slot_label(slot)} pra você! " if slot else 'perfeito! ') + (f"pra confirmar é só pagar ({what}), no Pix ou no cartão. o link vale {hold} min:" if charge.get('link') else f"pra confirmar é só pagar o Pix ({what}). seguro por {hold} min:\n\n{charge.get('text') or ''}".rstrip())
     if charge.get('link'): msg += f"\n{charge['link']}"
     await send_text(cfg, contact, msg, by)
     if o['provider'] == 'manual':
@@ -539,7 +539,7 @@ async def cfg_save(creator_id: str, body: CfgIn, user=Depends(manager)):
     ag['blocked'] = [x for x in (ag.get('blocked') or []) if re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(x))][:200]
     pay = {**d['pay'], **(c['pay'] or {})}
     if pay.get('provider') not in ('manual', 'asaas', 'mercadopago'): raise HTTPException(422, 'Meio de pagamento inválido.')
-    pay['creator_pct'] = max(0, min(100, int(pay.get('creator_pct') or 0))); pay['hold_min'] = max(5, min(120, int(pay.get('hold_min') or 15))); pay['pix_text'] = str(pay.get('pix_text') or '')[:600]
+    pay['creator_pct'] = max(0, min(100, int(pay.get('creator_pct') or 0))); pay['hold_min'] = max(5, min(120, int(pay.get('hold_min') or 15))); pay['pix_text'] = str(pay.get('pix_text') or '')[:600]; pay['descriptor'] = re.sub(r'[^A-Za-z0-9]', '', str(pay.get('descriptor') or 'CREATORALTA')).upper()[:13] or 'CREATORALTA'
     if c['room_link'] and not re.match(r'^https://', c['room_link']): raise HTTPException(422, 'O link da sala precisa começar com https://')
     row = {**c, 'creator_id': creator_id, 'items': items, 'agenda': ag, 'pay': pay, 'sells': {k: bool((c['sells'] or {}).get(k)) for k in KINDS},
            'templates': {'reminder': str((c['templates'] or {}).get('reminder') or '')[:60], 'lang': str((c['templates'] or {}).get('lang') or 'pt_BR')[:10]},

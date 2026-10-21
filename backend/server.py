@@ -26,6 +26,7 @@ from plantao import router as plantao
 from media_requests import router as media_requests  # lote 110
 from handover import router as handover  # lote 160: passagem para humano + avisos
 from whatsapp import router as whatsapp  # lote 161: WhatsApp de vendas da criadora
+from payments import router as payments  # lote 164: Mercado Pago com split
 
 @asynccontextmanager
 async def lifespan(app):
@@ -128,6 +129,10 @@ async def lifespan(app):
     await db.wa_orders.create_index([('status', 1), ('kind', 1), ('slot_start', 1)])
     await db.wa_orders.create_index('contact_id')
     await db.wa_orders.create_index('expires_at', expireAfterSeconds=0)
+    await db.mp_accounts.create_index('creator_id', unique=True)  # lote 164
+    await db.mp_accounts.create_index('mp_user_id')
+    await db.mp_states.create_index('state', unique=True)
+    await db.mp_states.create_index('expires_at', expireAfterSeconds=0)
     import asyncio
     from shift_clock import sweep_loop
     from handover import telegram_loop
@@ -153,7 +158,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada, handover, whatsapp]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada, handover, whatsapp, payments]:
     app.include_router(router, prefix='/api')
 app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 
