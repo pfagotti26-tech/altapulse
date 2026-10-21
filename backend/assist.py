@@ -482,6 +482,16 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
                                   'by_id': 'sistema', 'by_name': 'Sistema', 'at': iso()}}, upsert=True)
             return {'alert': True, 'remaining': None, 'blocked': True,
                     'reason': 'Assinante citou tema proibido: conversa ENCERRADA. Não responda mais este fã. A IA bloqueou; só gestor desbloqueia (Sombra → Fãs bloqueados).'}
+    # lote 159 (Paulo): criadora/criador NUNCA recebe mensagem. Quem escreve divulgando o próprio perfil ("acabei de postar… vem ver") é outra
+    # criadora: a IA não responde e o contato fica bloqueado para a IA (gestor desbloqueia em Sombra → Fãs bloqueados se for engano)
+    if body.fan_ref and body.mode == 'reply':
+        _promo = PM.creator_promo([m.text for m in body.messages if not m.ours])
+        if _promo:
+            await db.assist_blocked.update_one({'creator_id': body.creator_id, 'fan_ref': body.fan_ref},
+                {'$setOnInsert': {'id': uid(), 'creator_id': body.creator_id, 'fan_ref': body.fan_ref, 'fan_name': '', 'reason': f'outra criadora/criador divulgando ("{_promo[:40]}")',
+                                  'by_id': 'sistema', 'by_name': 'Sistema', 'at': iso()}}, upsert=True)
+            return {'alert': True, 'remaining': None, 'blocked': True,
+                    'reason': f'Outra criadora/criador divulgando ("{_promo[:40]}"): não é assinante, a IA não responde. Se for engano, desbloqueie em Sombra → Fãs bloqueados.'}
     # lote 110: fã pagou a solicitação de mídia e ainda não recebeu — a IA agradece uma vez e depois pausa até alguém marcar entregue
     mreq = None
     if body.fan_ref and body.mode == 'reply':

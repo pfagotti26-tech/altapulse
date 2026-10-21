@@ -788,6 +788,15 @@ def wrong_anatomy(text, gender='f'):
 def drop_anatomy(text, gender='f'):
     parts = [x for x in re.split(r'(?<=[.!?…])\s+', text or '') if x and not wrong_anatomy(x, gender)]
     return ' '.join(parts).strip()
+# lote 159: mensagem de OUTRA criadora/criador divulgando (não é assinante): "Você viu o que acabei de postar? … vem ver"
+CREATOR_PROMO = re.compile(r'(acabei de postar|acabei de publicar|postei (agora|hoje|um|uma|novo|nova)|post novo|novo post|conte[uú]do novo no (meu|perfil)|vem ver (o que|meu|minha|l[aá])|'
+                           r'corre (l[aá]|pra ver)|confere l[aá]|(no|meu|visita o meu|passa no meu) perfil|assina (o )?meu|link na bio|meu link|privacy\.com\.br/|onlyfans\.com|fansly|closefans|fatalfans\.com|'
+                           r'cupom|promo[çc][aã]o (no|do) meu|meu (canal|grupo) vip|me segue|segue l[aá]|chama no (meu )?pv do (outro|meu))', re.I)
+def creator_promo(fan_texts):
+    for t in [x for x in fan_texts if x][-4:]:
+        m = CREATOR_PROMO.search(t)
+        if m: return m.group(0)
+    return ''
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')
