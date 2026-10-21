@@ -22,7 +22,7 @@ function TelegramConnect() {
   async function gen() { setBusy(true); try { const r = await api.post('/me/telegram/code'); setCode(r.data); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
   async function off() { setBusy(true); try { await api.post('/me/telegram/disconnect'); await load(); toast.success('Telegram desconectado.'); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
   if (!st) return null;
-  return <section className="account-password-section" data-testid="telegram-section" style={{ marginTop: 20 }}><h2>Avisos no Telegram</h2>
+  return <section className="account-password-section" data-testid="telegram-section" style={{ marginTop: 20, gridColumn: "1 / -1" }}><h2>Avisos no Telegram</h2>
     <p className="body-muted" style={{ marginTop: 0 }}>Receba no celular as passagens e os avisos das criadoras atribuídas a você. Nada de número de telefone: só um código.</p>
     {!st.ready ? <Notice id="tg-not-ready" tone="amber">O bot do Telegram ainda não foi configurado no servidor. Fale com o gestor.</Notice>
       : st.connected ? <div className="form-actions" style={{ justifyContent: 'space-between' }}><span><Check size={16}/> Telegram conectado</span><Button variant="outline" onClick={off} disabled={busy}>Desconectar</Button></div>
