@@ -24,6 +24,7 @@ from radar import router as radar
 from password_reset import router as password_reset
 from plantao import router as plantao
 from media_requests import router as media_requests  # lote 110
+from handover import router as handover  # lote 160: passagem para humano + avisos
 
 @asynccontextmanager
 async def lifespan(app):
@@ -97,10 +98,27 @@ async def lifespan(app):
     await db.puxada_claims.create_index('token', unique=True)
     await db.puxada_claims.create_index([('creator_id', 1), ('status', 1), ('expires_at', 1)])
     await db.puxada_claims.create_index('expires_at', expireAfterSeconds=86400)
+    await db.handovers.create_index('id', unique=True)  # lote 160
+    await db.handovers.create_index([('creator_id', 1), ('fan_ref', 1), ('status', 1)])
+    await db.handovers.create_index([('status', 1), ('deadline_at', 1)])
+    await db.handovers.create_index([('created_at', -1)])
+    await db.handovers.create_index('expires_at', expireAfterSeconds=0)
+    await db.notifications.create_index('id', unique=True)
+    await db.notifications.create_index([('user_id', 1), ('acted_at', 1), ('created_at', -1)])
+    await db.notifications.create_index([('event', 1), ('creator_id', 1), ('fan_ref', 1), ('created_at', -1)])
+    await db.notifications.create_index('data.handover_id', sparse=True)
+    await db.notifications.create_index('expires_at', expireAfterSeconds=0)
+    await db.telegram_links.create_index('user_id', unique=True)
+    await db.telegram_links.create_index('chat_id')
+    await db.telegram_codes.create_index('code')
+    await db.telegram_codes.create_index('expires_at', expireAfterSeconds=0)
     import asyncio
     from shift_clock import sweep_loop
+    from handover import telegram_loop
     clock = asyncio.create_task(sweep_loop())  # encerra turnos esquecidos (app fechado)
+    tg = asyncio.create_task(telegram_loop())  # lote 160: bot do Telegram (só roda com TELEGRAM_BOT_TOKEN)
     yield
+    tg.cancel()
     clock.cancel()
     client.close()
 
@@ -119,7 +137,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada, handover]:
     app.include_router(router, prefix='/api')
 app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 

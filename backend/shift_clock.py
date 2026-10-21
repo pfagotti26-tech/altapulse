@@ -91,6 +91,10 @@ async def sweep_loop():
                 await media_tick()  # lote 110: mídia paga sem entrega depois do prazo
             except Exception: logging.exception('mídia paga')
         try:
+            from handover import tick as handover_tick
+            await handover_tick()  # lote 160: passagem sem ninguém assumir → gestor; validade → volta para a IA
+        except Exception: logging.exception('passagem para humano')
+        try:
             from content import goal_tick
             await goal_tick()  # metas de posts: alertas às 14h e 19h, registro do dia às 23h50
         except Exception: logging.exception('metas de conteúdo')

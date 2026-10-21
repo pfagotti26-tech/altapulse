@@ -326,6 +326,11 @@ async def extension_vault_result(body: dict, user=Depends(extension_user)):
     r = info.get('result') or {}; s2 = info.get('second') or {}
     passed = bool(s2) and not ((s2.get('after') or {}).get('login', True)) if s2 else None
     resumo = ('entrou de primeira' if not s2 else ('entrou na 2ª tentativa (Enter)' if passed else 'continuou na tela de login'))
+    if body.get('auto') and body.get('ok') is False:  # lote 160: Privacy deslogou e o login automático não entrou → aviso
+        try:
+            import handover as H
+            await H.notify('login', str(body.get('creator_id')), f"{str(body.get('platform') or 'Privacy').capitalize()} deslogou", f"O login automático não entrou ({str(body.get('reason') or 'pediu verificação')[:120]}). Entre à mão no app.")
+        except Exception: pass
     await audit(user, f'Login automático: {resumo}', f"{creator['name']} · {str(body.get('platform') or '')}", {'botao': r.get('btn'), 'no_form': r.get('inForm'), 'botoes': r.get('buttons'), 'tela': r.get('size'), 'janela': info.get('view'), 'monitor': info.get('screen'), 'app': info.get('app'), 'segunda': s2 or None})
     return {'ok': True}
 @router.post('/extension/credentials/{credential_id}/use')
