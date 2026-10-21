@@ -33,6 +33,7 @@ EVENTS = {
     'encontro': {'label': 'Fã pediu encontro', 'hint': 'IA travou', 'urgency': 'media', 'chatter': True, 'manager': True, 'popup': True, 'telegram': False, 'email': False},
     'reclamacao': {'label': 'Pagou e não recebeu', 'hint': 'risco de estorno', 'urgency': 'alta', 'chatter': True, 'manager': True, 'popup': True, 'telegram': True, 'email': True},
     'divulgacao': {'label': 'Criadora divulgando', 'hint': 'contato bloqueado', 'urgency': 'baixa', 'chatter': False, 'manager': True, 'popup': False, 'telegram': False, 'email': False},
+    'whatsapp': {'label': 'WhatsApp: precisa de você', 'hint': 'IA travou, Pix para conferir, chamada chegando', 'urgency': 'alta', 'chatter': True, 'manager': False, 'popup': True, 'telegram': True, 'email': False},
     'login': {'label': 'Privacy deslogou', 'hint': 'pediu verificação', 'urgency': 'media', 'chatter': False, 'manager': True, 'popup': True, 'telegram': True, 'email': False},
 }
 RULES = {

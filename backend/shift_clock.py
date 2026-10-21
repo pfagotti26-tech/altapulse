@@ -95,6 +95,10 @@ async def sweep_loop():
             await handover_tick()  # lote 160: passagem sem ninguém assumir → gestor; validade → volta para a IA
         except Exception: logging.exception('passagem para humano')
         try:
+            from whatsapp import tick as wa_tick
+            await wa_tick()  # lote 161: lembretes e link da chamada ao vivo, Pix vencido
+        except Exception: logging.exception('whatsapp')
+        try:
             from content import goal_tick
             await goal_tick()  # metas de posts: alertas às 14h e 19h, registro do dia às 23h50
         except Exception: logging.exception('metas de conteúdo')

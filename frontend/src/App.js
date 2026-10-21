@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Plantao, { canPlantao } from './pages/Plantao';
 import Puxada from './pages/Puxada';
 import Passagem from './pages/Passagem'; // lote 160
+import WhatsApp from './pages/WhatsApp'; // lote 161
 import InstallExtension from './pages/InstallExtension';
 import Shadow from './pages/Shadow';
 import Auto from './pages/Auto'; // AUTO (Grok)
@@ -69,6 +70,7 @@ export default function App() {
       <Route path="/plantao" element={canPlantao(user) ? <Plantao/> : <Navigate to="/"/>}/>
       <Route path="/consumo-ia" element={user.owner ? <AIUsage/> : <Navigate to="/"/>}/>
       <Route path="/puxar-conversa" element={user.role === 'manager' ? <Puxada/> : <Navigate to="/"/>}/>
+      <Route path="/whatsapp" element={<WhatsApp/>}/>
       <Route path="/passagem" element={user.role === 'manager' ? <Passagem/> : <Navigate to="/"/>}/>
       <Route path="/sombra" element={user.role === 'manager' ? <Shadow/> : <Navigate to="/"/>}/>
       {/* AUTO (Grok) */}

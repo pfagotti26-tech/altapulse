@@ -25,6 +25,7 @@ from password_reset import router as password_reset
 from plantao import router as plantao
 from media_requests import router as media_requests  # lote 110
 from handover import router as handover  # lote 160: passagem para humano + avisos
+from whatsapp import router as whatsapp  # lote 161: WhatsApp de vendas da criadora
 
 @asynccontextmanager
 async def lifespan(app):
@@ -112,6 +113,21 @@ async def lifespan(app):
     await db.telegram_links.create_index('chat_id')
     await db.telegram_codes.create_index('code')
     await db.telegram_codes.create_index('expires_at', expireAfterSeconds=0)
+    await db.wa_config.create_index('creator_id', unique=True)  # lote 161
+    await db.wa_config.create_index('phone_number_id')
+    await db.wa_contacts.create_index('id', unique=True)
+    await db.wa_contacts.create_index([('creator_id', 1), ('wa_id', 1)], unique=True)
+    await db.wa_contacts.create_index([('creator_id', 1), ('last_in_at', -1)])
+    await db.wa_contacts.create_index('expires_at', expireAfterSeconds=0)
+    await db.wa_messages.create_index([('contact_id', 1), ('at', -1)])
+    await db.wa_messages.create_index('wa_msg_id', sparse=True)
+    await db.wa_messages.create_index([('creator_id', 1), ('by', 1), ('at', -1)])
+    await db.wa_messages.create_index('expires_at', expireAfterSeconds=0)
+    await db.wa_orders.create_index('id', unique=True)
+    await db.wa_orders.create_index([('creator_id', 1), ('status', 1), ('created_at', -1)])
+    await db.wa_orders.create_index([('status', 1), ('kind', 1), ('slot_start', 1)])
+    await db.wa_orders.create_index('contact_id')
+    await db.wa_orders.create_index('expires_at', expireAfterSeconds=0)
     import asyncio
     from shift_clock import sweep_loop
     from handover import telegram_loop
@@ -137,7 +153,7 @@ async def origin_guard(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada, handover]:
+for router in [auth, people, reporting, stations, extension, vault, performance, fans, quality_ai, assist, scorecard, team_live, radar, password_reset, plantao, fan_memory, content, media_requests, puxada, handover, whatsapp]:
     app.include_router(router, prefix='/api')
 app.include_router(auto_send, prefix='/api')  # AUTO (Grok)
 

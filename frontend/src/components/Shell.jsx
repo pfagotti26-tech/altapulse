@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { nextPhrase, greeting, SIGNATURE } from '../lib/motivation';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { Sparkles, Megaphone, Layers3, MoonStar, Activity, ChartNoAxesCombined, TrendingUp, ClipboardCheck, UsersRound, FileChartColumn, Settings2, LogOut, ChevronDown, Menu, X, ArrowUpRight, ShieldCheck, Bell, CircleHelp, Puzzle, Camera, MessageCircleHeart, Handshake } from 'lucide-react';
+import { Sparkles, Megaphone, Layers3, MoonStar, Activity, ChartNoAxesCombined, TrendingUp, ClipboardCheck, UsersRound, FileChartColumn, Settings2, LogOut, ChevronDown, Menu, X, ArrowUpRight, ShieldCheck, Bell, CircleHelp, Puzzle, Camera, MessageCircleHeart, Handshake, MessageSquare } from 'lucide-react';
 import { useApp } from '../App';
 import { initials, api, dateTime } from '../lib/api';
 import { Badge, Modal, Avatar } from './Common';
@@ -17,7 +17,7 @@ export const Shell = ({ children }) => {
   // boas-vindas logo depois do login: primeiro nome + frase motivacional (some em 9 s ou no "Bora!")
   const [welcome, setWelcome] = useState(null);
   useEffect(() => { let flag = null; try { flag = sessionStorage.getItem('alta-welcome'); sessionStorage.removeItem('alta-welcome'); } catch {} if (flag && user) { setWelcome(nextPhrase(user.id)); const t = setTimeout(() => setWelcome(null), 9000); return () => clearTimeout(t); } }, [user?.id]);
-  const route = useLocation().pathname; const active = nav.find(n => n[0] === route)?.[1] || (route === '/minha-conta' ? 'Minha conta' : route === '/plantao' ? 'Plantão noturno' : route === '/consumo-ia' ? 'Consumo da IA' : route === '/sombra' ? 'Sombra' : route === '/puxar-conversa' ? 'Puxar conversa' : route === '/passagem' ? 'Passagem e avisos' : route === '/conteudo' ? 'Conteúdo e disparos' : 'Configurações');
+  const route = useLocation().pathname; const active = nav.find(n => n[0] === route)?.[1] || (route === '/minha-conta' ? 'Minha conta' : route === '/plantao' ? 'Plantão noturno' : route === '/consumo-ia' ? 'Consumo da IA' : route === '/sombra' ? 'Sombra' : route === '/puxar-conversa' ? 'Puxar conversa' : route === '/passagem' ? 'Passagem e avisos' : route === '/whatsapp' ? 'WhatsApp' : route === '/conteudo' ? 'Conteúdo e disparos' : 'Configurações');
   return <div className="app-shell">{welcome && <div className="welcome-overlay" data-testid="welcome" onClick={() => setWelcome(null)}><div className="welcome-card" onClick={e => e.stopPropagation()}><Avatar user={user} className="welcome-photo"/><div className="welcome-hi">{greeting(user.name)}</div><p>{welcome}</p><div className="welcome-sign">{SIGNATURE}</div><button onClick={() => setWelcome(null)}>Bora!</button></div></div>}<aside className={`sidebar ${mobile ? 'open' : ''}`}><div className="brand-row"><Link data-testid="brand-home" to="/" aria-label="Alta Pulse — início" onClick={() => setMobile(false)}><Brand variant="white"/></Link><button className="mobile-close icon-btn" aria-label="Fechar menu" data-testid="close-menu" onClick={() => setMobile(false)}><X size={20}/></button></div>
     <div className="workspace"><div className="workspace-icon">{initials(config?.agency_name)}</div><div><strong data-testid="workspace-name">{config?.agency_name}</strong><small data-testid="workspace-caption">Workspace da agência</small></div><ChevronDown size={14}/></div>
     <span className="nav-caption" data-testid="nav-caption">WORKSPACE</span><nav>{nav.filter(n => user.role === 'manager' || user.role === 'supervisor' || ['/', '/equipe'].includes(n[0])).map(([path, label, Icon]) => <NavLink data-testid={`nav-${path === '/' ? 'creators' : path.slice(1)}`} key={path} end to={path} onClick={() => setMobile(false)} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}><Icon size={19}/><span>{label}</span>{path === '/' && <span className="nav-count" data-testid="nav-creator-count">{creators.length}</span>}</NavLink>)}</nav>
@@ -26,6 +26,7 @@ export const Shell = ({ children }) => {
     {(user.owner || (user.perms || []).includes('plantao')) && <NavLink to="/plantao" data-testid="nav-plantao" className="nav-item" onClick={() => setMobile(false)}><MoonStar size={18}/>Plantão noturno</NavLink>}
     {user.owner && <NavLink to="/consumo-ia" data-testid="nav-consumo-ia" className="nav-item" onClick={() => setMobile(false)}><Sparkles size={18}/>Consumo da IA</NavLink>}
     {user.role === 'manager' && <NavLink to="/puxar-conversa" data-testid="nav-puxada" className="nav-item" onClick={() => setMobile(false)}><MessageCircleHeart size={18}/>Puxar conversa</NavLink>}
+    <NavLink to="/whatsapp" data-testid="nav-whatsapp" className="nav-item" onClick={() => setMobile(false)}><MessageSquare size={18}/>WhatsApp</NavLink>
     {user.role === 'manager' && <NavLink to="/passagem" data-testid="nav-passagem" className="nav-item" onClick={() => setMobile(false)}><Handshake size={18}/>Passagem e avisos</NavLink>}
     {user.role === 'manager' && <NavLink to="/sombra" data-testid="nav-sombra" className="nav-item" onClick={() => setMobile(false)}><ShieldCheck size={18}/>Sombra</NavLink>}
     {/* AUTO (Grok) */}
