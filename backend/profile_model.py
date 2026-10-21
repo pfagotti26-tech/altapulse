@@ -185,6 +185,7 @@ def natural_rules(prof):
          '- Nunca trate o fã como criança: nada de "gracinha", "fofo", "bonitinho", "que fofura", "que amor". Elogio dele recebe elogio ou provocação de volta, de mulher adulta que gostou de ser desejada.',
          '- No papo sexual, pergunta direta e curta, com o diminutivo safado do chat ("e você, gosta de uma buceta bem molhadinha?", "quer me ver gozando?"); nunca construção que pareça redigida ("como você gosta de usar uma buceta bem molhada?").',
          '- Videochamada é sempre AO VIVO. Nunca diga "videochamada gravada" nem trate chamada como vídeo gravado.',
+         '- Corpo: ovo/ovos/bolas/saco/pau/rola/pica = do FÃ (homem). Fã que manda "ovo" quer que ela chupe/lamba o ovo DELE ("lambendo seu ovo bem devagar…"). Uma criadora mulher NUNCA tem pau, bolas, ovo ou saco: nunca escreva "minhas bolas", "meu pau", "chupa meu ovo" na boca dela. Ela também NUNCA come, mete ou fode o fã ("eu te como", "vou te comer", "te meter"): ela DÁ, senta, cavalga, chupa e rebola; quem come e mete é ele ("você me comendo de quatro", "sentando em você").',
          '- Gírias de fã: "tele" = Telegram (NÃO é telefone); "zap" = WhatsApp; "pv" = privado/chat; "insta" = Instagram; "dlç" = delícia; "vc" = você; "tbm/tb" = também; "pdc" = pode crer; "sdd" = saudade.',
          '- "Job", "programa", "faz local?", "atende?", "quanto cobra pra sair?", "vamos marcar", "motel", "te encontrar", "pessoalmente" = sexo pago presencial. NENHUMA criadora faz. Nunca responda "faço sim", nunca dê preço, nunca deixe no ar. Recusa curta no tom dela e volta para o que existe aqui: ' + ('"job não, amor, aqui é só pelo Privacy… mas chamada comigo rola, quer?"' if _has_call else '"job não, amor, aqui é só pelo Privacy… mas aqui eu te deixo louco do mesmo jeito 😈"') + ' ou "não saio não, bb, meu encontro é por aqui mesmo rs".' + ('' if _has_call else ' Ela NÃO faz chamada nem videochamada (nem ao vivo nem gravada): nunca ofereça, nunca diga "faço", nunca convide para chamada.'),
          '- Nada de frase de efeito, texto poético, lista ou explicação. Nunca soe como atendimento ou assistente.',
@@ -770,6 +771,19 @@ def says_city(text):
 POST_HOT = re.compile(r'(gostei|amei|adorei|del[ií]cia|tes[aã]o|gozei|gozando|perfeit|maravilh|quero mais|mais um|tem mais|continua|que gostosa|que mulher|sensacional|top demais|🔥|😍|🤤|💦|😈|🥵)', re.I)
 def post_sale_hot(fan_last):
     return bool(POST_HOT.search(fan_last or ''))
+# lote 155: anatomia trocada ("você chupando minhas bolas" na boca de uma criadora mulher)
+MALE_PARTS = re.compile(r'\b(minhas? (bolas?|bolinhas|ovos?|ovinhos?|saco|rola|pica|piroca|caralho|cacete|pirocona)|meus? (pau|pauz[aã]o|ovos?|ovinhos?|saco|caralho|cacete|pinto|p[eê]nis)|(chupa|chupar|chupando|lambe|lamber|lambendo|mama|mamar|mamando) (o |no )?meus? (pau|ovos?|saco|pinto))\b', re.I)
+# lote 155 (Paulo): criadora mulher não come nem mete no fã: ela DÁ, senta, chupa, rebola
+MALE_ACTS = re.compile(r'\b((eu )?te (como|comi|comer|comendo|meto|meter|metendo|fodo|foder|fodendo|penetr\w+)|(vou|quero|queria|vou te|ia) (te )?(comer|meter|foder) (voc[eê]|vc|tu|ele)|(eu )?(como|comer|comendo|meto|meter|metendo|fodo|fodendo) (voc[eê]|vc|tu)\b(?! (gosta|quer|quiser|prefere|faz|est|t[aá]|ia|curte|fica|mandar|pedir))|meter (em|no) (voc[eê]|vc|tu|seu|teu)|comer (seu|teu) (cu|cuzinho|rabo|bunda))\b', re.I)
+FEMALE_PARTS = re.compile(r'\b(minha (buceta|bucetinha|xoxota|xereca|xana|perereca|ppk)|meus (peitos|peitinhos|seios)|meu (grelo|clit[oó]ris))\b', re.I)
+def wrong_anatomy(text, gender='f'):
+    rx = MALE_PARTS if (gender or 'f') == 'f' else FEMALE_PARTS if gender == 'm' else None
+    m = rx.search(text or '') if rx else None
+    if not m and (gender or 'f') == 'f': m = MALE_ACTS.search(text or '')
+    return m.group(0) if m else ''
+def drop_anatomy(text, gender='f'):
+    parts = [x for x in re.split(r'(?<=[.!?…])\s+', text or '') if x and not wrong_anatomy(x, gender)]
+    return ' '.join(parts).strip()
 def role_flip(text):
     t = ' ' + ' '.join(_norm(text)) + ' '
     return next((k for k in ROLE_FLIP if ' ' + k + ' ' in t), '')

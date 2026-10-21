@@ -863,6 +863,7 @@ FIM DA CONVERSA:
     dur = PM.says_duration(txt0, _fl) if out and not out.get('alerta') else ''
     fam = PM.family_word(txt0) if out and not out.get('alerta') else ''
     flip = PM.role_flip(txt0) if out and not out.get('alerta') else ''
+    if not flip and out and not out.get('alerta'): flip = PM.wrong_anatomy(txt0, (prof or {}).get('gender') or 'f')  # lote 155
     react = PM.reaction_talk(txt0) if out and not out.get('alerta') else ''
     wet = PM.odd_wet(txt0) if out and not out.get('alerta') else ''
     callp = PM.call_promise(txt0, [m.text for m in msgs[-4:] if not m.ours]) if out and not out.get('alerta') else ''
@@ -940,7 +941,7 @@ FIM DA CONVERSA:
         if wet: why.append(f'escreveu "{wet}", que não existe; "molhadinha" só descreve ela, nunca uma coisa')
         if callp: why.append(f'sobre chamada de vídeo, "{callp}" combina, promete ou diz valor; diga só que faz, com charme, e devolva uma pergunta ("me conta o que você ia querer ver"); quem combina e passa valor é a equipe')
         if react: why.append('falou da "reação" do fã; não cite reação: responda direto ao sentimento ("amei que gostou, amor", "ai que tesão…")')
-        if flip: why.append(f'inverteu os papéis ("{flip}"); quem senta, cavalga, chupa e dá é ELA, o fã mete, come e goza')
+        if flip: why.append(f'inverteu os papéis ("{flip}"); ela é mulher: não tem pau, bolas nem ovo, e nunca come, mete ou fode o fã. Quem senta, cavalga, chupa, rebola e DÁ é ELA; o fã mete, come e goza (ex.: "você me comendo de quatro", "chupando seu ovo bem devagar")')
         if pricetxt: why.append('escreveu o valor no texto; o valor vai na Solicitação de mídia: o "texto" é só a provocação, a "legenda" vai com a solicitação e o "depois" chama para abrir')
         if fam: why.append('usou palavra de família ou de tema proibido; é PROIBIDO citar qualquer parente ou esse tema, nem para recusar: mude de assunto com charme sem mencionar nada disso')
         if cat: why.append(f'falou como catálogo ("{cat}"); não descreva o conteúdo nem diga "tenho um vídeo": escreva uma legenda curta que continua a cena dele, como se a mídia fosse o próximo passo, + o valor')
@@ -1063,6 +1064,12 @@ FIM DA CONVERSA:
     if prod and 'chamada' not in prod['item'].lower() and caption and PM.live_talk(caption): caption = ''  # lote 138
     if prod and 'chamada' not in prod['item'].lower() and after and PM.live_talk(after): after = random.choice(PM.SAFE_AFTER)
     if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
+    # lote 155: anatomia trocada nunca chega ao fã (a frase sai; se não sobrar nada, mensagem curta no clima)
+    _g = (prof or {}).get('gender') or 'f'
+    if PM.wrong_anatomy(text, _g):
+        _t = PM.drop_anatomy(text, _g)
+        text = _t if _t and len(PM._norm(_t)) >= 2 else ('hum… adorei isso 😈' if _g == 'f' else 'hum… curti isso 😈'); fixed_here.append('anatomia')
+    if caption and PM.wrong_anatomy(caption, _g): caption = ''
     # lote 153 (Paulo): "gravada" nunca chega ao fã, em nenhuma criadora — filtro final, depois de qualquer refeita
     if PM.says_recorded(text) or re.search(r'\bgravad[ao]s?\b', text or '', re.I) and re.search(r'chamad|call|liga', text or '', re.I):
         _t = PM.no_recorded(text)
