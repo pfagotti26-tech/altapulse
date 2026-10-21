@@ -1096,6 +1096,11 @@ FIM DA CONVERSA:
     if prod and 'chamada' not in prod['item'].lower() and caption and PM.live_talk(caption): caption = ''  # lote 138
     if prod and 'chamada' not in prod['item'].lower() and after and PM.live_talk(after): after = random.choice(PM.SAFE_AFTER)
     if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
+    # lote 158 (Paulo): encontro presencial é proibido. Se, mesmo depois da refeita, a resposta não recusar com clareza ("topo sim, bb."), vai uma recusa fixa e sem oferta
+    _lo_i = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].ours), -1)
+    _fan_now = [m.text for m in msgs[_lo_i + 1:] if not m.ours][-3:] or [m.text for m in msgs[-2:] if not m.ours]
+    if body.mode == 'reply' and PM.accepts_meeting(text, _fan_now):
+        text = random.choice(PM.MEET_REFUSAL_LINES); prod = None; caption = ''; after = ''; fixed_here.append('encontro-recusado')
     # lote 155: anatomia trocada nunca chega ao fã (a frase sai; se não sobrar nada, mensagem curta no clima)
     _g = (prof or {}).get('gender') or 'f'
     if PM.wrong_anatomy(text, _g):

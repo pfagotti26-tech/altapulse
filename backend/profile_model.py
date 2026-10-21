@@ -281,10 +281,14 @@ def presumes_media(text, fan_texts):
     return ''
 # pedido de encontro/programa pelo fã ("faz job?") e sugestão que aceita, dá preço ou deixa no ar
 MEET_ASK = ['job', 'jobs', 'programa', 'programas', 'sair comigo', 'sair com vc', 'sair com voce', 'encontro', 'encontrar', 'encontra comigo', 'pessoalmente', 'presencial', 'presencialmente',
-            'motel', 'faz local', 'quanto cobra', 'quanto e pra sair', 'quanto e o encontro', 'vem me ver', 'ir ai', 'vou ai', 'te pegar', 'te comer de verdade', 'ao vivo e a cores']
+            'motel', 'faz local', 'quanto cobra', 'quanto e pra sair', 'quanto e o encontro', 'vem me ver', 'ir ai', 'vou ai', 'te pegar', 'te comer de verdade', 'ao vivo e a cores',
+            # lote 158: "vamos nos encontrar em Ribeirão?", "pretende vir pra estes lados?", "deixo tudo marcado, local"
+            'nos encontrar', 'te encontrar', 'marcar', 'marcado', 'hotel', 'te buscar', 'vir pra', 'vim pra', 'vem pra', 'vir aqui', 'vem aqui', 'pra ca', 'estes lados', 'esses lados',
+            'nos ver', 'te ver pessoalmente', 'conhecer pessoalmente', 'te conhecer', 'na minha cidade', 'minha casa', 'sua casa', 'apartamento']
 MEET_REFUSE = ['nao faco', 'nao rola', 'nao saio', 'nao saiu', 'so aqui', 'so pelo', 'so por aqui', 'so online', 'so virtual', 'so no privacy', 'so pelo privacy', 'nao atendo', 'nao marco', 'nao encontro',
                'nao e meu', 'nada presencial', 'nada de encontro', 'job nao', 'programa nao', 'encontro nao', 'nao da', 'nao faco programa', 'nao faco job', 'nao vai rolar', 'nao tem como', 'nao tem jeito',
                'aqui e so', 'por aqui mesmo', 'meu encontro e por aqui', 'nunca', 'nao sou de sair', 'so por chamada', 'so pela chamada', 'de longe']
+MEET_REFUSAL_LINES = ['não, amor, encontro eu não faço… aqui é só pelo Privacy 😘', 'não saio não, bb, meu encontro é por aqui mesmo 😏', 'isso não rola, amor… mas aqui eu te deixo louco do mesmo jeito 😈']
 def accepts_meeting(text, fan_texts):
     """O fã pediu encontro/programa/job nas últimas mensagens e a sugestão não recusa com clareza? Devolve a palavra do fã (ou '')."""
     t = ' ' + ' '.join(_norm(text)) + ' '
