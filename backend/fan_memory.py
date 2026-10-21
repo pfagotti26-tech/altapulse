@@ -77,6 +77,27 @@ def pick_new_facts(raw, existing):
         out.append({'kind': kind, 'text': t, 'date': date if re.match(r'^\d{4}-\d{2}-\d{2}$', date) else ''})
     return out
 
+async def save_auto(creator_id, fan_ref, items):
+    """Lote 156: na automação não há chatter para confirmar; os fatos que a IA tirou da conversa (já filtrados por
+    pick_new_facts: sem telefone, @, endereço, trabalho, saúde, religião, política) entram direto, marcados como 'Automação'."""
+    if not fan_ref or not items: return 0
+    existing = await list_facts(creator_id, fan_ref, 200)
+    have = {re.sub(r'\W+', '', x['text'].lower()) for x in existing}
+    added = 0
+    for f in items[:5]:
+        t = clean_fact(f.get('text'))
+        if not t: continue
+        k = re.sub(r'\W+', '', t.lower())
+        if k in have: continue
+        have.add(k)
+        kind = f.get('kind') if f.get('kind') in KINDS else 'sobre'
+        ttl = timedelta(days=30) if kind == 'momento' else timedelta(days=365)
+        await db.fan_memory.insert_one({'id': uid(), 'creator_id': creator_id, 'fan_ref': fan_ref, 'kind': kind, 'text': t, 'date': f.get('date') or '',
+                                        'by_id': 'auto', 'by_name': 'Automação', 'created_at': iso(), 'expires_at': now() + ttl})
+        added += 1
+    return added
+
+
 @router.get('/extension/fan/memory')
 async def get_memory(creator_id: str, fan_ref: str, user=Depends(extension_user)):
     await can_see(user, creator_id)
