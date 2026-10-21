@@ -840,6 +840,17 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
     if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
       if (tg) {
+        // lote 154 (revisão Claude): enterScript ficava dentro do ramo Privacy e a legenda/"depois" depois da Solicitação davam ReferenceError (130 vezes desde 19/10): nenhum "desbloqueia" saía
+        const enterScript = `(() => {
+          const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+          let ta = null;
+          for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
+          if (!ta) return false;
+          const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
+          ta.dispatchEvent(new KeyboardEvent('keydown', ev));
+          ta.dispatchEvent(new KeyboardEvent('keyup', ev));
+          return true;
+        })()`;
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
         if (filled) {
           if (platform === 'fatalfans') {
@@ -852,16 +863,6 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
             })()`, 1500).catch(() => false);
             if (!sent) { appLog('fila', 'FatalFans: botão enviar não apareceu'); }
           } else {
-            const enterScript = `(() => {
-              const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
-              let ta = null;
-              for (const root of roots) { ta = root.querySelector('textarea.ce-textarea, .vac-room-footer textarea'); if (ta) break; }
-              if (!ta) return false;
-              const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true };
-              ta.dispatchEvent(new KeyboardEvent('keydown', ev));
-              ta.dispatchEvent(new KeyboardEvent('keyup', ev));
-              return true;
-            })()`;
             await runJs(tg.view, enterScript, 2000).catch(() => false);
           }
           // Espera a tela mudar (até 4s, checa a cada 300ms)
