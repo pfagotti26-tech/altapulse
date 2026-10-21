@@ -593,6 +593,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if _guided_item: must_sell = True; _n_off = max(_n_off, 1)
     _trig = bool(pend or _hot or _call_item or _guided_item)  # lote 149: venda pedida pelo fã (não só pela contagem de trocas)
     _first = not (card or {}).get('purchases')
+    # lote 156: âncora de preço. Ticket do fã → itens acima dele (sem chamada/avaliação/personalizado), do mais perto ao mais longe
+    _tk = int((card or {}).get('ticket_cents') or 0)
+    anchor_up = sorted([p for p in prices if _tk and p['cents'] > _tk and not re.search(r'chamada|avalia|personaliz', p['item'], re.I)], key=lambda p: p['cents']) if not _first else []
     _cheap = sorted([p for p in prices if 'chamada' not in p['item'].lower() and 'avalia' not in p['item'].lower() and 'personaliz' not in p['item'].lower()], key=lambda p: p['cents'])
     # lote 131: já tem Solicitação de mídia nossa sem pagar (na conversa ou sugerida nas últimas 6 h) → não manda outra
     _open_req = None
@@ -613,6 +616,8 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
         elif pend: goal += f' O fã já perguntou "{pend}": responda brincando ("tenho sim… 😈") e já faça a oferta em 3 passos.'
         if _call_item: goal += f' O FÃ PEDIU CHAMADA ("{_call}"): diga com charme que faz, sem combinar horário e sem valor no texto, e preencha "produto" com "{_call_item}" (a Solicitação de mídia leva o valor). Nunca diga "gravada".'
         elif _guided_item: goal += f' O FÃ PEDIU PUNHETA GUIADA ("{_guided}"): diga com charme que tem sim, em VÍDEO, ela guiando ele, e preencha "produto" com "{_guided_item}". Nunca diga ou insinue que é ao vivo, agora ou chamada; se ele pedir ao vivo, aí é a chamada (outro valor).'
+        elif not _first and anchor_up: goal += (' ÂNCORA (lote 156): o fã JÁ COMPRA. Ofereça primeiro um item ACIMA do que ele costuma comprar: ' + ', '.join(p['item'] for p in anchor_up[:3]) +
+                                                '. Se ele achar caro, o próximo passo oferece o item logo abaixo, que vai parecer barato perto deste.')
         elif _first and _cheap: goal += ' O fã AINDA NÃO COMPROU nada: na primeira compra ofereça um item BARATO (' + ', '.join(p['item'] for p in _cheap[:3]) + '), para ele começar.'
     # lote 149: venda logo depois da compra. Fã pagou uma Solicitação há pouco, ainda não houve nova oferta e ele reagiu quente → próximo degrau
     _post = None
@@ -646,6 +651,10 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
                 '("achei que você aguentava 😈"). Nunca diga "desconto", "por menos" ou "só hoje".')
     elif _objstep == 2:
         _ape = _cheap[0] if _cheap else None
+        if not _first and _cheap:  # lote 156: quem já compra desce só um degrau (o item logo abaixo do que foi oferecido), não para o mais barato
+            _offc = max([(media_info(m.text) or {}).get('cents') or 0 for m in msgs[-10:] if m.ours and re.search(r'solicita', m.text or '', re.I)] or [0])
+            _below = [p for p in _cheap if _offc and p['cents'] < _offc]
+            if _below: _ape = _below[-1]
         if _ape:
             must_sell = True; pend = ''; _trig = True; _wait_pay = False
             goal = (f'OBJETIVO: O FÃ ACHOU CARO DE NOVO. Ofereça um APERITIVO: o item "{_ape["item"]}" (preencha "produto" com ele), como prova/começo do que ele quer, '
@@ -742,6 +751,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     if _cb: opener_block += (f'\nO FÃ COBROU / SENTIU FALTA ("{_cb}"): responda a ISSO primeiro, com carinho e charme, sem se justificar demais (ex.: "tô aqui sim, amor… senti sua falta 😏", "sumi nada, bb, tava te esperando… e você, onde tava?"). '
                              'Depois, se couber, retome o último assunto da conversa como gancho (você lembra de tudo o que já foi falado). Nada de oferta nesta mensagem.')
     if _bye: _gr = False; must_sell = False; goal = 'NÃO ofereça nada agora: ele está se despedindo. "produto" vazio.'
+    if facts and (_gr or _bye_soft or body.mode in ('followup', 'puxada')):  # lote 156
+        opener_block += ('\nMEMÓRIA: você conhece este fã. Nesta mensagem, retome UM fato da memória de forma natural, como quem lembrou dele '
+                         '(ex.: "e aí, como foi a entrevista?", "e o Thor, tá bem?", "lembrei de você falando de quatro… 😏"). Nunca diga "anotei", "memória" ou "me contaram".')
     if _gr and _talked: opener_block += '\nO FÃ VOLTOU COM UM CUMPRIMENTO e vocês já estavam conversando: cumprimente com carinho e RETOME de onde parou (o último assunto da conversa), sem recomeçar do zero e sem pergunta genérica (ex.: "oi amor! tava te esperando… e aí, ficou pensando no que te falei? 😈").'
     elif _gr: opener_block += '\nO FÃ SÓ CUMPRIMENTOU: cumprimente de volta, curto e carinhoso, e pergunte dele (ex.: "oi amor! tudo bem? e com você? 😘", "oi bb, tô ótima e você?"). Não fale de post, vídeo, foto ou mensagem anterior nossa (nada de "gostou do que viu?") e não ofereça nada.'
     if _bye_soft:
