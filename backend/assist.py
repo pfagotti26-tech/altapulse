@@ -605,8 +605,28 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
     _wait_pay = bool((_open_req or _unpaid) and not mreq and not (_call_item and 'chamada' not in str((_open_req or {}).get('item') or '').lower()))
     if _wait_pay:
         must_sell = False; pend = ''
-        goal = ('JÁ EXISTE UMA SOLICITAÇÃO DE MÍDIA DELA SEM PAGAR' + (f' ({_open_req["item"]})' if _open_req else '') + ': NÃO mande outra e NÃO ofereça nada novo ("produto" vazio). '
-                'Converse no clima do que ele disse, curto. No máximo de vez em quando, lembre com charme que é só liberar a que ela mandou (ex.: "tá esperando o quê pra liberar, amor? 😈"), sem repetir a mesma frase.')
+        # lote 157 (Paulo): cobrança carinhosa. Solicitação aberta e o fã segue conversando → a cada 2 mensagens dele, um apelo, girando o estilo;
+        # depois de 3 apelos sem abrir, para de cobrar (só conversa). Nunca culpa por dinheiro, nunca fato inventado ("os outros já abriram", "só hoje").
+        _ri = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].ours and re.search(r'solicita', msgs[i].text or '', re.I)), None)
+        _after = msgs[_ri + 1:] if _ri is not None else msgs[-8:]
+        _nudges = sum(1 for m in _after if m.ours and re.search(r'libera|abre|abrir|desbloque|vai abrir|t[aá] esperando|valho|me deixar no v[aá]cuo', m.text or '', re.I))
+        _fan_since = sum(1 for m in _after if not m.ours)
+        _last_ours = next((m.text for m in reversed(_after) if m.ours), '')
+        _nudged_last = bool(re.search(r'libera|abre|abrir|desbloque|valho|v[aá]cuo', _last_ours or '', re.I))
+        _styles = ['VALOR: ela se valoriza com charme ("amor, você não acha que eu valho? 😏", "eu valho cada segundo disso, sabia?")',
+                   'CARÊNCIA: ela faz um manhoso, carente e safado ("poxa amor, não vai abrir? 🥺 fiz tanto charme pra você…", "vai me deixar no vácuo logo agora?")',
+                   'CURIOSIDADE: ela aguça ("você não faz ideia do que tem aí… 🙈", "se você visse o que eu fiz ali…")',
+                   'DESAFIO: ela provoca de leve ("tá com medo de não aguentar? 😈", "achei que você era mais corajoso rs")',
+                   'RECIPROCIDADE: ela mostra que ficou no clima ("me deixou toda molhadinha e vai me deixar esperando?", "eu tô aqui pensando em você abrindo…")']
+        _style = _styles[(_nudges + len(body.fan_ref or '')) % len(_styles)]
+        if _nudges >= 3:
+            _cob = 'Ela JÁ cobrou 3 vezes: NÃO cobre mais. Só converse no clima, curto e leve; a solicitação continua lá.'
+        elif _fan_since >= 2 and not _nudged_last:
+            _cob = ('Nesta mensagem, depois de reagir ao que ele disse, faça UM apelo carinhoso para ele abrir a solicitação, no estilo ' + _style +
+                    '. Use outras palavras (não copie o exemplo) e nunca repita um apelo que ela já fez nesta conversa. Sem falar de dinheiro, sem culpa, sem "só hoje", sem dizer que outros já abriram.')
+        else:
+            _cob = 'Nesta mensagem NÃO cobre: só converse no clima do que ele disse, curto, mantendo o tesão.'
+        goal = ('JÁ EXISTE UMA SOLICITAÇÃO DE MÍDIA DELA SEM PAGAR' + (f' ({_open_req["item"]})' if _open_req else '') + ': NÃO mande outra e NÃO ofereça nada novo ("produto" vazio). ' + _cob)
     if must_sell:
         goal = ("OBJETIVO: HORA DE VENDER (já foram " + str(_n_off) + " trocas de papo sem oferta). Escolha UM item do catálogo/tabela ligado à cena e faça a oferta em 3 passos: "
                 "\"texto\" = provocação que faz ele imaginar (ex.: \"já imaginou eu sentando bem gostoso no seu pau? 😈\"), SEM valor; \"legenda\" = frase curta que vai junto com a Solicitação de mídia "
