@@ -238,6 +238,13 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             product_cents = prod.get("cents") if isinstance(prod, dict) else None
             caption = (result.get("caption") or "") if isinstance(result, dict) else ""
             after = (result.get("after") or "") if isinstance(result, dict) else ""
+            try:  # lote 156: memória do fã também na automação (fatos já filtrados pela Alta Ajuda)
+                _facts = result.get("facts") if isinstance(result, dict) else None
+                if _facts and body.fan_ref:
+                    import fan_memory as FM
+                    await FM.save_auto(body.creator_id, body.fan_ref, _facts)
+            except Exception:
+                pass
         except Exception as e:
             await db.auto_log.insert_one({
                 "id": uid(), "at": iso(), "day": today(),
