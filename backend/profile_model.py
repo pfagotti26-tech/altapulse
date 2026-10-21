@@ -824,6 +824,12 @@ def strip_recorded(text):
     t = re.sub(r'\b((?:v[íi]deo\s?)?chamada|call)\s+gravad[ao]s?\b', r'\1', text or '', flags=re.I)
     t = re.sub(r',?\s*\bgravad[ao]s?\b', '', t, flags=re.I)
     return re.sub(r'\s{2,}', ' ', t).strip()
+def no_recorded(text):
+    """Lote 153: tira qualquer menção a chamada 'gravada': a frase que fala de gravada sai inteira; se não sobrar nada, só a palavra sai."""
+    parts = [x for x in re.split(r'(?<=[.!?…])\s+', text or '') if x and not re.search(r'\bgravad[ao]s?\b|quantas vezes quiser', x, re.I)]
+    out = ' '.join(parts).strip()
+    if not out or len(_norm(out)) < 2: out = strip_recorded(text)
+    return re.sub(r'\s+([,.!?…])', r'\1', re.sub(r'\s{2,}', ' ', out)).strip()
 def misses_close(text, last_ours, fan_last, items):
     """Devolve True se a criadora convidou/ofereceu, o fã aceitou ou pediu a proposta, e a sugestão não traz valor nem item da tabela."""
     lo = ' ' + ' '.join(_norm(last_ours)) + ' '; fl = ' ' + ' '.join(_norm(fan_last)) + ' '

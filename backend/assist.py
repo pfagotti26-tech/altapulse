@@ -1063,6 +1063,12 @@ FIM DA CONVERSA:
     if prod and 'chamada' not in prod['item'].lower() and caption and PM.live_talk(caption): caption = ''  # lote 138
     if prod and 'chamada' not in prod['item'].lower() and after and PM.live_talk(after): after = random.choice(PM.SAFE_AFTER)
     if prod and after and PM.made_for(after): after = random.choice(PM.SAFE_AFTER)
+    # lote 153 (Paulo): "gravada" nunca chega ao fã, em nenhuma criadora — filtro final, depois de qualquer refeita
+    if PM.says_recorded(text) or re.search(r'\bgravad[ao]s?\b', text or '', re.I) and re.search(r'chamad|call|liga', text or '', re.I):
+        _t = PM.no_recorded(text)
+        if _t: text = _t; fixed_here.append('gravada-final')
+    if caption and re.search(r'\bgravad[ao]s?\b', caption, re.I): caption = PM.no_recorded(caption)
+    if after and re.search(r'\bgravad[ao]s?\b', after, re.I): after = random.choice(PM.SAFE_AFTER)
     # lote 142c: nunca baixar o valor de uma oferta nossa que o fã ainda não pagou (aberta ou expirada): reclamou de R$ 800, não sai por 700.
     # Item bem mais barato (menos da metade) é "alternativa menor" e continua valendo.
     _pcents = fan_price(prod['cents'], anchor) if prod else None
