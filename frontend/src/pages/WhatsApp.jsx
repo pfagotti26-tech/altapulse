@@ -26,7 +26,7 @@ function Conversas({ creators }) {
   async function send(e) { e.preventDefault(); if (!text.trim()) return; await act('send', { text }); setText(''); }
   const c = d?.contact;
   return <>
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+    <div className="wa-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
       <Select id="wa-c-creator" value={cid} onChange={e => setCid(e.target.value)}><option value="">Todas as criadoras</option>{creators.map(x => <option key={x.creator_id} value={x.creator_id}>{x.name}</option>)}</Select>
       <Select id="wa-c-status" value={status} onChange={e => setStatus(e.target.value)}><option value="todas">Todas</option><option value="humano">Precisa de humano</option><option value="pix">Esperando Pix</option><option value="clientes">Clientes</option><option value="bloqueados">Bloqueados</option></Select>
     </div>
@@ -97,7 +97,7 @@ function Pedidos({ creators }) {
   const load = useCallback(async () => { try { const r = await api.get('/wa/orders', { params: { creator_id: cid, status } }); setRows(r.data); } catch (e) { toast.error(errorText(e)); } }, [cid, status]);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   return <section className="data-section">
-    <SectionHeading title="Pedidos e chamadas" caption="Chamada paga recebe lembrete 30 min antes e o link 5 min antes, sozinha. Copie o link da criadora e mande para ela."><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <SectionHeading title="Pedidos e chamadas" caption="Chamada paga recebe lembrete 30 min antes e o link 5 min antes, sozinha. Copie o link da criadora e mande para ela."><div className="wa-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       <Select id="wa-p-creator" value={cid} onChange={e => setCid(e.target.value)}><option value="">Todas as criadoras</option>{creators.map(x => <option key={x.creator_id} value={x.creator_id}>{x.name}</option>)}</Select>
       <Select id="wa-p-status" value={status} onChange={e => setStatus(e.target.value)}><option value="abertos">Em aberto</option><option value="pago">Pagos</option><option value="todos">Todos</option></Select></div></SectionHeading>
     {rows && (rows.length ? <OrdersTable rows={rows} onChange={load}/> : <Empty id="wa-p-empty" icon={CalendarClock} title="Nada em aberto" description="Pix para conferir, chamadas marcadas e entregas aparecem aqui."/>)}
@@ -111,27 +111,33 @@ function ConfigModal({ creator, onClose }) {
   const set = (k, v) => setCfg(c => ({ ...c, [k]: v })); const sub = (k, f, v) => setCfg(c => ({ ...c, [k]: { ...c[k], [f]: v } }));
   const setItem = (i, f, v) => setCfg(c => ({ ...c, items: c.items.map((x, j) => j === i ? { ...x, [f]: v } : x) }));
   const week = cfg.agenda.week || {}; const setDay = (k, v) => sub('agenda', 'week', { ...week, [k]: v });
-  async function save(e) { e.preventDefault(); setBusy(true); setError(''); try { const { creator_id, updated_at, updated_by, ...body } = cfg; await api.post(`/wa/config/${creator.creator_id}`, body); toast.success('WhatsApp salvo.'); onClose(true); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }
+  async function save(e) { e.preventDefault(); setBusy(true); setError(''); try { const { creator_id, updated_at, updated_by, ...body } = cfg; body.items = body.items.map(({ _k, ...x }) => x); await api.post(`/wa/config/${creator.creator_id}`, body); toast.success('WhatsApp salvo.'); onClose(true); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } }
   return <Modal title={`WhatsApp · ${creator.name}`} description="Só o que estiver ligado é oferecido. Nada de conteúdo adulto neste canal." open onClose={() => onClose(false)} id="wa-cfg" wide><form className="form-stack" onSubmit={save}>
     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}><Sw on={cfg.enabled} label="Atendimento ligado" id="wa-cfg-on" onClick={() => set('enabled', !cfg.enabled)}/><b>{cfg.enabled ? 'Atendimento ligado' : 'Atendimento desligado'}</b></div>
     <div className="form-grid"><Field id="wa-cfg-phone" label="Número divulgado" value={cfg.display_phone} onChange={e => set('display_phone', e.target.value)} placeholder="+55 11 9…"/><Field id="wa-cfg-pid" label="ID do número na Meta (phone_number_id)" value={cfg.phone_number_id} onChange={e => set('phone_number_id', e.target.value.replace(/\D/g, ''))}/></div>
     <SectionHeading title="O que vende aqui" caption="A IA só oferece o que estiver ligado."/>
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>{Object.entries(KIND).map(([k, l]) => <label key={k} style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Sw on={cfg.sells[k]} label={l} id={`wa-sell-${k}`} onClick={() => sub('sells', k, !cfg.sells[k])}/>{l}</label>)}</div>
-    <div className="table-scroll"><table><thead><tr><th>Tipo</th><th>Nome</th><th>Valor (R$)</th><th>Min.</th><th>Entrega (dias)</th><th>Como a IA apresenta</th><th>Ligado</th><th/></tr></thead><tbody>
-      {cfg.items.map((it, i) => <tr key={it.id || i} style={{ opacity: cfg.sells[it.kind] ? 1 : .5 }}>
-        <td><Select id={`wa-it-k-${i}`} value={it.kind} onChange={e => setItem(i, 'kind', e.target.value)}>{Object.entries(KIND).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></td>
-        <td><Input value={it.name} maxLength={40} onChange={e => setItem(i, 'name', e.target.value)} aria-label="Nome"/></td>
-        <td><Input style={{ width: 100 }} defaultValue={reais(it.cents)} onBlur={e => setItem(i, 'cents', cents(e.target.value))} aria-label="Valor"/></td>
-        <td><Input style={{ width: 70 }} type="number" min={0} max={180} value={it.minutes || 0} onChange={e => setItem(i, 'minutes', +e.target.value)} aria-label="Minutos" disabled={it.kind !== 'call'}/></td>
-        <td><Input style={{ width: 70 }} type="number" min={0} max={30} value={it.days || 0} onChange={e => setItem(i, 'days', +e.target.value)} aria-label="Dias" disabled={it.kind === 'call'}/></td>
-        <td><Input value={it.pitch || ''} maxLength={200} onChange={e => setItem(i, 'pitch', e.target.value)} aria-label="Como apresentar"/></td>
-        <td><Sw on={it.on} label="Ligado" onClick={() => setItem(i, 'on', !it.on)}/></td>
-        <td><button type="button" className="icon-btn" aria-label="Remover" onClick={() => set('items', cfg.items.filter((_, j) => j !== i))}><Trash2 size={15}/></button></td></tr>)}
-    </tbody></table></div>
-    <div><Button type="button" variant="outline" onClick={() => set('items', [...cfg.items, { id: '', kind: Object.keys(KIND).find(k => cfg.sells[k]) || 'call', name: '', cents: 0, minutes: 10, days: 3, pitch: '', on: true }])}><Plus size={15}/>Adicionar item</Button></div>
-    <SectionHeading title="Agenda da chamada ao vivo" caption="Horários em que a IA pode marcar. Vazio = folga."/>
-    <div className="form-grid">{DAYS.map((n, k) => { const r = (week[String(k)] || [])[0]; return <label key={k} style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Sw on={!!r} label={n} onClick={() => setDay(String(k), r ? [] : [['19:00', '22:00']])}/><span style={{ width: 34 }}>{n}</span>
-      {r ? <><Input type="time" style={{ width: 110 }} value={r[0]} onChange={e => setDay(String(k), [[e.target.value, r[1]]])} aria-label={`${n} início`}/><span>às</span><Input type="time" style={{ width: 110 }} value={r[1]} onChange={e => setDay(String(k), [[r[0], e.target.value]])} aria-label={`${n} fim`}/></> : <span className="body-muted">folga</span>}</label>; })}</div>
+    {!cfg.items.length && <p className="body-muted" style={{ margin: 0 }}>Nenhum item ainda. Adicione o que ela vende (ex.: Chamada 10 min, Vídeo de aniversário).</p>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {cfg.items.map((it, i) => <div key={it.id || it._k || i} style={{ border: '1px solid #e7e7e9', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: cfg.sells[it.kind] ? '#fff' : '#f7f7f8' }}>
+        <div className="wa-item-row">
+          <div><Field id={`wa-it-k-${i}`} label="Tipo"><Select id={`wa-it-k-${i}`} value={it.kind} onChange={e => setItem(i, 'kind', e.target.value)}>{Object.entries(KIND).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field></div>
+          <div className="wa-name"><Field id={`wa-it-n-${i}`} label="Nome do produto" value={it.name} maxLength={40} placeholder={it.kind === 'call' ? 'Chamada 10 min' : it.kind === 'custom' ? 'Vídeo de aniversário' : 'Pack 10 fotos'} onChange={e => setItem(i, 'name', e.target.value)}/></div>
+          <div className="wa-small"><Field id={`wa-it-v-${i}`} label="Valor (R$)" defaultValue={reais(it.cents)} onBlur={e => setItem(i, 'cents', cents(e.target.value))} placeholder="0,00"/></div>
+          <div className="wa-small">{it.kind === 'call' ? <Field id={`wa-it-m-${i}`} label="Duração (min)" type="number" min={1} max={180} value={it.minutes || ''} onChange={e => setItem(i, 'minutes', +e.target.value)}/>
+            : <Field id={`wa-it-d-${i}`} label="Entrega (dias)" type="number" min={0} max={30} value={it.days ?? ''} onChange={e => setItem(i, 'days', +e.target.value)}/>}</div>
+        </div>
+        <Field id={`wa-it-p-${i}`} label="Como a IA apresenta (opcional)" value={it.pitch || ''} maxLength={200} placeholder="ex.: gravo um vídeo só pra você, falando seu nome" onChange={e => setItem(i, 'pitch', e.target.value)}/>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14 }}><Sw on={it.on} label="Item à venda" onClick={() => setItem(i, 'on', !it.on)}/>{it.on ? 'À venda' : 'Fora de venda'}{!cfg.sells[it.kind] && <span className="body-muted"> · {KIND[it.kind]} está desligado acima</span>}</label>
+          <Button type="button" variant="outline" onClick={() => set('items', cfg.items.filter((_, j) => j !== i))}><Trash2 size={15}/>Remover</Button>
+        </div>
+      </div>)}
+    </div>
+    <div><Button type="button" variant="outline" onClick={() => set('items', [...cfg.items, { id: '', _k: Math.random().toString(36).slice(2), kind: Object.keys(KIND).find(k => cfg.sells[k]) || 'call', name: '', cents: 0, minutes: 10, days: 3, pitch: '', on: true }])}><Plus size={15}/>Adicionar item</Button></div>
+    <SectionHeading title="Agenda da chamada ao vivo" caption="Horários em que a IA pode marcar. Desligado = folga."/>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid #e7e7e9', borderRadius: 8, padding: '6px 14px' }}>{DAYS.map((n, k) => { const r = (week[String(k)] || [])[0]; return <div key={k} style={{ display: 'flex', gap: 12, alignItems: 'center', minHeight: 48, borderTop: k ? '1px solid #efeff1' : 0, flexWrap: 'wrap' }}><Sw on={!!r} label={`${n}: ${r ? 'atende' : 'folga'}`} onClick={() => setDay(String(k), r ? [] : [['19:00', '22:00']])}/><strong style={{ width: 40 }}>{n}</strong>
+      {r ? <><Input type="time" style={{ width: 130 }} value={r[0]} onChange={e => setDay(String(k), [[e.target.value, r[1]]])} aria-label={`${n} início`}/><span>às</span><Input type="time" style={{ width: 130 }} value={r[1]} onChange={e => setDay(String(k), [[r[0], e.target.value]])} aria-label={`${n} fim`}/></> : <span className="body-muted">folga</span>}</div>; })}</div>
     <div className="form-grid"><Field id="wa-gap" label="Intervalo entre chamadas (min)" type="number" min={0} max={120} value={cfg.agenda.gap_min} onChange={e => sub('agenda', 'gap_min', +e.target.value)}/><Field id="wa-lead" label="Marcar com antecedência de (h)" type="number" min={0} max={72} value={cfg.agenda.lead_h} onChange={e => sub('agenda', 'lead_h', +e.target.value)}/><Field id="wa-max" label="Máximo de chamadas por dia" type="number" min={1} max={50} value={cfg.agenda.max_day} onChange={e => sub('agenda', 'max_day', +e.target.value)}/></div>
     <Field id="wa-blocked" label="Dias bloqueados (AAAA-MM-DD, separados por vírgula)" value={(cfg.agenda.blocked || []).join(', ')} onChange={e => sub('agenda', 'blocked', e.target.value.split(',').map(x => x.trim()).filter(Boolean))}/>
     <SectionHeading title="Pagamento"/>
@@ -165,7 +171,7 @@ function Relatorio({ creators }) {
   useEffect(() => { api.get('/wa/report', { params: { days, creator_id: cid } }).then(r => setD(r.data)).catch(e => toast.error(errorText(e))); }, [days, cid]);
   if (!d) return null; const f = d.funnel;
   return <>
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>{[1, 7, 30].map(n => <Button key={n} variant={days === n ? 'default' : 'outline'} onClick={() => setDays(n)}>{n === 1 ? 'Hoje' : `${n} dias`}</Button>)}
+    <div className="wa-filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>{[1, 7, 30].map(n => <Button key={n} variant={days === n ? 'default' : 'outline'} onClick={() => setDays(n)}>{n === 1 ? 'Hoje' : `${n} dias`}</Button>)}
       <Select id="wa-r-creator" value={cid} onChange={e => setCid(e.target.value)}><option value="">Todas as criadoras</option>{creators.map(x => <option key={x.creator_id} value={x.creator_id}>{x.name}</option>)}</Select></div>
     <div className="stats-grid"><Stat id="wa-k-c" label="Conversaram" value={f.contacts} caption={`${f.age_ok} confirmaram 18+ · ${d.blocked_minor} menores bloqueados`} icon={Users}/><Stat id="wa-k-ch" label="Escolheram algo" value={f.chose} caption="pediram Pix" icon={MessageSquare}/>
       <Stat id="wa-k-p" label="Pagaram" value={f.paid} caption={`${f.calls_done} chamadas feitas`} icon={Banknote} tone="green"/><Stat id="wa-k-v" label="Faturado" value={money(d.cents)} caption={`parte das criadoras: ${money(d.creator_cents)}`} icon={FileChartColumn}/></div>
@@ -177,6 +183,8 @@ function Relatorio({ creators }) {
   </>;
 }
 
+const WA_CSS = '.wa-filters select{width:auto!important;min-width:200px;max-width:280px;flex:0 0 auto}[data-testid="wa-cfg"]{max-width:min(980px,calc(100vw - 32px))!important;overflow-x:hidden}.wa-item-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.wa-item-row>*{flex:1 1 160px;min-width:0}.wa-item-row>.wa-name{flex:2 1 240px}.wa-item-row>.wa-small{flex:0 0 130px}';
+
 export default function WhatsApp() {
   const { user } = useApp(); const mgr = user.role === 'manager';
   const [tab, setTab] = useState('conversas'), [data, setData] = useState(null), [k, setK] = useState(0);
@@ -184,7 +192,7 @@ export default function WhatsApp() {
   useEffect(() => { load(); }, [load, k]);
   const T = (key, Icon, label) => <button className={tab === key ? 'selected' : ''} data-testid={`wa-tab-${key}`} onClick={() => setTab(key)}><Icon size={16}/>{label}</button>;
   const creators = data?.creators || [];
-  return <><PageHeading eyebrow="CANAL DE VENDAS" title="WhatsApp" description="Número da criadora divulgado no Instagram e no TikTok. A IA confirma 18+, vende o que estiver ligado e chama você quando trava. Nada de conteúdo adulto."><Button variant="outline" onClick={() => setK(x => x + 1)}><RefreshCw size={15}/>Atualizar</Button></PageHeading>
+  return <><style>{WA_CSS}</style><PageHeading eyebrow="CANAL DE VENDAS" title="WhatsApp" description="Número da criadora divulgado no Instagram e no TikTok. A IA confirma 18+, vende o que estiver ligado e chama você quando trava. Nada de conteúdo adulto."><Button variant="outline" onClick={() => setK(x => x + 1)}><RefreshCw size={15}/>Atualizar</Button></PageHeading>
     <div className="page-tabs">{T('conversas', MessageSquare, 'Conversas')}{T('pedidos', CalendarClock, 'Pedidos e chamadas')}{mgr && T('criadoras', Settings2, 'Criadoras')}{mgr && T('relatorio', FileChartColumn, 'Relatório')}</div>
     {data && <div key={`${tab}-${k}`}>{tab === 'conversas' ? <Conversas creators={creators}/> : tab === 'pedidos' ? <Pedidos creators={creators}/> : tab === 'criadoras' ? <Criadoras data={data} reload={load}/> : <Relatorio creators={creators}/>}</div>}
   </>;
