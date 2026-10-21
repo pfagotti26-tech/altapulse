@@ -5,6 +5,7 @@ Desligador: auto_config.enabled no banco, lido a cada mensagem.
 """
 from datetime import datetime, timedelta
 import asyncio
+import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -190,6 +191,20 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
         })
         if recent:
             return DecideOut(should_send=False, reason="já respondido", essay=cfg["essay"])
+        # lote 160: passagem para humano — fã que cumpriu uma regra vai para o chatter atribuído (a IA para ou segue sem oferta cara)
+        _hv = {}
+        try:
+            import handover as H
+            _hv = await H.gate(body.creator_id, body.fan_ref, body.fan_name, body.messages, create=(mode != "ensaio"))
+        except Exception as e:
+            logging.getLogger("auto").warning("passagem: %s", e)
+        if _hv.get("block"):
+            await db.auto_log.insert_one({
+                "id": uid(), "at": iso(), "day": today(), "creator_id": body.creator_id, "platform": body.platform,
+                "fan_ref": body.fan_ref, "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
+                "last_fan": scrub(last_text)[:500], "decision": "passagem", "reason": _hv["block"],
+            })
+            return DecideOut(should_send=False, reason=_hv["block"], essay=cfg["essay"])
         if await count_today(body.creator_id) >= cfg['max_per_day']:
             return DecideOut(should_send=False, reason="teto diário", essay=cfg["essay"])
         if await count_today(body.creator_id, body.fan_ref) >= cfg['max_per_fan']:
@@ -221,6 +236,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                 fan_ref=body.fan_ref,
                 messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
                 mode='reply',
+                max_cents=_hv.get("max_cents"),
             )
             result = await A.suggest(suggest_body, user)
             if isinstance(result, dict) and result.get("alert"):
@@ -231,6 +247,15 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                     "last_fan": scrub(last_text)[:500],
                     "decision": "travado", "reason": result.get("reason", "alerta"),
                 })
+                try:  # lote 160: avisa quem tem a criadora atribuída
+                    import handover as H
+                    _r = str(result.get("reason") or "")
+                    _ev = ("reclamacao" if "pagou e não recebeu" in _r else "divulgacao" if "divulgando" in _r
+                           else "encontro" if ("encontro" in _r or "programa" in _r) else None)
+                    if _ev:
+                        await H.notify(_ev, body.creator_id, H.EVENTS[_ev]["label"], _r[:300], body.fan_ref, body.fan_name)
+                except Exception:
+                    pass
                 return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
             suggested = result.get("text") if isinstance(result, dict) else None
             prod = result.get("product") if isinstance(result, dict) else None
