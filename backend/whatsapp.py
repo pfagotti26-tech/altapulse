@@ -220,9 +220,15 @@ async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
     await db.wa_orders.insert_one(dict(o))
     await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'aguardando_pix', 'order_id': o['id']}})
     what = f"{item['name']} · {money(o['cents'])}" + (f" · {slot_label(slot)}" if slot else '')
-    msg = (f"separei {slot_label(slot)} pra você! " if slot else 'perfeito! ') + (f"pra confirmar é só pagar ({what}), no Pix ou no cartão. o link vale {hold} min:" if charge.get('link') else f"pra confirmar é só pagar o Pix ({what}). seguro por {hold} min:\n\n{charge.get('text') or ''}".rstrip())
-    if charge.get('link'): msg += f"\n{charge['link']}"
-    await send_text(cfg, contact, msg, by)
+    head = f"separei {slot_label(slot)} pra você! " if slot else 'perfeito! '
+    if charge.get('pix_code'):  # lote 183: Pix copia e cola numa mensagem só dele (segurar e copiar), cartão como opção
+        await send_text(cfg, contact, head + f"pra confirmar é só pagar o Pix ({what}). copia o código aqui embaixo e cola no app do seu banco, em Pix copia e cola. vale {hold} min 👇", by)
+        wid = await _post(cfg, {'to': contact['wa_id'], 'type': 'text', 'text': {'body': charge['pix_code'], 'preview_url': False}}); await _log_out(contact, charge['pix_code'], by, wa_id=wid)
+        if charge.get('link'): await send_text(cfg, contact, f"prefere cartão? é por aqui:\n{charge['link']}", by)
+    else:
+        msg = head + (f"pra confirmar é só pagar ({what}), no Pix ou no cartão. o link vale {hold} min:" if charge.get('link') else f"pra confirmar é só pagar o Pix ({what}). seguro por {hold} min:\n\n{charge.get('text') or ''}".rstrip())
+        if charge.get('link'): msg += f"\n{charge['link']}"
+        await send_text(cfg, contact, msg, by)
     if o['provider'] == 'manual' and not o.get('sim'):
         try:
             import handover as H
@@ -601,6 +607,9 @@ async def _receive(cfg, m, profile_name, wa, lock):
 # ---------- relógio: segurar horário, lembretes, link da chamada ----------
 async def tick():
     t = now()
+    try:
+        import payments; await payments.reconcile()  # lote 183: confere no Mercado Pago antes de vencer
+    except Exception: log.exception('mp conferência')
     async for o in db.wa_orders.find({'status': 'aguardando_pix', 'hold_until': {'$lt': t.isoformat()}, 'provider': {'$ne': 'manual'}}, {'_id': 0}):
         await db.wa_orders.update_one({'id': o['id'], 'status': 'aguardando_pix'}, {'$set': {'status': 'expirado'}})
     # manual: o chatter confere; só expira depois de 12 h sem marcar

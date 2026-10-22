@@ -72,15 +72,26 @@ async def create_charge(cfg, contact, order):
                     'expiration_date_to': exp, 'date_of_expiration': exp,
                     # lote 182: Pix já vem selecionado; cartão e o resto ficam como outras opções
                     'payment_methods': {'installments': 1, 'default_payment_method_id': 'pix', 'excluded_payment_types': [{'id': 'ticket'}]}}
+            # lote 183: Pix gerado direto (código copia e cola na conversa, sem tela do Mercado Pago e sem pedir e-mail ao fã);
+            # o link do checkout fica só como opção para cartão
+            pix = {'transaction_amount': round(cents / 100, 2), 'payment_method_id': 'pix', 'description': order['item'][:60],
+                   'external_reference': order['id'], 'notification_url': notify_url(), 'application_fee': round(fee_cents / 100, 2),
+                   'date_of_expiration': exp, 'statement_descriptor': desc,
+                   'payer': {'email': f"fa{order['id'][:12]}@altapulse.com.br", 'first_name': 'Fã'}}
+            out = {'provider': 'mercadopago', 'fee_cents': fee_cents}
             try:
                 async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.post(f'{MP_API}/v1/payments', headers={'Authorization': f'Bearer {tok}', 'X-Idempotency-Key': 'pix-' + order['id']}, json=pix)
+                    if r.status_code < 300:
+                        d = r.json(); td = (d.get('point_of_interaction') or {}).get('transaction_data') or {}
+                        if td.get('qr_code'): out.update({'pix_code': td['qr_code'], 'pix_payment_id': str(d.get('id') or '')})
+                    else: log.warning('mp pix %s %s', r.status_code, r.text[:300])
+                    body['payment_methods'] = {'installments': 1, 'excluded_payment_types': [{'id': 'ticket'}, {'id': 'bank_transfer'}]} if out.get('pix_code') else body['payment_methods']
                     r = await c.post(f'{MP_API}/checkout/preferences', headers={'Authorization': f'Bearer {tok}', 'X-Idempotency-Key': order['id']}, json=body)
-                if r.status_code < 300:
-                    d = r.json()
-                    return {'provider': 'mercadopago', 'link': d.get('init_point'), 'preference_id': d.get('id'), 'fee_cents': fee_cents,
-                            'text': 'é só tocar no link pra pagar no Pix ou no cartão:'}
-                log.warning('mp preference %s %s', r.status_code, r.text[:300])
-            except Exception as e: log.warning('mp preference: %s', e)
+                    if r.status_code < 300: d = r.json(); out.update({'link': d.get('init_point'), 'preference_id': d.get('id')})
+                    else: log.warning('mp preference %s %s', r.status_code, r.text[:300])
+            except Exception as e: log.warning('mp cobrança: %s', e)
+            if out.get('pix_code') or out.get('link'): return out
         log.info('mercado pago indisponível para %s: usando manual', cfg['creator_id'])
     text = (pay.get('pix_text') or '').strip() or 'já já te mando a chave Pix por aqui'
     return {'provider': 'manual', 'text': text, 'link': None}
@@ -138,7 +149,9 @@ async def mp_webhook(request: Request):
     kind = body.get('type') or body.get('topic') or q.get('type') or q.get('topic')
     seller = str(body.get('user_id') or '')
     if kind != 'payment' or not re.fullmatch(r'\d{3,30}', pid): return {'ok': True}
+    log.info('mp aviso: %s %s vendedor %s', kind, pid, seller)
     accts = await db.mp_accounts.find({'mp_user_id': seller} if seller else {}, {'_id': 0, 'creator_id': 1}).to_list(200)
+    if not accts: accts = await db.mp_accounts.find({}, {'_id': 0, 'creator_id': 1}).to_list(200)  # lote 183: vendedor não bateu, tenta todas
     for a in accts:  # consulta o pagamento na conta da criadora; só confia no que a API devolver
         tok = await seller_token(a['creator_id'])
         if not tok: continue
@@ -159,3 +172,28 @@ async def mp_webhook(request: Request):
             await db.wa_orders.update_one({'id': ref}, {'$set': {'status': 'devolvido', 'cancel_note': f"Mercado Pago: {p.get('status')}", 'cancel_at': iso()}})
         break
     return {'ok': True}
+
+# ---------- conferência ativa (lote 183): não depende só do aviso do Mercado Pago ----------
+async def reconcile():
+    """A cada volta do relógio, pergunta ao Mercado Pago se os pedidos abertos (ou vencidos há menos de 24 h) foram pagos."""
+    t = now()
+    q = {'provider': 'mercadopago', 'created_at': {'$gte': (t - timedelta(hours=24)).isoformat()}, 'status': {'$in': ['aguardando_pix', 'expirado']},
+         '$or': [{'mp_checked_at': None}, {'mp_checked_at': {'$lt': (t - timedelta(seconds=50)).isoformat()}}]}
+    async for o in db.wa_orders.find(q, {'_id': 0}).limit(40):
+        await db.wa_orders.update_one({'id': o['id']}, {'$set': {'mp_checked_at': iso()}})
+        tok = await seller_token(o['creator_id'])
+        if not tok: continue
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.get(f'{MP_API}/v1/payments/search', params={'external_reference': o['id'], 'sort': 'date_created', 'criteria': 'desc'}, headers={'Authorization': f'Bearer {tok}'})
+            if r.status_code != 200: log.warning('mp search %s %s', r.status_code, r.text[:200]); continue
+            for p in r.json().get('results') or []:
+                if str(p.get('external_reference') or '') != o['id']: continue
+                if p.get('status') == 'approved' and abs(round(float(p.get('transaction_amount') or 0) * 100) - int(o['cents'])) <= 1:
+                    await db.wa_orders.update_one({'id': o['id']}, {'$set': {'mp_payment_id': str(p.get('id')), 'mp_status': 'approved', 'mp_method': p.get('payment_type_id')}})
+                    import whatsapp as W
+                    try: await W.mark_paid(o['id'], 'Mercado Pago')
+                    except HTTPException: pass
+                    log.info('mp conferência: pedido %s pago', o['id'])
+                    break
+        except Exception as e: log.warning('mp conferência: %s', e)
