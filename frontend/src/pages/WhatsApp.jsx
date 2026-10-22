@@ -240,6 +240,52 @@ function Relatorio({ creators }) {
   </>;
 }
 
+function Simulador({ creators }) {
+  const [cid, setCid] = useState(''), [v, setV] = useState(null), [text, setText] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(() => { if (!cid && creators.length) setCid((creators.find(c => c.sells.length) || creators[0]).creator_id); }, [creators, cid]);
+  const load = useCallback(async () => { if (!cid) return; try { const r = await api.get(`/wa/sim/${cid}`); setV(r.data); } catch (e) { toast.error(errorText(e)); } }, [cid]);
+  useEffect(() => { setV(null); load(); }, [load]);
+  useEffect(() => { const el = document.getElementById('wa-sim-end'); el?.scrollIntoView({ block: 'end' }); }, [v]);
+  async function call(path, body) { setBusy(true); try { const r = await api.post(`/wa/sim/${cid}${path}`, body || {}); if (r.data?.messages) setV(r.data); else await load(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
+  async function send(e) { e?.preventDefault(); const t = text.trim(); if (!t || busy) return; setText(''); setV(x => x ? { ...x, messages: [...x.messages, { id: 'tmp', dir: 'in', text: t, at: new Date().toISOString() }] } : x); await call('', { text: t }); }
+  async function giveBack() { setBusy(true); try { await api.post(`/wa/contacts/${v.contact.id}/return`); await load(); toast.success('A IA voltou a responder.'); } catch (e) { toast.error(errorText(e)); } finally { setBusy(false); } }
+  const msgs = v?.messages || []; const c = v?.contact; const lastBtn = [...msgs].reverse().find(m => m.dir === 'out');
+  const pending = (v?.orders || []).find(o => o.status === 'aguardando_pix'); const cr = creators.find(x => x.creator_id === cid);
+  return <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+    <section className="data-section" style={{ flex: '1 1 280px', maxWidth: 360 }}>
+      <SectionHeading title="Simulador" caption="Você escreve como se fosse o fã e a IA responde com as regras de verdade. Nada vai para o WhatsApp, a equipe não é avisada e não entra no relatório."/>
+      <Field id="wa-sim-creator" label="Criadora"><Select id="wa-sim-creator" value={cid} onChange={e => setCid(e.target.value)}>{creators.map(x => <option key={x.creator_id} value={x.creator_id}>{x.name}{x.sells.length ? '' : ' (nada à venda)'}</option>)}</Select></Field>
+      {cr && !cr.sells.length && <Notice id="wa-sim-nothing" tone="amber">Esta criadora ainda não tem nada à venda ligado. Configure em Criadoras para testar a venda.</Notice>}
+      {c && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12, fontSize: 13 }}>
+        <span>Idade: {c.age_ok ? <Badge tone="green">18+ confirmado</Badge> : <Badge tone="amber">não confirmada</Badge>}</span>
+        <span>Etapa: <Badge tone={STAGE[c.stage]?.[0]}>{STAGE[c.stage]?.[1] || c.stage}</Badge></span>
+        {c.blocked && <span><Badge tone="red">bloqueado: {c.blocked}</Badge></span>}
+        {c.human && !c.blocked && <span><Badge tone="red">IA parou: {c.human_reason}</Badge><br/><small className="body-muted">Na vida real o chatter seria avisado e assumiria aqui.</small></span>}
+      </div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+        {pending && <Button disabled={busy} onClick={() => call('/paid')}><Banknote size={15}/>Simular Pix pago ({money(pending.cents)})</Button>}
+        {c?.human && !c.blocked && c.age_ok && <Button variant="outline" disabled={busy} onClick={giveBack}>Devolver à IA</Button>}
+        <Button variant="outline" disabled={busy || !c} onClick={() => call('/reset').then(() => setV({ contact: null, messages: [], orders: [] }))}><RefreshCw size={15}/>Recomeçar conversa</Button>
+      </div>
+      <p className="body-muted" style={{ fontSize: 12, marginTop: 14 }}>Ideias de teste: "oi", "tenho 16", "manda nude", "vc é robô?", "quero uma chamada", "faz um vídeo pro aniversário da minha irmã".</p>
+    </section>
+    <section style={{ flex: '0 1 420px', minWidth: 300, height: 680, display: 'flex', flexDirection: 'column', borderRadius: 18, overflow: 'hidden', border: '1px solid #d6d6db', background: '#ecebe7' }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#1f2a2e', color: '#fff' }}><div style={{ width: 36, height: 36, borderRadius: '50%', background: '#C41E3A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{(cr?.name || '?')[0]}</div><div><strong>{cr?.name || 'Criadora'}</strong><div style={{ fontSize: 11, color: '#c9d1d4' }}>{busy ? 'digitando…' : 'simulação'}</div></div></header>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {!msgs.length && <p className="body-muted" style={{ textAlign: 'center', fontSize: 13, marginTop: 40 }}>Mande um "oi" como se fosse um seguidor que viu o story.</p>}
+        {msgs.map(m => <div key={m.id + m.at} style={{ alignSelf: m.dir === 'in' ? 'flex-end' : 'flex-start', maxWidth: '82%', background: m.dir === 'in' ? '#e3f0e6' : '#fff', borderRadius: m.dir === 'in' ? '10px 10px 2px 10px' : '10px 10px 10px 2px', padding: '8px 11px', fontSize: 14, whiteSpace: 'pre-wrap', boxShadow: '0 1px 1px #0000000f' }}>
+          {m.body || m.text}
+          {m.buttons && <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>{m.buttons.map(b => <button key={b[0]} type="button" disabled={busy || m !== lastBtn || !!c?.human} onClick={() => call('', { button: b[0], title: b[1] })} style={{ height: 38, border: '1px solid #d6dbe3', borderRadius: 8, background: '#fff', color: '#2c5591', fontWeight: 600, font: 'inherit', cursor: 'pointer' }}>{b[1]}</button>)}</div>}
+          <div style={{ fontSize: 10, color: '#6b6b73', textAlign: 'right', marginTop: 3 }}>{m.dir === 'out' ? (m.by === 'ia' ? 'IA · ' : m.by === 'sistema' ? 'automático · ' : '') : ''}{new Date(m.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+        </div>)}
+        {busy && <div style={{ alignSelf: 'flex-start', background: '#fff', borderRadius: 10, padding: '8px 12px', fontSize: 13, color: '#6b6b73' }}>digitando…</div>}
+        <div id="wa-sim-end"/>
+      </div>
+      <form onSubmit={send} style={{ display: 'flex', gap: 8, padding: 10, background: '#f4f4f2' }}><Input value={text} onChange={e => setText(e.target.value)} placeholder={c?.blocked ? 'Contato bloqueado: recomece' : 'Escreva como o fã'} disabled={!cid || !!c?.blocked} maxLength={1000} aria-label="Mensagem do fã"/><Button type="submit" disabled={busy || !text.trim() || !!c?.blocked} aria-label="Enviar"><Send size={15}/></Button></form>
+    </section>
+  </div>;
+}
+
 const WA_CSS = 'body.wa-focus .sidebar,body.wa-focus .topbar,body.wa-focus .page-footer{display:none!important}body.wa-focus .main-layout{margin-left:0!important}body.wa-focus .main-layout main{max-width:none!important;padding:0!important;animation:none}.wa-split{display:flex;min-height:100vh;background:#f7f7f8}.wa-rail{flex:0 0 72px;background:#111113;display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px 8px;position:sticky;top:0;height:100vh;box-sizing:border-box}.wa-rail-back{background:transparent;border:1px solid #303035;color:#c4c4cb;border-radius:6px;font:inherit;font-size:11px;padding:6px 8px;cursor:pointer}.wa-rail-back:hover{color:#fff;border-color:#5a2833}.wa-list{flex:0 0 240px;background:#fff;border-right:1px solid #e7e7e9;padding:18px 10px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;overflow-y:auto}.wa-list-item{display:flex;flex-direction:column;gap:2px;text-align:left;border:0;background:transparent;border-radius:6px;padding:9px 10px;font:inherit;font-size:13px;color:#3a3a40;cursor:pointer}.wa-list-item:hover{background:#f7f7f8}.wa-list-item.on{background:#faf0f2;color:#a32b44;font-weight:600}.wa-list-item small{font-size:11px;color:#85858c;font-weight:400}.wa-list-item small.wa-ok{color:#3b7048}.wa-editor{flex:1;min-width:0;display:flex;flex-direction:column}.wa-editor-head{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid #e7e7e9;padding:16px 28px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}.wa-ask{flex-basis:100%;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;background:#fbf4e7;border:1px solid #f0dfbf;border-radius:8px;padding:10px 14px;color:#6b4c14;font-size:14px}.wa-editor-body{display:flex;gap:24px;padding:24px 28px 60px;align-items:flex-start}.wa-index{flex:0 0 170px;display:flex;flex-direction:column;gap:2px;position:sticky;top:110px}.wa-index button{text-align:left;border:0;background:transparent;border-radius:6px;padding:8px 10px;font:inherit;font-size:13px;color:#53535b;cursor:pointer}.wa-index button:hover{background:#f0f0f2;color:#28282d}.wa-sections{flex:1;min-width:0;display:flex;flex-direction:column;gap:18px;max-width:980px}.wa-card{background:#fff;border:1px solid #e7e7e9;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:14px;scroll-margin-top:120px}.wa-card-title{margin:0;font-family:Manrope,sans-serif;font-size:17px;color:#28282d}@media (max-width:900px){.wa-list,.wa-index{display:none}.wa-rail{flex-basis:56px}.wa-editor-head,.wa-editor-body{padding-left:14px;padding-right:14px}}.wa-filters select{width:auto!important;min-width:200px;max-width:280px;flex:0 0 auto}.wa-item-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.wa-item-row>*{flex:1 1 160px;min-width:0}.wa-item-row>.wa-name{flex:2 1 240px}.wa-item-row>.wa-small{flex:0 0 130px}';
 
 export default function WhatsApp() {
@@ -253,7 +299,7 @@ export default function WhatsApp() {
   const creators = data?.creators || [];
   if (editing && data) return <><style>{WA_CSS}</style><ConfigEditor key={editing.creator_id} creator={editing} creators={creators} onSwitch={c => setEditing(c)} onClose={saved => { setEditing(null); if (saved) load(); }}/></>;
   return <><style>{WA_CSS}</style><PageHeading eyebrow="CANAL DE VENDAS" title="WhatsApp" description="Número da criadora divulgado no Instagram e no TikTok. A IA confirma 18+, vende o que estiver ligado e chama você quando trava. Nada de conteúdo adulto."><Button variant="outline" onClick={() => setK(x => x + 1)}><RefreshCw size={15}/>Atualizar</Button></PageHeading>
-    <div className="page-tabs">{T('conversas', MessageSquare, 'Conversas')}{T('pedidos', CalendarClock, 'Pedidos e chamadas')}{mgr && T('criadoras', Settings2, 'Criadoras')}{mgr && T('relatorio', FileChartColumn, 'Relatório')}</div>
-    {data && <div key={`${tab}-${k}`}>{tab === 'conversas' ? <Conversas creators={creators}/> : tab === 'pedidos' ? <Pedidos creators={creators}/> : tab === 'criadoras' ? <Criadoras data={data} onEdit={c => setEditing(c)}/> : <Relatorio creators={creators}/>}</div>}
+    <div className="page-tabs">{T('conversas', MessageSquare, 'Conversas')}{T('pedidos', CalendarClock, 'Pedidos e chamadas')}{mgr && T('criadoras', Settings2, 'Criadoras')}{mgr && T('simulador', MessageSquare, 'Simulador')}{mgr && T('relatorio', FileChartColumn, 'Relatório')}</div>
+    {data && <div key={`${tab}-${k}`}>{tab === 'conversas' ? <Conversas creators={creators}/> : tab === 'pedidos' ? <Pedidos creators={creators}/> : tab === 'criadoras' ? <Criadoras data={data} onEdit={c => setEditing(c)}/> : tab === 'simulador' ? <Simulador creators={creators}/> : <Relatorio creators={creators}/>}</div>}
   </>;
 }
