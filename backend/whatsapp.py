@@ -62,6 +62,7 @@ def check(user, creator_id):
 
 # ---------- envio pela Cloud API ----------
 async def _post(cfg, payload):
+    if str(payload.get('to') or '').startswith('sim'): return 'sim.' + uid()  # lote 165: simulador do painel, nada sai para o WhatsApp
     if not wa_token() or not cfg.get('phone_number_id'): return None
     try:
         async with httpx.AsyncClient(timeout=20) as c:
@@ -97,7 +98,7 @@ async def send_buttons(cfg, contact, text, buttons, by='ia'):
         inter = {'type': 'list', 'body': {'text': text[:1024]}, 'action': {'button': 'Ver opções', 'sections': [{'title': 'Opções', 'rows': [
             {'id': b[0], 'title': b[1][:24], **({'description': b[2][:72]} if len(b) > 2 and b[2] else {})} for b in buttons[:10]]}]}}
     wid = await _post(cfg, {'to': contact['wa_id'], 'type': 'interactive', 'interactive': inter})
-    return await _log_out(contact, text + '\n' + ' | '.join(b[1] for b in buttons), by, 'botoes', wid)
+    return await _log_out(contact, text + '\n' + ' | '.join(b[1] for b in buttons), by, 'botoes', wid, {'buttons': [[b[0], b[1]] for b in buttons[:10]], 'body': text[:1024]})
 
 async def send_template(cfg, contact, name, params, by='sistema'):
     wid = await _post(cfg, {'to': contact['wa_id'], 'type': 'template', 'template': {'name': name, 'language': {'code': (cfg.get('templates') or {}).get('lang') or 'pt_BR'},
@@ -129,6 +130,7 @@ def age_of(text):
 
 async def to_human(cfg, contact, reason, notify_text=None):
     await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'human': True, 'human_reason': reason, 'human_at': iso()}})
+    if contact.get('sim'): return  # simulação: não avisa a equipe
     try:
         import handover as H
         await H.notify('whatsapp', contact['creator_id'], 'WhatsApp: precisa de você', notify_text or reason, contact['id'], contact.get('name'), {'contact_id': contact['id']})
@@ -183,7 +185,7 @@ async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
          'slot_start': slot.isoformat() if slot else None, 'call_status': 'agendada' if slot else None, 'custom': custom or None,
          'status': 'aguardando_pix', 'hold_until': (now() + timedelta(minutes=hold)).isoformat(), 'created_at': iso(), 'created_by': by,
          'creator_pct': int((cfg.get('pay') or {}).get('creator_pct') or 0), 'provider': (cfg.get('pay') or {}).get('provider') or 'manual',
-         'reminders': [], 'expires_at': now() + timedelta(days=730)}
+         'reminders': [], 'sim': bool(contact.get('sim')), 'expires_at': now() + timedelta(days=730)}
     charge = await payments.create_charge(cfg, contact, o)
     o.update({'charge': charge, 'provider': charge.get('provider') or o['provider']})
     await db.wa_orders.insert_one(dict(o))
@@ -192,7 +194,7 @@ async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
     msg = (f"separei {slot_label(slot)} pra você! " if slot else 'perfeito! ') + (f"pra confirmar é só pagar ({what}), no Pix ou no cartão. o link vale {hold} min:" if charge.get('link') else f"pra confirmar é só pagar o Pix ({what}). seguro por {hold} min:\n\n{charge.get('text') or ''}".rstrip())
     if charge.get('link'): msg += f"\n{charge['link']}"
     await send_text(cfg, contact, msg, by)
-    if o['provider'] == 'manual':
+    if o['provider'] == 'manual' and not o.get('sim'):
         try:
             import handover as H
             await H.notify('whatsapp', cfg['creator_id'], 'WhatsApp: confira o Pix', f"{contact.get('name') or 'Contato'} vai pagar {what}. Confira e marque pago.", contact['id'], contact.get('name'), {'order_id': o['id']})
@@ -219,6 +221,7 @@ async def mark_paid(order_id, by_name='Sistema'):
         else: t = 'recebi, amor! já já te mando aqui'
         try: await say(cfg, contact, t, 'sistema')
         except HTTPException: pass
+    if o.get('sim'): return o
     try:
         import handover as H
         await H.notify('pagamento', o['creator_id'], 'WhatsApp: pagamento recebido', f"{o['item']} · {money(o['cents'])}" + (f" · {slot_label(datetime.fromisoformat(o['slot_start']))}" if o.get('slot_start') else ' · entregar'),
@@ -308,6 +311,7 @@ def item_by_id(cfg, iid): return next((i for i in on_items(cfg) if i['id'] == ii
 async def handle_in(cfg, contact, text, button_id=None):
     if contact.get('blocked'): return
     if contact.get('human'):
+        if contact.get('sim'): return
         try:
             import handover as H
             await H.notify('whatsapp', contact['creator_id'], 'WhatsApp: mensagem nova', (text or '')[:200], contact['id'], contact.get('name'), {'contact_id': contact['id']})
@@ -464,6 +468,7 @@ async def tick():
         try:
             if cfg.get('reminders') and 6 < mins <= 31 and '30' not in sent:
                 await mark('30'); await say(cfg, contact, 'falta meia hora pra nossa chamada! daqui a pouco te mando o link', 'sistema')
+                if o.get('sim'): continue
                 import handover as H
                 await H.notify('whatsapp', o['creator_id'], 'Chamada ao vivo em 30 min', f"{o.get('contact_name') or 'Contato'} · {slot_label(start)} · confirme com a criadora", o['contact_id'], o.get('contact_name'), {'order_id': o['id']})
             if -int(o.get('minutes') or 10) < mins <= 6 and 'link' not in sent:
@@ -509,8 +514,8 @@ async def creators_list(user=Depends(wa_user)):
         g = cfgs.get(c['id']) or {}
         out.append({'creator_id': c['id'], 'name': c['name'], 'enabled': bool(g.get('enabled')), 'display_phone': g.get('display_phone') or '', 'connected': bool(g.get('phone_number_id')),
                     'sells': [k for k in KINDS if (g.get('sells') or {}).get(k)],
-                    'open_human': await db.wa_contacts.count_documents({'creator_id': c['id'], 'human': True, 'blocked': None}),
-                    'week_cents': sum(o['cents'] for o in await db.wa_orders.find({'creator_id': c['id'], 'status': 'pago', 'paid_at': {'$gte': since}}, {'_id': 0, 'cents': 1}).to_list(5000))})
+                    'open_human': await db.wa_contacts.count_documents({'creator_id': c['id'], 'human': True, 'blocked': None, 'sim': {'$ne': True}}),
+                    'week_cents': sum(o['cents'] for o in await db.wa_orders.find({'creator_id': c['id'], 'status': 'pago', 'paid_at': {'$gte': since}, 'sim': {'$ne': True}}, {'_id': 0, 'cents': 1}).to_list(5000))})
     return {'creators': out, 'kinds': KINDS, 'ready': bool(wa_token() and os.environ.get('WA_APP_SECRET') and os.environ.get('WA_VERIFY_TOKEN'))}
 
 @router.get('/wa/config/{creator_id}')
@@ -560,6 +565,7 @@ async def contacts(creator_id: str = '', status: str = 'todas', user=Depends(wa_
     q = {}
     if ids: q['creator_id'] = creator_id
     elif not is_staff(user): q['creator_id'] = {'$in': user.get('creator_ids') or []}
+    q['sim'] = {'$ne': True}
     if status == 'humano': q.update({'human': True, 'blocked': None})
     elif status == 'pix': q['stage'] = 'aguardando_pix'
     elif status == 'bloqueados': q['blocked'] = {'$ne': None}
@@ -732,10 +738,10 @@ async def deliver(oid: str, file: UploadFile = File(...), user=Depends(wa_user))
 @router.get('/wa/report')
 async def report(days: int = 7, creator_id: str = '', user=Depends(manager)):
     since = (now() - timedelta(days=max(1, min(90, days)))).isoformat()
-    q = {'created_at': {'$gte': since}}
+    q = {'created_at': {'$gte': since}, 'sim': {'$ne': True}}
     if creator_id: q['creator_id'] = creator_id
     cs = await db.wa_contacts.find(q, {'_id': 0, 'id': 1, 'creator_id': 1, 'age_ok': 1, 'source': 1, 'blocked': 1}).to_list(50000)
-    oq = {'created_at': {'$gte': since}, **({'creator_id': creator_id} if creator_id else {})}
+    oq = {'created_at': {'$gte': since}, 'sim': {'$ne': True}, **({'creator_id': creator_id} if creator_id else {})}
     os_ = await db.wa_orders.find(oq, {'_id': 0}).to_list(50000)
     paid_ = [o for o in os_ if o['status'] == 'pago']
     chose = {o['contact_id'] for o in os_}
@@ -754,3 +760,60 @@ async def report(days: int = 7, creator_id: str = '', user=Depends(manager)):
             'cents': sum(o['cents'] for o in paid_), 'creator_cents': sum(o['cents'] * (o.get('creator_pct') or 0) // 100 for o in paid_),
             'sources': src, 'blocked_minor': sum(1 for c in cs if c.get('blocked') == 'menor de idade'), 'by_kind': by_kind, 'kinds': KINDS,
             'per_creator': [{'creator_id': k, 'name': names.get(k), **v} for k, v in per.items()]}
+
+
+# ---------- simulador (lote 165): o gestor conversa como se fosse o fã, com as regras de verdade; nada vai para o WhatsApp ----------
+class SimIn(Strict):
+    text: str = Field(default='', max_length=1000)
+    button: Optional[str] = Field(default=None, max_length=80)
+    title: str = Field(default='', max_length=40)
+
+async def _sim_contact(creator_id, user, create=True):
+    wa = f"sim{user['id'][:12]}"
+    c = await db.wa_contacts.find_one({'creator_id': creator_id, 'wa_id': wa}, {'_id': 0})
+    if not c and create:
+        c = {'id': uid(), 'creator_id': creator_id, 'wa_id': wa, 'name': f"Simulação ({user['name'].split(' ')[0]})", 'source': None, 'stage': 'novo', 'sim': True,
+             'age_ok': False, 'human': False, 'blocked': None, 'created_at': iso(), 'spent_cents': 0, 'expires_at': now() + timedelta(days=30)}
+        await db.wa_contacts.insert_one(dict(c))
+    return c
+
+async def _sim_view(c):
+    if not c: return {'contact': None, 'messages': [], 'orders': []}
+    msgs = await db.wa_messages.find({'contact_id': c['id']}, {'_id': 0, 'expires_at': 0, 'wa_msg_id': 0}).sort('at', 1).to_list(400)
+    orders = await db.wa_orders.find({'contact_id': c['id']}, {'_id': 0, 'expires_at': 0}).sort('created_at', -1).to_list(20)
+    return {'contact': _contact_out(c), 'messages': msgs, 'orders': orders}
+
+@router.get('/wa/sim/{creator_id}')
+async def sim_read(creator_id: str, user=Depends(manager)):
+    return await _sim_view(await _sim_contact(creator_id, user, create=False))
+
+@router.post('/wa/sim/{creator_id}')
+async def sim_send(creator_id: str, body: SimIn, user=Depends(manager)):
+    if not body.text.strip() and not body.button: raise HTTPException(422, 'Escreva uma mensagem.')
+    cfg = await get_cfg(creator_id)
+    c = await _sim_contact(creator_id, user)
+    lock = _locks.setdefault(f"{creator_id}:{c['wa_id']}", asyncio.Lock())
+    async with lock:
+        t = iso(); text = body.title if body.button else body.text.strip()
+        await db.wa_contacts.update_one({'id': c['id']}, {'$set': {'last_in_at': t, 'last_text': text[:160]}})
+        await db.wa_messages.insert_one({'id': uid(), 'contact_id': c['id'], 'creator_id': creator_id, 'dir': 'in', 'by': 'fã', 'text': text[:4000], 'kind': 'interactive' if body.button else 'text',
+                                         'button': body.button, 'at': t, 'expires_at': now() + timedelta(days=30)})
+        c = await db.wa_contacts.find_one({'id': c['id']}, {'_id': 0})
+        try: await handle_in(cfg, c, text, body.button)
+        except HTTPException as e: await _log_out(c, f'[erro: {e.detail}]', 'sistema')
+    return await _sim_view(await db.wa_contacts.find_one({'id': c['id']}, {'_id': 0}))
+
+@router.post('/wa/sim/{creator_id}/reset')
+async def sim_reset(creator_id: str, user=Depends(manager)):
+    c = await _sim_contact(creator_id, user, create=False)
+    if c:
+        await db.wa_messages.delete_many({'contact_id': c['id']}); await db.wa_orders.delete_many({'contact_id': c['id']}); await db.wa_contacts.delete_one({'id': c['id']})
+    return {'ok': True}
+
+@router.post('/wa/sim/{creator_id}/paid')
+async def sim_paid(creator_id: str, user=Depends(manager)):
+    c = await _sim_contact(creator_id, user, create=False)
+    o = await db.wa_orders.find_one({'contact_id': (c or {}).get('id'), 'status': 'aguardando_pix', 'sim': True}, {'_id': 0}, sort=[('created_at', -1)]) if c else None
+    if not o: raise HTTPException(404, 'Não há pedido esperando pagamento nesta simulação.')
+    await mark_paid(o['id'], 'Simulação')
+    return await _sim_view(await db.wa_contacts.find_one({'id': c['id']}, {'_id': 0}))
