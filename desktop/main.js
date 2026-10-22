@@ -799,7 +799,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
   // lote 159 (revisão Claude): uma decisão por VIEW da criadora (antes era por fã: a leitura periódica e a fila decidiam
   // ao mesmo tempo na mesma aba, e a legenda/"depois" de uma oferta caíram na conversa de outra pessoa — Bruninha, 21/10 10h43)
   const key = creatorId + ':' + (platform || 'privacy');
-  if (autoInProgress.has(key)) return;
+  if (autoInProgress.has(key)) return 'busy'; // lote 177: a fila tenta este fã de novo em ~30 s (antes contava como atendido e o fã ficava sem resposta)
   autoInProgress.add(key);
   const p = (async () => {
   // Só na criadora configurada (id vem de /auto/status)
@@ -814,7 +814,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
       if (read && read.msgs && read.msgs.length && (!expectName || norm(read.name) === norm(expectName))) break;
       await new Promise(res => setTimeout(res, 1000));
     }
-    if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return; }
+    if (!read || !read.msgs || !read.msgs.length) { appLog('fila', 'decide: sem msgs após 8s'); return 'retry'; } // lote 177: tenta de novo (antes ficava sem resposta)
     if (expectName && norm(read.name) !== norm(expectName)) { appLog('fila', `decide: conversa não trocou (esperado ${expectName})`); return 'retry'; }
     if (read.headerVerified) { appLog('fila', 'decide: pulou criadora verificada'); return; }
     if (read.cantSend) { appLog('fila', 'decide: conversa sem assinatura (não dá para responder)'); return; }
@@ -834,7 +834,9 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
       fan_name: (state.fan_names_allowed && read.name) ? read.name : undefined,  // lote 144: nome da conversa lida (antes vinha do fã anterior)
       messages: read.msgs.slice(-8).map(m => ({ ours: !!m.ours, text: m.text || '' })),
     };
-    const r = await api('POST', '/auto/decide', payload);
+    // lote 177: a decisão (IA) não pode segurar a fila para sempre
+    const r = await Promise.race([api('POST', '/auto/decide', payload), new Promise((_, rej) => setTimeout(() => rej(new Error('decide demorou mais de 75 s')), 75000))])
+      .catch((e) => { appLog('fila', 'decide falhou: ' + (e && e.message)); return { reason: 'erro interno' }; });
     if (filaEnsaio && r && (r.log_id || r.suggested_text)) filaEnsaio.markRecent(fan_ref);
     appLog('fila', `decide ${(payload.fan_ref||'').slice(0,8)}: ${r && (r.reason || r.decision) || 'ok'}`);
     const temp = r && /fora do horário|teto|plantão|chatter ativo|erro interno/.test(r.reason || '');
@@ -951,7 +953,11 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
   } catch (e) { appLog('fila', String(e)); }
   })();
   global.autoBusy = p;
-  try { return await p; } finally { autoInProgress.delete(key); if (global.autoBusy === p) global.autoBusy = null; }
+  // lote 177: trava de segurança — se uma decisão/envio ficar presa (página da Privacy congelada, modal aberto...), em 150 s
+  // a fila é liberada para seguir com os outros fãs e criadoras (antes a fila inteira parava)
+  let hard;
+  const guard = new Promise((res) => { hard = setTimeout(() => { appLog('fila', 'decisão presa há 150 s: liberando a fila'); res('temp'); }, 150000); });
+  try { return await Promise.race([p, guard]); } finally { clearTimeout(hard); autoInProgress.delete(key); if (global.autoBusy === p) global.autoBusy = null; }
 }
 
 // troca de conversa: atualiza o cartão em ~1 s, sem esperar a próxima leitura geral (10 s)
@@ -2361,13 +2367,34 @@ if (ALTA_TESTE) {
     FF_CHAT_SCRIPT,
     openChat: async (creatorId, name, fanRef, platform, waitS) => {
       platform = platform || 'privacy';
-      if (global.autoBusy) await global.autoBusy.catch(() => {});  // lote 159: não troca de conversa enquanto uma oferta ainda está mandando legenda/depois
+      const waitBusy = () => global.autoBusy ? Promise.race([global.autoBusy.catch(() => {}), sleep(60000)]) : null; // lote 177: no máximo 60 s
+      if (global.autoBusy) await waitBusy();  // lote 159: não troca de conversa enquanto uma oferta ainda está mandando legenda/depois
       await openConversation(creatorId, platform, null, name, fanRef);
       const view = (tabs.get(creatorId) || new Map()).get(platform);
       let result = null;
       if (view) result = await tryAutoDecide(view, creatorId, name, platform, waitS);
-      if (global.autoBusy) await global.autoBusy.catch(() => {});
+      if (global.autoBusy) await waitBusy();
       return result;
+    },
+    // lote 177: varredura — rola a lista de conversas da Privacy para carregar as mais antigas e devolve todas as linhas
+    scanRooms: async (creatorId) => {
+      const view = views.get(creatorId);
+      if (!view || view.webContents.isDestroyed() || !/privacy\.com\.br\/chat/.test(view.webContents.getURL())) return null;
+      if (autoInProgress.has(creatorId + ':privacy') || global.autoBusy) return null;
+      const SCROLL = (toTop) => `(() => {
+        const roots = []; (function walk(r, d) { if (d > 6) return; roots.push(r); for (const el of r.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, d + 1); })(document, 0);
+        let item = null; for (const root of roots) { item = root.querySelector('.vac-room-list .vac-room-item'); if (item) break; }
+        if (!item) return -1;
+        let el = item.parentElement;
+        while (el && !(el.scrollHeight > el.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+        if (!el) return -1;
+        el.scrollTop = ${toTop ? 0 : 'el.scrollHeight'};
+        return el.querySelectorAll('.vac-room-item').length;
+      })()`;
+      for (let i = 0; i < 4; i++) { const n = await runJs(view, SCROLL(false), 3000).catch(() => -1); if (n < 0) return null; await sleep(1500); }
+      const data = await runJs(view, READER_SCRIPT, 8000).catch(() => null);
+      await runJs(view, SCROLL(true), 3000).catch(() => {});
+      return data && data.page === 'chat' ? (data.rooms || []) : null;
     },
     log: (msg) => appLog('fila', msg),
   });

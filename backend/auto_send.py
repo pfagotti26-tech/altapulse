@@ -239,6 +239,21 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                 max_cents=_hv.get("max_cents"),
             )
             result = await A.suggest(suggest_body, user)
+            # lote 177 (revisão Claude): "tema proibido" dado pela IA sem o fã ter escrito palavra proibida costuma ser a IA lendo
+            # as boas-vindas da própria criadora ("novinha"...). Segunda opinião sem as mensagens longas nossas (boas-vindas/em massa).
+            # Palavra de família do fã ou bloqueio da equipe continuam travando direto (vêm com "blocked").
+            second = None
+            if isinstance(result, dict) and result.get("alert") and not result.get("blocked") and "proibido" in str(result.get("reason") or "").lower():
+                import profile_model as PM2
+                fan_txt = [m.text for m in body.messages[-6:] if not m.ours and m.text]
+                if not any(PM2.family_word(t) for t in fan_txt):
+                    trimmed = [m for m in body.messages if not (m.ours and len(m.text or "") > 280)]
+                    if trimmed and len(trimmed) < len(body.messages):
+                        suggest_body2 = A.SuggestIn(creator_id=body.creator_id, platform=body.platform, fan_ref=body.fan_ref,
+                                                    messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in trimmed], mode='reply', max_cents=_hv.get("max_cents"))
+                        r2 = await A.suggest(suggest_body2, user)
+                        second = "liberou" if (isinstance(r2, dict) and not r2.get("alert")) else "manteve"
+                        if second == "liberou": result = r2
             if isinstance(result, dict) and result.get("alert"):
                 await db.auto_log.insert_one({
                     "id": uid(), "at": iso(), "day": today(),
@@ -246,6 +261,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                 "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
                     "last_fan": scrub(last_text)[:500],
                     "decision": "travado", "reason": result.get("reason", "alerta"),
+                    **({"second_opinion": second} if second else {}),
                 })
                 try:  # lote 160: avisa quem tem a criadora atribuída
                     import handover as H

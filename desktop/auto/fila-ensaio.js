@@ -2,7 +2,32 @@
 // Critério: !ours, não está digitando, última msg do fã ≥ 45s.
 // Tick 10s com variação. Prioriza recentes da automação.
 module.exports = function createFila(deps) {
-  const { api, getState, roomKey, openChat, getLastRooms, listAt, log, tabs, runJs, FF_CHAT_SCRIPT } = deps;
+  const { api, getState, roomKey, openChat, getLastRooms, listAt, log, tabs, runJs, FF_CHAT_SCRIPT, scanRooms } = deps;
+  // lote 177 (revisão Claude): memória das conversas. A lista da Privacy só mostra as linhas carregadas (e, com o filtro
+  // "só online", some quem ficou offline): quem estava esperando e saiu da lista era esquecido. Agora fica lembrado por 6 h.
+  const mem = new Map(); // creatorId:platform → Map(nome → { r, seenAt })
+  const lastScan = new Map(); // creatorId → timestamp da última varredura
+  const MEM_MS = 6 * 60 * 60 * 1000;
+  const MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000; // conversa parada há mais de 2 dias não entra
+  function remember(creatorId, platform, rooms) {
+    const k = creatorId + ':' + platform; const now = Date.now();
+    if (!mem.has(k)) mem.set(k, new Map());
+    const m = mem.get(k);
+    for (const r of rooms || []) if (r && r.name) m.set(r.name, { r, seenAt: now });
+    for (const [n, e] of m) if (now - e.seenAt > MEM_MS) m.delete(n);
+  }
+  function roomsOf(creatorId, platform, current) {
+    remember(creatorId, platform, current);
+    const names = new Set((current || []).map(r => r.name));
+    const extra = [];
+    for (const [n, e] of (mem.get(creatorId + ':' + platform) || new Map())) {
+      if (names.has(n) || e.r.ours) continue;
+      const at = listAt ? listAt(e.r.when, new Date()) : null;
+      if (at && Date.now() - at.getTime() > MAX_AGE_MS) continue;
+      extra.push(e.r);
+    }
+    return [...(current || []), ...extra];
+  }
   let running = false;
   let timer = null;
   let ticking = false;
@@ -83,7 +108,7 @@ module.exports = function createFila(deps) {
         if (c.limit_hit) continue;
         for (const platform of (c.platforms || ['privacy'])) {
           const creatorId = c.creator_id;
-          const rooms = platform === 'fatalfans' ? (ffRooms.get(creatorId) || []) : (getLastRooms(creatorId, platform) || []);
+          const rooms = roomsOf(creatorId, platform, platform === 'fatalfans' ? (ffRooms.get(creatorId) || []) : (getLastRooms(creatorId, platform) || []));
           for (const r of rooms) {
         if (r.ours) { firstUnanswered.delete(creatorId + ':' + platform + ':' + roomKey(creatorId, r.name)); continue; }
         if (r.typing || r.verified) continue;
@@ -104,6 +129,15 @@ module.exports = function createFila(deps) {
         }
       }
       pendingNow = waiting.length;
+      // lote 177: fila vazia → varredura (uma criadora por vez, cada uma a cada 10 min): carrega as conversas mais antigas da lista
+      if (!waiting.length && scanRooms) {
+        const due = enabled.filter(c => (c.platforms || ['privacy']).includes('privacy') && !c.limit_hit && Date.now() - (lastScan.get(c.creator_id) || 0) > 10 * 60 * 1000);
+        if (due.length) {
+          const c = due[0]; lastScan.set(c.creator_id, Date.now());
+          const rooms = await scanRooms(c.creator_id).catch(() => null);
+          if (rooms) { remember(c.creator_id, 'privacy', rooms); if (log) log(`varredura ${c.name || c.creator_id}: ${rooms.length} conversas na lista, ${rooms.filter(r => !r.ours).length} com o fã por último`); }
+        }
+      }
       waiting.sort((a, b) => (isFinite(b.firstAge) ? b.firstAge : 0) - (isFinite(a.firstAge) ? a.firstAge : 0) || (b.spent > 0) - (a.spent > 0));
       // Não atende o mesmo de novo se houver outro esperando
       let chosen = waiting[0];
@@ -120,7 +154,12 @@ module.exports = function createFila(deps) {
         ]) : null;
         // revisão Claude: fã que dá timeout/retry não pode voltar na hora (travava a fila inteira num fã só, ex.: conversa sem assinatura).
         // Espera 5 min; a partir da 3ª falha seguida, 60 min.
-        if (result === 'timeout' || result === 'retry' || result === 'temp') {
+        if (result === 'busy') {  // lote 177: a aba estava ocupada com outra decisão — tenta este fã de novo em ~30 s, sem contar falha
+          seen.delete(key);
+          lastServed = null;
+          tempRetry.set(fKey, Date.now() - 4.5 * 60 * 1000);
+          if (log) log(`ocupada: ${r.name} volta em 30 s`);
+        } else if (result === 'timeout' || result === 'retry' || result === 'temp') {
           seen.delete(key);
           lastServed = null;
           const n = (failCount.get(fKey) || 0) + 1; failCount.set(fKey, n);
