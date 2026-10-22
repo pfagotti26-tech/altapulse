@@ -11,7 +11,7 @@
 Variáveis do servidor (.env): WA_TOKEN (token de usuário do sistema da Meta), WA_APP_SECRET (assinatura do webhook),
 WA_VERIFY_TOKEN (texto que você escolhe para validar o webhook), WA_API_VERSION (opcional, padrão v21.0).
 """
-import os, re, json, hmac, hashlib, logging, secrets, asyncio
+import os, re, json, hmac, hashlib, logging, secrets, asyncio, random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Literal
@@ -234,17 +234,24 @@ SAFE_PERSONA = ['nome_artistico', 'como_ser_chamada', 'personalidade', 'como_fal
 async def ai_reply(cfg, contact, history):
     import assist as A
     key = await A.xai_key(); c = await A.config()
-    if not key: return None
+    if not key: print('wa ia: sem chave da xAI (Configurações › Alta Ajuda)', flush=True); return None
     creator = await db.creators.find_one({'id': cfg['creator_id']}, {'_id': 0, 'name': 1}) or {}
     prof = await db.assist_profiles.find_one({'creator_id': cfg['creator_id']}, {'_id': 0, 'persona': 1, 'voice': 1, 'gender': 1}) or {}
     pers = '\n'.join(f"- {k}: {str((prof.get('persona') or {}).get(k))[:400]}" for k in SAFE_PERSONA if (prof.get('persona') or {}).get(k))
     v = prof.get('voice') or {}
-    cat = '\n'.join(f"- {KINDS[i['kind']]}: {i['name']} · {money(i['cents'])}" + (f" · {i['minutes']} min" if i.get('minutes') else '') + (f" · entrega em até {i['days']} dias" if i.get('days') else '') + (f" · como apresentar: {i.get('pitch')}" if i.get('pitch') else '') for i in on_items(cfg))
+    per = prof.get('persona') or {}
+    ex = [l.strip() for l in str(per.get('exemplos_mensagens') or '').split('\n') if l.strip() and not SEXUAL.search(l) and not MEET.search(l)][:8]
+    pend = await db.wa_orders.find_one({'contact_id': contact['id'], 'status': {'$in': ['aguardando_pix', 'pago']}}, {'_id': 0, 'item': 1, 'status': 1, 'slot_start': 1, 'kind': 1}, sort=[('created_at', -1)])
+    state = f"etapa: {contact.get('stage') or 'conversando'}" + (f"; pedido {pend['item']} {('esperando o Pix' if pend['status'] == 'aguardando_pix' else 'já pago')}" + (f" para {slot_label(datetime.fromisoformat(pend['slot_start']))}" if pend.get('slot_start') else '') if pend else '; ainda não comprou nada aqui')
+    cat = '\n'.join(f"- [id {i['id']}] {KINDS[i['kind']]}: {i['name']} · {money(i['cents'])}" + (f" · {i['minutes']} min" if i.get('minutes') else '') + (f" · entrega em até {i['days']} dias" if i.get('days') else '') + (f" · como apresentar: {i.get('pitch')}" if i.get('pitch') else '') for i in on_items(cfg))
     name = (prof.get('persona') or {}).get('como_ser_chamada') or creator.get('name') or 'ela'
     system = f"""Você escreve como {name}, criadora de conteúdo, no WhatsApp comercial dela. Quem chega aqui veio do Instagram ou TikTok e já confirmou ter mais de 18 anos.
 Jeito dela:
 {pers or '- simpática, leve e carinhosa'}
 Tom: {v.get('tone') or 'carinhosa'}; palavras que usa: {v.get('use_words') or '-'}; evita: {v.get('avoid_words') or '-'}.
+{('Exemplos de como ela escreve (imite o jeito, não copie):' + chr(10) + chr(10).join('- ' + e[:160] for e in ex)) if ex else ''}
+
+Situação deste contato: {state}.
 
 O que ela vende AQUI (só isto, com estes valores; não invente outros):
 {cat or '- nada no momento'}
@@ -254,7 +261,11 @@ Regras que nunca mudam:
 - Nunca marque encontro, nunca passe contato pessoal, endereço ou outra rede, nunca aceite pagamento por fora.
 - Chamada ao vivo é ao vivo de verdade, com ela, no horário marcado. Nunca diga que é gravada.
 - Não diga valor que não está na lista. Não prometa prazo diferente.
-- Mensagens curtas (1 a 3 frases), naturais, em português do Brasil, sem listas.
+- Mensagens curtas (1 a 3 frases), naturais, em português do Brasil, sem listas, sem repetir frase que você já mandou.
+- Primeiro responda de verdade ao que ele disse (pergunta, elogio, piada), com personalidade; só depois, se fizer sentido, puxe para o que ela vende. Não seja robótica nem vendedora o tempo todo.
+- Nunca deixe a conversa morrer: termine com uma pergunta leve ou um convite.
+- Se ele escrever a escolha em vez de tocar no botão (ex.: "quero a chamada", "quinta pode?"), use a ação certa para o sistema mostrar as opções de novo.
+- Se ele já pagou, agradeça e converse; não ofereça o mesmo item de novo.
 - Quando a pessoa mostrar interesse em comprar, use "acao" para o sistema mandar os botões: "menu" (mostrar o que vende), "horarios" (chamada ao vivo), "pedido_video" (vídeo personalizado: preencha "pedido" com para quem, ocasião e recado quando ele contar) ou "item" com "item_id" para fotos/vídeos.
 Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_video"|"item", "item_id": null, "pedido": {{"para": "", "ocasiao": "", "recado": ""}}}}"""
     msgs = [{'role': 'system', 'content': system}]
@@ -262,9 +273,16 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
     try:
         async with httpx.AsyncClient(timeout=30) as cl:
             r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
-                              json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 350})
-        if r.status_code >= 300: log.warning('wa ia %s %s', r.status_code, r.text[:200]); return None
-        data = r.json(); out = A.parse_json(((data.get('choices') or [{}])[0].get('message') or {}).get('content', '')) or None
+                              json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500, 'response_format': {'type': 'json_object'}})
+        if r.status_code == 400 and 'response_format' in (r.text or ''):  # modelo sem suporte a JSON forçado: tenta sem
+            async with httpx.AsyncClient(timeout=30) as cl:
+                r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
+                                  json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500})
+        if r.status_code >= 300: print('wa ia: xAI respondeu', r.status_code, (r.text or '')[:300], flush=True); return None
+        data = r.json(); raw = ((data.get('choices') or [{}])[0].get('message') or {}).get('content', '') or ''
+        out = A.parse_json(raw) or None
+        if not out and raw.strip() and '{' not in raw: out = {'texto': raw.strip()[:600], 'acao': None}  # respondeu em texto puro
+        if not out: print('wa ia: resposta fora do formato:', raw[:300].replace('\n', ' '), flush=True)
         try:
             cost, *_ = A.cost_of(c.get('suggest_model') or c['model'], data.get('usage') or {})
             await db.assist_usage.insert_one({'id': uid(), 'user_id': 'whatsapp', 'user_name': 'WhatsApp', 'creator_id': cfg['creator_id'], 'mode': 'whatsapp', 'day': A.today(), 'at': iso(),
@@ -272,7 +290,7 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
         except Exception: pass
         return out
     except Exception as e:
-        log.warning('wa ia: %s', e); return None
+        print('wa ia: falhou', repr(e)[:300], flush=True); return None
 
 def _clean_ai(text):
     t = str(text or '').strip()
@@ -281,7 +299,8 @@ def _clean_ai(text):
     return t[:600]
 
 # ---------- passos do funil ----------
-async def show_menu(cfg, contact, text='o que você quer?'):
+async def show_menu(cfg, contact, text=None):
+    text = text or random.choice(['o que você quer?', 'o que te deixou curioso?', 'qual desses combina com você?'])
     ks = kinds_on(cfg)
     if not ks: return await send_text(cfg, contact, 'no momento não tô com horários nem pedidos abertos, mas logo volto, tá?')
     if len(ks) == 1: return await pick_kind(cfg, contact, ks[0])
@@ -299,10 +318,10 @@ async def pick_item(cfg, contact, item):
         slots = await free_slots(cfg, int(item.get('minutes') or 10))
         if not slots: return await send_text(cfg, contact, 'essa semana minha agenda tá cheia, amor. me chama de novo em uns dias que eu abro horário pra você')
         await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'escolhendo', 'pending_item': item['id']}})
-        return await send_buttons(cfg, contact, f"é ao vivo, só eu e você, {item.get('minutes') or 10} minutinhos. tenho esses horários:", [(f's:{item["id"]}:{int(s.timestamp())}', slot_label(s)) for s in slots[:10]])
+        return await send_buttons(cfg, contact, random.choice([f"é ao vivo, só eu e você, {item.get('minutes') or 10} minutinhos. tenho esses horários:", f"{item.get('minutes') or 10} minutinhos ao vivo comigo! olha os horários que eu tenho:", f"vai ser só nosso, {item.get('minutes') or 10} minutos ao vivo. qual horário fica bom pra você?"]), [(f's:{item["id"]}:{int(s.timestamp())}', slot_label(s)) for s in slots[:10]])
     if item['kind'] == 'custom':
         await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'pedido', 'pending_item': item['id']}})
-        return await send_text(cfg, contact, 'amo gravar vídeo personalizado! me conta: é pra você ou pra presentear alguém? qual o nome e o que você quer que eu fale?')
+        return await send_text(cfg, contact, random.choice(['amo gravar vídeo personalizado! me conta: é pra você ou pra presentear alguém? qual o nome e o que você quer que eu fale?', 'que delícia! é pra você ou é presente? me fala o nome e o recadinho que eu gravo do meu jeito', 'bora! me conta pra quem é, se é alguma ocasião especial e o que você quer que eu diga']))
     return await create_order(cfg, contact, item)
 
 def item_by_id(cfg, iid): return next((i for i in on_items(cfg) if i['id'] == iid), None)
@@ -331,7 +350,8 @@ async def handle_in(cfg, contact, text, button_id=None):
             await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'age_ok': True, 'age_at': iso(), 'stage': 'conversando'}})
             contact['age_ok'] = True
             ks = kinds_on(cfg)
-            intro = 'perfeito! ' + ('aqui eu tenho ' + ', '.join(KINDS[k].lower() for k in ks) + '.' if ks else 'que bom te ter aqui.')
+            lst = ', '.join(KINDS[k].lower() for k in ks)
+            intro = random.choice([f'perfeito! aqui eu tenho {lst}.', f'que bom! por aqui eu faço {lst}.', f'ebaa, então vamos lá: aqui tem {lst}.']) if ks else 'que bom te ter aqui!'
             await send_text(cfg, contact, intro)
             return await show_menu(cfg, contact)
         tries = int(contact.get('age_tries') or 0)
@@ -368,7 +388,11 @@ async def handle_in(cfg, contact, text, button_id=None):
     if await db.wa_messages.count_documents({'creator_id': cfg['creator_id'], 'by': 'ia', 'at': {'$gte': (now() - timedelta(days=1)).isoformat()}}) >= int(cfg.get('max_ai_day') or 400):
         return await to_human(cfg, contact, 'teto diário de respostas da IA')
     out = await ai_reply(cfg, contact, hist)
-    if not out: return await to_human(cfg, contact, 'a IA não respondeu')
+    if not out:  # falhou uma vez: responde com o menu; duas seguidas: chama a equipe
+        if int(contact.get('ai_fail') or 0) >= 1: return await to_human(cfg, contact, 'a IA não respondeu duas vezes seguidas')
+        await db.wa_contacts.update_one({'id': contact['id']}, {'$inc': {'ai_fail': 1}})
+        return await show_menu(cfg, contact, 'deixa eu te mostrar o que tenho por aqui:')
+    if contact.get('ai_fail'): await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'ai_fail': 0}})
     txt = _clean_ai(out.get('texto'))
     if not txt and not out.get('acao'): return await to_human(cfg, contact, 'resposta da IA barrada pelas regras', f"Fã: \"{(text or '')[:120]}\"")
     if txt: await send_text(cfg, contact, txt)
