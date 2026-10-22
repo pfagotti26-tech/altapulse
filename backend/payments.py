@@ -12,7 +12,7 @@ e, aprovado, chama whatsapp.mark_paid.
 Os tokens de cada criadora ficam criptografados no banco (mesma chave do Cofre).
 """
 import os, re, logging, secrets, html
-from datetime import timedelta
+from datetime import datetime, timedelta
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -63,14 +63,15 @@ async def create_charge(cfg, contact, order):
         tok = await seller_token(cfg['creator_id'])
         if tok:
             cents = int(order['cents']); fee_cents = cents - cents * int(order.get('creator_pct') or 0) // 100
+            exp = (datetime.fromisoformat(order['hold_until']) if order.get('hold_until') else now() + timedelta(minutes=30)).isoformat(timespec='milliseconds')
             desc = re.sub(r'[^A-Za-z0-9]', '', pay.get('descriptor') or 'CREATORALTA').upper()[:13] or 'CREATORALTA'
             body = {'items': [{'id': order['item_id'], 'title': order['item'][:60], 'quantity': 1, 'unit_price': round(cents / 100, 2), 'currency_id': 'BRL'}],
                     'external_reference': order['id'], 'notification_url': notify_url(), 'statement_descriptor': desc,
                     'marketplace_fee': round(fee_cents / 100, 2), 'binary_mode': True,
                     'expires': True, 'expiration_date_from': now().isoformat(timespec='milliseconds'),
-                    'expiration_date_to': (now() + timedelta(minutes=int(pay.get('hold_min') or 15))).isoformat(timespec='milliseconds'),
-                    'date_of_expiration': (now() + timedelta(minutes=int(pay.get('hold_min') or 15))).isoformat(timespec='milliseconds'),
-                    'payment_methods': {'installments': 1, 'excluded_payment_types': [{'id': 'ticket'}]}}
+                    'expiration_date_to': exp, 'date_of_expiration': exp,
+                    # lote 182: Pix já vem selecionado; cartão e o resto ficam como outras opções
+                    'payment_methods': {'installments': 1, 'default_payment_method_id': 'pix', 'excluded_payment_types': [{'id': 'ticket'}]}}
             try:
                 async with httpx.AsyncClient(timeout=20) as c:
                     r = await c.post(f'{MP_API}/checkout/preferences', headers={'Authorization': f'Bearer {tok}', 'X-Idempotency-Key': order['id']}, json=body)

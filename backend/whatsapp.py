@@ -208,6 +208,7 @@ async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
     # trocou de horário/item antes de pagar: o pedido anterior do mesmo item que ainda espera Pix é cancelado (nunca duas cobranças abertas)
     await db.wa_orders.update_many({'contact_id': contact['id'], 'item_id': item['id'], 'status': 'aguardando_pix'}, {'$set': {'status': 'cancelado', 'cancel_reason': 'substituído por novo pedido'}})
     hold = int((cfg.get('pay') or {}).get('hold_min') or 15)
+    if (cfg.get('pay') or {}).get('provider') == 'mercadopago': hold = max(hold, 30)  # lote 182: Pix no Mercado Pago precisa de pelo menos 30 min
     o = {'id': uid(), 'creator_id': cfg['creator_id'], 'contact_id': contact['id'], 'contact_name': contact.get('name'), 'item_id': item['id'], 'item': item['name'],
          'kind': item['kind'], 'cents': int(item['cents']), 'minutes': int(item.get('minutes') or 0), 'days': int(item.get('days') or 0),
          'slot_start': slot.isoformat() if slot else None, 'call_status': 'agendada' if slot else None, 'custom': custom or None,
