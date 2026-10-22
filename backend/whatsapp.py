@@ -288,10 +288,11 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
                                   json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500})
         if r.status_code >= 300: print('wa ia: xAI respondeu', r.status_code, (r.text or '')[:300], flush=True); return None
         data = r.json(); raw = ((data.get('choices') or [{}])[0].get('message') or {}).get('content', '') or ''
+        if contact.get('sim'): await db.wa_contacts.update_one({'id': contact['id']}, {'$push': {'ai_raw': {'$each': [raw[:1500]], '$slice': -6}}})  # simulador: guarda a resposta crua para diagnóstico
         out = A.parse_json(raw) or None
         if not out and raw.strip() and '{' not in raw and raw.strip().lower() not in ('null', 'none'): out = {'texto': raw.strip()[:600], 'acao': None}  # respondeu em texto puro
         if not out: print('wa ia: resposta fora do formato:', raw[:300].replace('\n', ' '), flush=True)
-        elif str(out.get('texto') or '').strip().lower() in ('', 'null', 'none'): print('wa ia: veio sem texto:', raw[:300].replace('\n', ' '), flush=True)
+        elif not isinstance(out.get('texto'), str) or out.get('texto').strip().lower() in ('', 'null', 'none', 'false', 'true'): print('wa ia: veio sem texto:', raw[:300].replace('\n', ' '), flush=True)
         try:
             cost, *_ = A.cost_of(c.get('suggest_model') or c['model'], data.get('usage') or {})
             await db.assist_usage.insert_one({'id': uid(), 'user_id': 'whatsapp', 'user_name': 'WhatsApp', 'creator_id': cfg['creator_id'], 'mode': 'whatsapp', 'day': A.today(), 'at': iso(),
@@ -302,10 +303,11 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
         print('wa ia: falhou', repr(e)[:300], flush=True); return None
 
 def _clean_ai(text):
-    t = str(text or '').strip()
-    if t.lower().strip('"\' .') in ('', 'null', 'none', 'undefined'): return ''
+    if not isinstance(text, str): return ''
+    t = text.strip()
+    if t.lower().strip('"\' .') in ('', 'null', 'none', 'undefined', 'false', 'true'): return ''
     chk = re.sub(r'conte[uú]do adulto|\+18', '', t, flags=re.I)
-    if SEXUAL.search(chk) or MEET.search(t) or CONTACT.search(t) or RECORDED.search(t) or re.search(r'R\$\s*\d', t): return ''  # preço só nos botões/pedido
+    if SEXUAL.search(chk) or MEET.search(t) or CONTACT.search(t) or RECORDED.search(t): return ''
     return t[:600]
 
 # ---------- passos do funil ----------
@@ -397,7 +399,7 @@ async def handle_in(cfg, contact, text, button_id=None):
     hist.reverse()
     if await db.wa_messages.count_documents({'creator_id': cfg['creator_id'], 'by': 'ia', 'at': {'$gte': (now() - timedelta(days=1)).isoformat()}}) >= int(cfg.get('max_ai_day') or 400):
         return await to_human(cfg, contact, 'teto diário de respostas da IA')
-    def _empty(o): return not o or (not _clean_ai(o.get('texto')) and not o.get('acao') and str(o.get('texto') or '').strip().lower() in ('', 'null', 'none'))
+    def _empty(o): return not o or (not o.get('acao') and (not isinstance(o.get('texto'), str) or o.get('texto').strip().lower() in ('', 'null', 'none', 'false', 'true')))
     out = await ai_reply(cfg, contact, hist)
     if _empty(out): out = await ai_reply(cfg, contact, hist)  # veio vazia: tenta mais uma vez antes de qualquer coisa
     if _empty(out): out = None
@@ -822,7 +824,7 @@ async def _sim_view(c):
     if not c: return {'contact': None, 'messages': [], 'orders': []}
     msgs = await db.wa_messages.find({'contact_id': c['id']}, {'_id': 0, 'expires_at': 0, 'wa_msg_id': 0}).sort('at', 1).to_list(400)
     orders = await db.wa_orders.find({'contact_id': c['id']}, {'_id': 0, 'expires_at': 0}).sort('created_at', -1).to_list(20)
-    return {'contact': _contact_out(c), 'messages': msgs, 'orders': orders}
+    return {'contact': _contact_out(c), 'messages': msgs, 'orders': orders, 'ai_raw': c.get('ai_raw') or []}
 
 @router.get('/wa/sim/{creator_id}')
 async def sim_read(creator_id: str, user=Depends(manager)):
