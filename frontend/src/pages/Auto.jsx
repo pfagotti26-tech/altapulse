@@ -194,7 +194,7 @@ export default function Auto() {
         <div className="table-scroll">
           <table>
             <thead><tr><th>Hora</th><th>Fã</th><th>Última do fã</th><th>Sugerido</th><th>Resultado</th></tr></thead>
-            <tbody>{d.rows.map(r => <tr key={r.id}><td>{dateTime(r.at)}</td><td>{r.fan_name || r.fan_ref?.slice(0,8)}</td><td>{(r.last_fan||'').slice(0,60)}</td><td>{(r.suggested_text||'').slice(0,60)}</td><td>{r.decision}</td></tr>)}</tbody>
+            <tbody>{d.rows.map(r => <tr key={r.id}><td>{dateTime(r.at)}</td><td>{r.fan_name || r.fan_ref?.slice(0,8)}</td><td>{(r.last_fan||'').slice(0,60)}</td><td>{(r.suggested_text||'').slice(0,60)}</td><td>{r.decision}{r.decision==='travado' && <Badge tone='warn' style={{marginLeft:4}}>travada — responder à mão</Badge>}</td></tr>)}</tbody>
           </table>
         </div>
       ) : <Empty title="Sem decisões" description="Nada neste dia." icon={Inbox}/>}

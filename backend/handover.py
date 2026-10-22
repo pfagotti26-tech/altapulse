@@ -35,6 +35,7 @@ EVENTS = {
     'divulgacao': {'label': 'Criadora divulgando', 'hint': 'contato bloqueado', 'urgency': 'baixa', 'chatter': False, 'manager': True, 'popup': False, 'telegram': False, 'email': False},
     'whatsapp': {'label': 'WhatsApp: precisa de você', 'hint': 'IA travou, Pix para conferir, chamada chegando', 'urgency': 'alta', 'chatter': True, 'manager': False, 'popup': True, 'telegram': True, 'email': False},
     'login': {'label': 'Privacy deslogou', 'hint': 'pediu verificação', 'urgency': 'media', 'chatter': False, 'manager': True, 'popup': True, 'telegram': True, 'email': False},
+    'travado': {'label': 'Conversa travada', 'hint': 'tema proibido ou menor', 'urgency': 'alta', 'chatter': True, 'manager': True, 'popup': True, 'telegram': True, 'email': False},
 }
 RULES = {
     'total': {'label': 'Fã já gastou no total', 'value': True, 'default_on': True, 'default': 30000},
