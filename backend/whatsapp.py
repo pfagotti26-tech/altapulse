@@ -281,8 +281,9 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
         if r.status_code >= 300: print('wa ia: xAI respondeu', r.status_code, (r.text or '')[:300], flush=True); return None
         data = r.json(); raw = ((data.get('choices') or [{}])[0].get('message') or {}).get('content', '') or ''
         out = A.parse_json(raw) or None
-        if not out and raw.strip() and '{' not in raw: out = {'texto': raw.strip()[:600], 'acao': None}  # respondeu em texto puro
+        if not out and raw.strip() and '{' not in raw and raw.strip().lower() not in ('null', 'none'): out = {'texto': raw.strip()[:600], 'acao': None}  # respondeu em texto puro
         if not out: print('wa ia: resposta fora do formato:', raw[:300].replace('\n', ' '), flush=True)
+        elif str(out.get('texto') or '').strip().lower() in ('', 'null', 'none'): print('wa ia: veio sem texto:', raw[:300].replace('\n', ' '), flush=True)
         try:
             cost, *_ = A.cost_of(c.get('suggest_model') or c['model'], data.get('usage') or {})
             await db.assist_usage.insert_one({'id': uid(), 'user_id': 'whatsapp', 'user_name': 'WhatsApp', 'creator_id': cfg['creator_id'], 'mode': 'whatsapp', 'day': A.today(), 'at': iso(),
@@ -294,6 +295,7 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
 
 def _clean_ai(text):
     t = str(text or '').strip()
+    if t.lower().strip('"\' .') in ('', 'null', 'none', 'undefined'): return ''
     chk = re.sub(r'conte[uú]do adulto|\+18', '', t, flags=re.I)
     if SEXUAL.search(chk) or MEET.search(t) or CONTACT.search(t) or RECORDED.search(t) or re.search(r'R\$\s*\d', t): return ''  # preço só nos botões/pedido
     return t[:600]
@@ -387,7 +389,10 @@ async def handle_in(cfg, contact, text, button_id=None):
     hist.reverse()
     if await db.wa_messages.count_documents({'creator_id': cfg['creator_id'], 'by': 'ia', 'at': {'$gte': (now() - timedelta(days=1)).isoformat()}}) >= int(cfg.get('max_ai_day') or 400):
         return await to_human(cfg, contact, 'teto diário de respostas da IA')
+    def _empty(o): return not o or (not _clean_ai(o.get('texto')) and not o.get('acao') and str(o.get('texto') or '').strip().lower() in ('', 'null', 'none'))
     out = await ai_reply(cfg, contact, hist)
+    if _empty(out): out = await ai_reply(cfg, contact, hist)  # veio vazia: tenta mais uma vez antes de qualquer coisa
+    if _empty(out): out = None
     if not out:  # falhou uma vez: responde com o menu; duas seguidas: chama a equipe
         if int(contact.get('ai_fail') or 0) >= 1: return await to_human(cfg, contact, 'a IA não respondeu duas vezes seguidas')
         await db.wa_contacts.update_one({'id': contact['id']}, {'$inc': {'ai_fail': 1}})
@@ -411,7 +416,10 @@ async def handle_in(cfg, contact, text, button_id=None):
             custom = {k: str(p.get(k) or '')[:300] for k in ('para', 'ocasiao', 'recado')}
             if SEXUAL.search(_n(' '.join(custom.values()))): return await to_human(cfg, contact, 'pedido de vídeo com tema adulto')
             return await create_order(cfg, contact, it, custom=custom)
-        if it and contact.get('stage') != 'pedido': return await pick_item(cfg, contact, it)
+        if it and contact.get('stage') != 'pedido':
+            if txt:  # a IA já pediu os detalhes do vídeo com as palavras dela: só marca a etapa, sem repetir a pergunta fixa
+                return await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'pedido', 'pending_item': it['id']}})
+            return await pick_item(cfg, contact, it)
 
 @router.get('/wa/webhook', response_class=PlainTextResponse)
 async def verify(request: Request):
