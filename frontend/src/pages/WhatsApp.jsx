@@ -77,7 +77,17 @@ function OfferModal({ offer, setOffer, d, onDone }) {
 function OrdersTable({ rows, onChange }) {
   const [busy, setBusy] = useState('');
   async function post(o, path, body, ok) { setBusy(o.id); try { await api.post(`/wa/orders/${o.id}/${path}`, body || {}); toast.success(ok); onChange(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(''); } }
-  async function deliver(o, file) { if (!file) return; const fd = new FormData(); fd.append('file', file); setBusy(o.id); try { await api.post(`/wa/orders/${o.id}/deliver`, fd); toast.success('Entregue no WhatsApp.'); onChange(); } catch (e) { toast.error(errorText(e)); } finally { setBusy(''); } }
+  const [prog, setProg] = useState('');
+  // lote 184: vários arquivos de uma vez, um depois do outro, na ordem escolhida
+  async function deliver(o, list) {
+    const files = Array.from(list || []); if (!files.length) return;
+    setBusy(o.id); let ok = 0;
+    try {
+      for (const f of files) { setProg(`${ok + 1}/${files.length}`); const fd = new FormData(); fd.append('file', f); await api.post(`/wa/orders/${o.id}/deliver`, fd); ok++; }
+      toast.success(files.length > 1 ? `${ok} arquivos entregues no WhatsApp.` : 'Entregue no WhatsApp.');
+    } catch (e) { toast.error((ok ? `${ok} de ${files.length} entregues. ` : '') + errorText(e)); }
+    finally { setBusy(''); setProg(''); onChange(); }
+  }
   return <div className="table-scroll"><table><thead><tr><th>Pedido</th><th>Criadora</th><th>Contato</th><th>Valor</th><th>Situação</th><th/></tr></thead><tbody>
     {rows.map(o => <tr key={o.id}><td><strong>{o.item}</strong><div className="body-muted" style={{ fontSize: 12 }}>{KIND[o.kind]}{o.slot_start ? ` · ${slotText(o)}` : ''}{o.custom?.para ? ` · para ${o.custom.para}: "${o.custom.recado}"` : ''}</div></td>
       <td>{o.creator_name || ''}</td><td>{o.contact_name || '—'}</td><td>{money(o.cents)}</td>
@@ -86,7 +96,7 @@ function OrdersTable({ rows, onChange }) {
         {o.status === 'aguardando_pix' && <Button disabled={busy === o.id} onClick={() => post(o, 'paid', null, 'Marcado como pago.')}>Pix caiu</Button>}
         {o.status === 'aguardando_pix' && <Button variant="outline" disabled={busy === o.id} onClick={() => post(o, 'status', { status: 'cancelado' }, 'Cancelado.')}>Cancelar</Button>}
         {o.status === 'pago' && o.kind === 'call' && o.call_status === 'agendada' && <><Button variant="outline" onClick={() => navigator.clipboard?.writeText(o.room || '').then(() => toast.success('Link da criadora copiado.'))}>Copiar link da criadora</Button><Button variant="outline" disabled={busy === o.id} onClick={() => post(o, 'status', { status: 'feita' }, 'Chamada feita.')}>Feita</Button><Button variant="outline" disabled={busy === o.id} onClick={() => post(o, 'status', { status: 'faltou_criadora' }, 'Marcado.')}>Criadora faltou</Button></>}
-        {o.status === 'pago' && o.kind !== 'call' && !o.delivered_at && <label className="photo-btn" style={{ cursor: 'pointer' }}><Upload size={14}/>{busy === o.id ? 'Enviando…' : 'Entregar arquivo'}<input type="file" hidden accept="image/jpeg,image/png,video/mp4" onChange={e => { deliver(o, e.target.files?.[0]); e.target.value = ''; }}/></label>}
+        {o.status === 'pago' && o.kind !== 'call' && <label className="photo-btn" style={{ cursor: busy === o.id ? 'wait' : 'pointer' }}><Upload size={14}/>{busy === o.id ? `Enviando ${prog}…` : o.delivered_at ? 'Mandar mais arquivos' : 'Entregar arquivos'}<input type="file" hidden multiple disabled={busy === o.id} accept="image/jpeg,image/png,video/mp4" onChange={e => { deliver(o, e.target.files); e.target.value = ''; }}/></label>}
         {o.status === 'pago' && <Button variant="outline" disabled={busy === o.id} onClick={() => post(o, 'status', { status: 'devolvido' }, 'Marcado como devolvido. Faça o estorno no banco.')}>Devolvido</Button>}
       </div></td></tr>)}
   </tbody></table></div>;
