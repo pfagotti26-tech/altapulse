@@ -268,12 +268,18 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                     _r = str(result.get("reason") or "")
                     _ev = ("reclamacao" if "pagou e não recebeu" in _r else "divulgacao" if "divulgando" in _r
                            else "encontro" if ("encontro" in _r or "programa" in _r)
-                           else "travado" if ("proibido" in _r.lower() or "menor" in _r.lower()) else None)
+                           else "menor" if "menor" in _r.lower() else "travado" if "proibido" in _r.lower() else None)
                     if _ev:
                         _body = _r[:300]
                         if _ev == "travado":
                             _body = _r[:100] + " · " + scrub(last_text)[:200]
-                        await H.notify(_ev, body.creator_id, "Conversa travada: responda à mão" if _ev == "travado" else H.EVENTS[_ev]["label"], _body, body.fan_ref, body.fan_name)
+                            _title = "Conversa travada: responda à mão"
+                        elif _ev == "menor":
+                            _body = "Não responda a este fã. " + _r[:100] + " · " + scrub(last_text)[:200]
+                            _title = "Possível menor: NÃO responda — gestor revisa"
+                        else:
+                            _title = H.EVENTS[_ev]["label"]
+                        await H.notify(_ev, body.creator_id, _title, _body, body.fan_ref, body.fan_name)
                 except Exception:
                     pass
                 return DecideOut(should_send=False, reason=result.get("reason", "alerta"), essay=cfg["essay"])
