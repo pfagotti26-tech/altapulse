@@ -266,9 +266,12 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                 try:  # lote 160: avisa quem tem a criadora atribuída
                     import handover as H
                     _r = str(result.get("reason") or "")
+                    _rl = _r.lower()
+                    _menor = any(s in _rl for s in ("menor", "idade", "anos", "adolescente", "escola", "colegial"))
+                    _encerrada = result.get("blocked") or "encerrada" in _rl or "bloqueado" in _rl
                     _ev = ("reclamacao" if "pagou e não recebeu" in _r else "divulgacao" if "divulgando" in _r
                            else "encontro" if ("encontro" in _r or "programa" in _r)
-                           else "menor" if "menor" in _r.lower() else "travado" if "proibido" in _r.lower() else None)
+                           else "menor" if _menor else (None if _encerrada else "travado" if "proibido" in _rl else None))
                     if _ev:
                         _body = _r[:300]
                         if _ev == "travado":
