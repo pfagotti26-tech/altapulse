@@ -203,5 +203,6 @@ module.exports = function createFila(deps) {
     running = false;
     if (timer) clearTimeout(timer);
   }
-  return { start, stop, markRecent, pendingCount, firstUnanswered, get running() { return running; } };
+  // lote 179: quantos fãs a fila viu esperando resposta na última volta (o puxar conversa dá a vez quando há alguém)
+  return { start, stop, markRecent, pendingCount, firstUnanswered, waitingNow: () => pendingNow, get running() { return running; } };
 };

@@ -42,12 +42,18 @@ const puxadaApp = require('./puxada-app.js');
 let puxadaBusy = false;
 const puxadaSkip = new Map(); // fan_ref -> timestamp
 const puxadaEssaySent = new Map(); // fan_ref -> timestamp (ensaio, 24h)
+let puxadaLastRun = 0;
 async function autoPuxadaTick() {
-  if (!ALTA_TESTE || puxadaBusy || autoInProgress.size) return;
-  // Só puxa se a fila não tiver ninguém pendente
-  const st = await api('GET', '/auto/status').catch(() => null);
-  if (st && st.creator_id && filaEnsaio && filaEnsaio.pendingCount(st.creator_id) > 0) return;
-  puxadaBusy = true;
+  if (!ALTA_TESTE || puxadaBusy) return;
+  // lote 179 (revisão Claude): antes só puxava com a fila da Aline "vazia", e fã em espera de 5/60 min contava como pendente para
+  // sempre — o puxar nunca rodava (0 puxadas em 22/10). Agora: espera a conversa que está sendo respondida terminar (até 60 s),
+  // segura a fila enquanto puxa (global.puxadaRun) e roda pelo menos a cada 10 min mesmo com o chat movimentado.
+  const sinceLast = Date.now() - puxadaLastRun;
+  if (filaEnsaio && filaEnsaio.waitingNow && filaEnsaio.waitingNow() > 0 && sinceLast < 10 * 60 * 1000) return; // tem fã esperando resposta: responder vem antes
+  if (global.autoBusy) await Promise.race([global.autoBusy.catch(() => {}), sleep(60000)]);
+  if (autoInProgress.size || puxadaBusy) return;
+  puxadaBusy = true; puxadaLastRun = Date.now();
+  let release; global.puxadaRun = new Promise((res) => { release = res; });
   try {
     const st = await api('GET', '/auto/status').catch(() => null);
     const essay = !st || st.essay !== false; // padrão ligado
@@ -141,9 +147,9 @@ async function autoPuxadaTick() {
       }
     }
   } catch (e) { appLog('puxada', String(e)); }
-  finally { puxadaBusy = false; }
+  finally { puxadaBusy = false; release(); global.puxadaRun = null; }
 }
-if (ALTA_TESTE) setInterval(autoPuxadaTick, 3 * 60 * 1000);
+if (ALTA_TESTE) setInterval(autoPuxadaTick, 2 * 60 * 1000);
 
 // AUTO (Grok) — reabre criadoras no início
 if (ALTA_TESTE) setTimeout(async () => {
@@ -2367,8 +2373,8 @@ if (ALTA_TESTE) {
     FF_CHAT_SCRIPT,
     openChat: async (creatorId, name, fanRef, platform, waitS) => {
       platform = platform || 'privacy';
-      const waitBusy = () => global.autoBusy ? Promise.race([global.autoBusy.catch(() => {}), sleep(60000)]) : null; // lote 177: no máximo 60 s
-      if (global.autoBusy) await waitBusy();  // lote 159: não troca de conversa enquanto uma oferta ainda está mandando legenda/depois
+      const waitBusy = () => (global.autoBusy || global.puxadaRun) ? Promise.race([Promise.all([global.autoBusy && global.autoBusy.catch(() => {}), global.puxadaRun]), sleep(60000)]) : null; // lote 177: no máximo 60 s; lote 179: também espera a puxada
+      if (global.autoBusy || global.puxadaRun) await waitBusy();  // lote 159: não troca de conversa enquanto uma oferta ainda está mandando legenda/depois
       await openConversation(creatorId, platform, null, name, fanRef);
       const view = (tabs.get(creatorId) || new Map()).get(platform);
       let result = null;
