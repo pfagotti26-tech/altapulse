@@ -2405,6 +2405,7 @@ if (ALTA_TESTE) {
       return data && data.page === 'chat' ? (data.rooms || []) : null;
     },
     log: (msg) => appLog('fila', msg),
+    isShown: (id, platform) => activeId === id && activeTab.get(id) === platform, // lote 181
   });
   // start after login
 }

@@ -23,7 +23,7 @@ module.exports = function createFila(deps) {
     for (const [n, e] of (mem.get(creatorId + ':' + platform) || new Map())) {
       if (names.has(n) || e.r.ours) continue;
       const at = listAt ? listAt(e.r.when, new Date()) : null;
-      if (at && Date.now() - at.getTime() > MAX_AGE_MS) continue;
+      if (!at || Date.now() - at.getTime() > MAX_AGE_MS) continue; // lote 181: sem data legível ou mais de 2 dias: não entra
       extra.push(e.r);
     }
     return [...(current || []), ...extra];
@@ -39,6 +39,7 @@ module.exports = function createFila(deps) {
   const tempRetry = new Map(); // ref → timestamp
   const failCount = new Map(); // fKey → falhas seguidas
   const ffRooms = new Map(); // creatorId → rooms
+  const ffNav = new Map(); // lote 181: creatorId → última vez que a aba FatalFans foi levada ao chat
   let lastFFUpdate = 0;
   let pendingNow = 0; // fãs esperando na última volta (define o ritmo)
   let cycleIdx = 0;
@@ -96,7 +97,19 @@ module.exports = function createFila(deps) {
         for (const c of enabled) {
           if (!(c.platforms || []).includes('fatalfans')) continue;
           const view = (tabs && tabs() && tabs().get(c.creator_id) && tabs().get(c.creator_id).get('fatalfans'));
-          if (!view || !/fatalfans\.com\/chat/.test(view.webContents.getURL())) continue;
+          if (!view || view.webContents.isDestroyed()) continue;
+          if (!/fatalfans\.com\/chat/.test(view.webContents.getURL())) {
+            // lote 181: a aba FatalFans abre no feed e a fila só lê no chat — leva ao chat sozinha (no máximo a cada 5 min,
+            // só se ninguém estiver olhando essa aba agora e fora da tela de login)
+            const last = ffNav.get(c.creator_id) || 0;
+            const shown = deps.isShown && deps.isShown(c.creator_id, 'fatalfans');
+            if (!shown && now - last > 5 * 60 * 1000 && !/login|entrar|signin/i.test(view.webContents.getURL())) {
+              ffNav.set(c.creator_id, now);
+              view.webContents.loadURL('https://fatalfans.com/chat').catch(() => {});
+              if (log) log(`FatalFans ${c.name || c.creator_id}: aba levada para o chat`);
+            }
+            continue;
+          }
           const data = await runJs(view, FF_CHAT_SCRIPT, 4000).catch(() => null);
           if (data && data.rooms) ffRooms.set(c.creator_id, data.rooms);
         }
@@ -138,7 +151,14 @@ module.exports = function createFila(deps) {
           if (rooms) { remember(c.creator_id, 'privacy', rooms); if (log) log(`varredura ${c.name || c.creator_id}: ${rooms.length} conversas na lista, ${rooms.filter(r => !r.ours).length} com o fã por último`); }
         }
       }
-      waiting.sort((a, b) => (isFinite(b.firstAge) ? b.firstAge : 0) - (isFinite(a.firstAge) ? a.firstAge : 0) || (b.spent > 0) - (a.spent > 0));
+      // lote 181 (revisão Claude): conversa nova primeiro. Antes ganhava quem esperava há mais tempo, e as conversas antigas
+      // achadas pela varredura (dias paradas) passavam na frente de quem acabou de escrever (deo, FatalFans, 22/10 14h43).
+      // Agora: até 2 h esperando = fila principal (a mais antiga primeiro); mais que isso = fila de trás (a mais recente primeiro).
+      const FRESH = 2 * 60 * 60 * 1000;
+      const rank = (w) => (isFinite(w.firstAge) && w.firstAge <= FRESH) ? 0 : (isFinite(w.firstAge) ? 1 : 2);
+      waiting.sort((a, b) => rank(a) - rank(b)
+        || (rank(a) === 0 ? b.firstAge - a.firstAge : rank(a) === 1 ? a.firstAge - b.firstAge : 0)
+        || (b.spent > 0) - (a.spent > 0));
       // Não atende o mesmo de novo se houver outro esperando
       let chosen = waiting[0];
       if (chosen && chosen.ref === lastServed && waiting.length > 1) chosen = waiting[1];
