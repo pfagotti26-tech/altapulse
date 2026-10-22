@@ -849,6 +849,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
     if (temp) return 'temp';
     if (r && r.should_send && r.suggested_text && r.log_id) {
       const tg = chatTarget();
+      if (!tg) { appLog('fila', 'aprovado mas a conversa não está aberta'); await api('POST', `/auto/failed/${r.log_id}`, {}).catch(() => {}); return 'retry'; } // lote 180
       if (tg) {
         // lote 154 (revisão Claude): enterScript ficava dentro do ramo Privacy e a legenda/"depois" depois da Solicitação davam ReferenceError (130 vezes desde 19/10): nenhum "desbloqueia" saía
         const enterScript = `(() => {
@@ -862,6 +863,7 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
           return true;
         })()`;
         const filled = await runJs(tg.view, tg.fill(r.suggested_text), 4000).catch(() => false);
+        if (!filled) { appLog('fila', 'caixa de mensagem não preencheu'); await api('POST', `/auto/failed/${r.log_id}`, {}).catch(() => {}); return 'retry'; } // lote 180: antes ficava "aprovado" e o fã não recebia
         if (filled) {
           if (platform === 'fatalfans') {
             const sent = await runJs(tg.view, `(() => {

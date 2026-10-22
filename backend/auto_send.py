@@ -182,12 +182,14 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
     lock = _fan_locks.setdefault(lock_key, asyncio.Lock())
     async with lock:
         ten_min = (datetime.now(BR) - timedelta(minutes=10)).isoformat()
+        # lote 180 (revisão Claude): "aprovado" que nunca virou "enviado" (a caixa não preencheu, a conversa trocou...) não conta
+        # como respondido depois de 2 min — antes o fã ficava 10 min (e na prática o dia todo) sem resposta com "já respondido"
+        two_min = (datetime.now(BR) - timedelta(minutes=2)).isoformat()
         recent = await db.auto_log.find_one({
             "creator_id": body.creator_id,
             "fan_ref": body.fan_ref,
             "last_fan": scrub(last_text)[:500],
-            "decision": {"$in": ["aprovado", "enviado"]},
-            "at": {"$gte": ten_min},
+            "$or": [{"decision": "enviado", "at": {"$gte": ten_min}}, {"decision": "aprovado", "at": {"$gte": two_min}}],
         })
         if recent:
             return DecideOut(should_send=False, reason="já respondido", essay=cfg["essay"])
