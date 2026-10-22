@@ -11,7 +11,7 @@
 Variáveis do servidor (.env): WA_TOKEN (token de usuário do sistema da Meta), WA_APP_SECRET (assinatura do webhook),
 WA_VERIFY_TOKEN (texto que você escolhe para validar o webhook), WA_API_VERSION (opcional, padrão v21.0).
 """
-import os, re, json, hmac, hashlib, logging, secrets, asyncio, random
+import os, re, json, hmac, hashlib, logging, secrets, asyncio, random, contextvars
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Literal
@@ -31,6 +31,7 @@ KINDS = {'call': 'Chamada ao vivo', 'custom': 'Vídeo personalizado', 'photos': 
 STAGES = ['novo', 'idade', 'conversando', 'escolhendo', 'pedido', 'aguardando_pix', 'cliente', 'bloqueado']
 _locks = {}
 _tasks = set()
+_pace = contextvars.ContextVar('wa_pace', default=None)  # lote 176: ritmo de gente (visto, digitando..., pausa) só nas respostas a mensagens reais
 
 def wa_token(): return os.environ.get('WA_TOKEN', '').strip()
 
@@ -73,6 +74,24 @@ async def _post(cfg, payload):
     except Exception as e:
         log.warning('wa send: %s', e); return None
 
+async def _typing(cfg, msg_id):
+    """Marca a mensagem do fã como lida (tique azul) e mostra "digitando..." (some sozinho ao enviar ou em 25 s)."""
+    if not msg_id or not wa_token() or not cfg.get('phone_number_id'): return
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            await c.post(f"{GRAPH}/{cfg['phone_number_id']}/messages", headers={'Authorization': f'Bearer {wa_token()}'},
+                         json={'messaging_product': 'whatsapp', 'status': 'read', 'message_id': msg_id, 'typing_indicator': {'type': 'text'}})
+    except Exception as e: log.info('wa typing: %s', e)
+
+async def _human_pause(cfg, text):
+    """Antes de cada balão: "digitando..." e espera proporcional ao tamanho (como quem digita no celular)."""
+    p = _pace.get()
+    if not p: return
+    await _typing(cfg, p['msg_id'])
+    speed = random.uniform(12, 18)  # letras por segundo
+    await asyncio.sleep(min(9 if p['n'] == 0 else 7, (1.5 if p['n'] == 0 else 0.8) + len(text or '') / speed))
+    p['n'] += 1
+
 def _in_window(contact):
     t = contact.get('last_in_at')
     return bool(t) and datetime.fromisoformat(t) > now() - timedelta(hours=23, minutes=50)
@@ -86,6 +105,7 @@ async def _log_out(contact, text, by, kind='text', wa_id=None, extra=None):
 
 async def send_text(cfg, contact, text, by='ia'):
     if not _in_window(contact): raise HTTPException(409, 'Passou de 24 h da última mensagem do contato: o WhatsApp só deixa mandar modelo aprovado.')
+    await _human_pause(cfg, text)
     wid = await _post(cfg, {'to': contact['wa_id'], 'type': 'text', 'text': {'body': text[:4000], 'preview_url': True}})
     return await _log_out(contact, text, by, wa_id=wid)
 
@@ -97,6 +117,7 @@ async def send_buttons(cfg, contact, text, buttons, by='ia'):
     else:
         inter = {'type': 'list', 'body': {'text': text[:1024]}, 'action': {'button': 'Ver opções', 'sections': [{'title': 'Opções', 'rows': [
             {'id': b[0], 'title': b[1][:24], **({'description': b[2][:72]} if len(b) > 2 and b[2] else {})} for b in buttons[:10]]}]}}
+    await _human_pause(cfg, text)
     wid = await _post(cfg, {'to': contact['wa_id'], 'type': 'interactive', 'interactive': inter})
     return await _log_out(contact, text + '\n' + ' | '.join(b[1] for b in buttons), by, 'botoes', wid, {'buttons': [[b[0], b[1]] for b in buttons[:10]], 'body': text[:1024]})
 
@@ -527,6 +548,24 @@ async def _process(cfg, m, profile_name):
     wa = str(m.get('from') or '')
     if not re.fullmatch(r'\d{8,16}', wa): return
     lock = _locks.setdefault(f"{cfg['creator_id']}:{wa}", asyncio.Lock())
+    got = await _receive(cfg, m, profile_name, wa, lock)
+    if not got: return
+    contact_id, row_id, text, button = got
+    if cfg.get('humanize', True):
+        await asyncio.sleep(random.uniform(3, 7))  # tempo de "ver" a mensagem, como gente
+        last = await db.wa_messages.find_one({'contact_id': contact_id, 'dir': 'in'}, {'_id': 0, 'id': 1}, sort=[('at', -1), ('_id', -1)])
+        if last and last.get('id') != row_id: return  # chegou outra mensagem dele nesse meio-tempo: responde só à última, vendo tudo
+    async with lock:
+        try:
+            contact = await db.wa_contacts.find_one({'id': contact_id}, {'_id': 0})
+            if not contact: return
+            if cfg.get('humanize', True): _pace.set({'msg_id': m.get('id'), 'n': 0})
+            await handle_in(cfg, contact, text, button)
+        except HTTPException: pass
+        except Exception: log.exception('wa process')
+
+async def _receive(cfg, m, profile_name, wa, lock):
+    """Grava a mensagem que chegou. Devolve (contato, id da mensagem, texto, botão) quando a IA deve responder."""
     async with lock:
         try:
             if m.get('id') and await db.wa_messages.find_one({'wa_msg_id': m['id']}, {'_id': 1}): return  # a Meta reenvia
@@ -547,13 +586,14 @@ async def _process(cfg, m, profile_name):
             t = iso()
             await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'last_in_at': t, 'last_text': text[:160], 'name': contact.get('name') or (profile_name or '')[:60]}})
             contact['last_in_at'] = t
-            await db.wa_messages.insert_one({'id': uid(), 'contact_id': contact['id'], 'creator_id': cfg['creator_id'], 'dir': 'in', 'by': 'fã', 'text': text[:4000], 'kind': tp,
+            row_id = uid()
+            await db.wa_messages.insert_one({'id': row_id, 'contact_id': contact['id'], 'creator_id': cfg['creator_id'], 'dir': 'in', 'by': 'fã', 'text': text[:4000], 'kind': tp,
                                              'button': button, 'wa_msg_id': m.get('id'), 'at': t, 'expires_at': now() + timedelta(days=400)})
             if not cfg.get('enabled'): return
             if tp not in ('text', 'interactive', 'button'):
                 if not contact.get('human') and not contact.get('blocked'): await to_human(cfg, contact, f'mandou {tp} (a IA só lê texto)')
                 return
-            await handle_in(cfg, contact, text, button)
+            return contact['id'], row_id, text, button
         except HTTPException: pass
         except Exception: log.exception('wa process')
 
