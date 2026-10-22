@@ -344,9 +344,18 @@ def unformal(t):
     t = re.sub(r'\s+([,.!?])', r'\1', re.sub(r'\s+', ' ', t)).strip(' ,')
     return re.sub(r'^[,.]\s*', '', t)
 
+def _fix_one(m):
+    for enc in ('latin-1', 'cp1252'):
+        try: return m.group(0).encode(enc).decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError): pass
+    return m.group(0)
+def fix_accents(t):
+    """Conserta acento quebrado que às vezes vem da xAI (ex.: "ocasiÃ£o" -> "ocasião")."""
+    return re.sub(r'[ÃÂ][\x80-\xbf‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]', _fix_one, t or '')
+
 def _clean_ai(text):
     if not isinstance(text, str): return ''
-    t = text.strip()
+    t = fix_accents(text.strip())
     if t.lower().strip('"\' .') in ('', 'null', 'none', 'undefined', 'false', 'true'): return ''
     chk = re.sub(r'conte[uú]do adulto|\+18', '', t, flags=re.I)
     if SEXUAL.search(chk) or MEET.search(t) or CONTACT.search(t) or RECORDED.search(t): return ''
@@ -473,7 +482,7 @@ async def handle_in(cfg, contact, text, button_id=None):
         p = out.get('pedido') or {}
         it = next((i for i in on_items(cfg, 'custom') if i['id'] == contact.get('pending_item')), None) or (on_items(cfg, 'custom') or [None])[0]
         if it and (p.get('para') or '').strip() and (p.get('recado') or '').strip():
-            custom = {k: str(p.get(k) or '')[:300] for k in ('para', 'ocasiao', 'recado')}
+            custom = {k: fix_accents(str(p.get(k) or ''))[:300] for k in ('para', 'ocasiao', 'recado')}
             if SEXUAL.search(_n(' '.join(custom.values()))): return await to_human(cfg, contact, 'pedido de vídeo com tema adulto')
             if await open_order(contact, it['id']): return  # já tem esse vídeo pedido (pago ou esperando Pix): não cobra de novo
             return await create_order(cfg, contact, it, custom=custom)
