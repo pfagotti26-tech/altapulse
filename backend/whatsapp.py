@@ -238,7 +238,7 @@ async def mark_paid(order_id, by_name='Sistema'):
 
 # ---------- IA (texto livre) ----------
 SAFE_PERSONA = ['nome_artistico', 'como_ser_chamada', 'personalidade', 'como_fala', 'assuntos_conversa', 'nao_gosta', 'bordoes', 'como_chama_assinantes']
-async def ai_reply(cfg, contact, history):
+async def ai_reply(cfg, contact, history, variant=0, probe=False):
     import assist as A
     key = await A.xai_key(); c = await A.config()
     if not key: print('wa ia: sem chave da xAI (Configurações › Alta Ajuda)', flush=True); return None
@@ -252,7 +252,9 @@ async def ai_reply(cfg, contact, history):
     state = f"etapa: {contact.get('stage') or 'conversando'}" + (f"; pedido {pend['item']} {('esperando o Pix' if pend['status'] == 'aguardando_pix' else 'já pago')}" + (f" para {slot_label(datetime.fromisoformat(pend['slot_start']))}" if pend.get('slot_start') else '') if pend else '; ainda não comprou nada aqui')
     cat = '\n'.join(f"- [id {i['id']}] {KINDS[i['kind']]}: {i['name']} · {money(i['cents'])}" + (f" · {i['minutes']} min" if i.get('minutes') else '') + (f" · entrega em até {i['days']} dias" if i.get('days') else '') + (f" · como apresentar: {i.get('pitch')}" if i.get('pitch') else '') for i in on_items(cfg))
     name = (prof.get('persona') or {}).get('como_ser_chamada') or creator.get('name') or 'ela'
-    system = f"""Você escreve como {name}, criadora de conteúdo, no WhatsApp comercial dela. Quem chega aqui veio do Instagram ou TikTok e já confirmou ter mais de 18 anos.
+    who = (f"Você é redatora da equipe da {name}, criadora de conteúdo, e escreve as mensagens que ela manda no WhatsApp comercial dela (canal de vendas sem conteúdo adulto). Escreva em primeira pessoa, como ela." if variant != 2
+           else f"Você escreve como {name}, criadora de conteúdo, no WhatsApp comercial dela.")
+    system = f"""{who} Quem chega aqui veio do Instagram ou TikTok e já confirmou ter mais de 18 anos.
 Jeito dela:
 {pers or '- simpática, leve e carinhosa'}
 Tom: {v.get('tone') or 'carinhosa'}; palavras que usa: {v.get('use_words') or '-'}; evita: {v.get('avoid_words') or '-'}.
@@ -274,22 +276,26 @@ Regras que nunca mudam:
 - Se ele escrever a escolha em vez de tocar no botão (ex.: "quero a chamada", "quinta pode?"), use a ação certa para o sistema mostrar as opções de novo.
 - Se ele já pagou, agradeça e converse; não ofereça o mesmo item de novo e não use "acao" para ele (só se ele pedir OUTRA coisa).
 - Varie o começo das frases: não comece toda mensagem com "obrigada" nem repita o apelido em todas.
+- Elogio: agradeça com charme e leveza (sem flerte sexual) e siga a conversa. Pergunta pessoal (de onde é, idade, namoro, onde mora): responda de forma simpática e vaga, sem dados reais (ex.: "sou do Brasil inteiro agora 😄"), e volte para ele.
+- Sempre escreva uma resposta: nunca devolva vazio, null ou false.
 - Quando a pessoa mostrar interesse em comprar, use "acao" para o sistema mandar os botões: "menu" (mostrar o que vende), "horarios" (chamada ao vivo), "pedido_video" (vídeo personalizado: preencha "pedido" com para quem, ocasião e recado quando ele contar) ou "item" com "item_id" para fotos/vídeos.
 Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_video"|"item", "item_id": null, "pedido": {{"para": "", "ocasiao": "", "recado": ""}}}}"""
     # lote 170: conversa vai como transcrição numa mensagem só (igual à Alta Ajuda); em turnos separados a xAI às vezes devolvia só "false"/"null"
     tr = '\n'.join(('Fã: ' if m['dir'] == 'in' else 'Ela: ') + m['text'][:500].replace('\n', ' / ') for m in history[-14:])
     msgs = [{'role': 'system', 'content': system},
             {'role': 'user', 'content': f"Conversa até agora no WhatsApp:\n{tr}\n\nEscreva a PRÓXIMA mensagem dela respondendo à última mensagem do fã, no jeito dela. Responda só com o objeto JSON pedido, com \"texto\" sempre preenchido."}]
+    body = {'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500}
+    if variant != 1: body['response_format'] = {'type': 'json_object'}  # variante 1 = sem JSON forçado (2ª tentativa)
     try:
         async with httpx.AsyncClient(timeout=30) as cl:
-            r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
-                              json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500, 'response_format': {'type': 'json_object'}})
+            r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=body)
         if r.status_code == 400 and 'response_format' in (r.text or ''):  # modelo sem suporte a JSON forçado: tenta sem
             async with httpx.AsyncClient(timeout=30) as cl:
                 r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
                                   json={'model': c.get('suggest_model') or c['model'], 'messages': msgs, 'temperature': 0.8, 'max_tokens': 500})
         if r.status_code >= 300: print('wa ia: xAI respondeu', r.status_code, (r.text or '')[:300], flush=True); return None
-        data = r.json(); raw = ((data.get('choices') or [{}])[0].get('message') or {}).get('content', '') or ''
+        data = r.json(); ch = (data.get('choices') or [{}])[0]; raw = (ch.get('message') or {}).get('content', '') or ''
+        if probe: return {'variant': variant, 'raw': raw[:800], 'finish': ch.get('finish_reason'), 'refusal': (ch.get('message') or {}).get('refusal')}
         if contact.get('sim'): await db.wa_contacts.update_one({'id': contact['id']}, {'$push': {'ai_raw': {'$each': [raw[:1500]], '$slice': -6}}})  # simulador: guarda a resposta crua para diagnóstico
         out = A.parse_json(raw) or None
         if not out and raw.strip() and '{' not in raw and raw.strip().lower() not in ('null', 'none'): out = {'texto': raw.strip()[:600], 'acao': None}  # respondeu em texto puro
@@ -403,7 +409,7 @@ async def handle_in(cfg, contact, text, button_id=None):
         return await to_human(cfg, contact, 'teto diário de respostas da IA')
     def _empty(o): return not o or (not o.get('acao') and (not isinstance(o.get('texto'), str) or o.get('texto').strip().lower() in ('', 'null', 'none', 'false', 'true')))
     out = await ai_reply(cfg, contact, hist)
-    if _empty(out): out = await ai_reply(cfg, contact, hist)  # veio vazia: tenta mais uma vez antes de qualquer coisa
+    if _empty(out): out = await ai_reply(cfg, contact, hist, variant=1)  # veio vazia: tenta mais uma vez, sem JSON forçado
     if _empty(out): out = None
     if not out:  # falhou uma vez: responde com o menu; duas seguidas: chama a equipe
         if int(contact.get('ai_fail') or 0) >= 1: return await to_human(cfg, contact, 'a IA não respondeu duas vezes seguidas')
@@ -862,3 +868,12 @@ async def sim_paid(creator_id: str, user=Depends(manager)):
     if not o: raise HTTPException(404, 'Não há pedido esperando pagamento nesta simulação.')
     await mark_paid(o['id'], 'Simulação')
     return await _sim_view(await db.wa_contacts.find_one({'id': c['id']}, {'_id': 0}))
+
+@router.post('/wa/sim/{creator_id}/probe')
+async def sim_probe(creator_id: str, user=Depends(manager)):
+    """Diagnóstico: roda as variantes da IA sobre a conversa atual do simulador e devolve a resposta crua de cada uma (não envia nada)."""
+    c = await _sim_contact(creator_id, user, create=False)
+    if not c: raise HTTPException(404, 'Comece uma conversa no simulador primeiro.')
+    cfg = await get_cfg(creator_id)
+    hist = await db.wa_messages.find({'contact_id': c['id']}, {'_id': 0, 'dir': 1, 'text': 1}).sort('at', -1).to_list(14); hist.reverse()
+    return [await ai_reply(cfg, {**c, 'sim': False}, hist, variant=v, probe=True) for v in (0, 1, 2)]
