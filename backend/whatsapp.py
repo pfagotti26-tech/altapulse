@@ -224,7 +224,7 @@ async def mark_paid(order_id, by_name='Sistema'):
     await db.wa_contacts.update_one({'id': o['contact_id']}, {'$set': {'stage': 'cliente', 'buyer': True}, '$inc': {'spent_cents': o['cents']}})
     if contact:
         if o['kind'] == 'call': t = f"pronto, amor, tá confirmado! {slot_label(datetime.fromisoformat(o['slot_start']))} a gente se fala. te mando o link um pouquinho antes"
-        elif o['kind'] == 'custom': t = f"recebi! vou gravar seu vídeo com carinho e te mando aqui em até {o.get('days') or 3} dias"
+        elif o['kind'] == 'custom': t = f"recebi! já anotei tudo, te mando o vídeo aqui em até {o.get('days') or 3} dias"
         else: t = 'recebi, amor! já já te mando aqui'
         try: await say(cfg, contact, t, 'sistema')
         except HTTPException: pass
@@ -271,9 +271,11 @@ Regras que nunca mudam:
 - Chamada ao vivo é ao vivo de verdade, com ela, no horário marcado. Nunca diga que é gravada.
 - Não diga valor que não está na lista. Não prometa prazo diferente.
 - Jeito de WhatsApp: mensagem CURTA (no máximo umas 20 palavras), solta, como quem digita no celular. Pode começar com minúscula, sem ponto final, abreviações naturais de vez em quando (vc, tb, pq, tô, tá, pra). No máximo 1 emoji, e nem sempre. Nada de frases formais ("fico feliz em poder ajudar", "que gentileza", "transmitindo"). Sem listas e sem repetir frase que já mandou.
-- Apelido carinhoso (amor, bb, lindo) no máximo de vez em quando, não em toda mensagem.
+- Apelido carinhoso (amor, bb, lindo) no máximo de vez em quando, não em toda mensagem. Se a última mensagem dela já tinha apelido, essa não tem.
+- Proibido soar atendente: nada de "fico feliz", "fico bem feliz", "fico feliz que tenha gostado", "obrigada pelo elogio", "com muito carinho", "com bastante carinho", "que ótimo", "perfeito", "com certeza", "estou à disposição". Reaja como gente: "aah para kkk", "ai que fofo", "sério? amei", "ain obrigada 🙈", "kkkk vc é engraçado".
+- Quando usar "acao", o sistema manda os botões logo depois da sua mensagem: NÃO pergunte "quer ver os horários?", "quer ver as opções?" nem liste o que vende. Escreva só a reação/explicação curta (ex.: "é só eu e vc, ao vivo, 10 min de papo"), sem pergunta no fim.
 - Primeiro responda de verdade ao que ele disse (pergunta, elogio, piada), com personalidade; só depois, se fizer sentido, puxe para o que ela vende. Não seja robótica nem vendedora o tempo todo.
-- Nunca deixe a conversa morrer: termine com uma pergunta leve ou um convite.
+- Nunca deixe a conversa morrer: sem "acao", termine com uma pergunta leve ou um convite.
 - Se ele escrever a escolha em vez de tocar no botão (ex.: "quero a chamada", "quinta pode?"), use a ação certa para o sistema mostrar as opções de novo.
 - Se ele já pagou, agradeça e converse; não ofereça o mesmo item de novo e não use "acao" para ele (só se ele pedir OUTRA coisa).
 - Varie o começo das frases: não comece toda mensagem com "obrigada" nem repita o apelido em todas.
@@ -326,6 +328,22 @@ def zap_parts(t):
         if p: out.append(p)
     return out or [t]
 
+PET = r'(?:amor|bb|bebê|bebe|lind[oa]|gat[oa]|querid[oa]|meu bem|vida|anjo|fofo)'
+def has_pet(t): return bool(re.search(rf'\b{PET}\b', t or '', re.I))
+def drop_pet(t):
+    """Tira o apelido quando a mensagem anterior já tinha um (evita "bb" em toda mensagem)."""
+    t = re.sub(rf'^((?:oi|oii+|ei|ai|aii+|ah|aah+|ui|ain|nossa|hmm+|obrigad[ao]|brigad[ao]|valeu)\b),?\s+{PET}\b', r'\1', t, flags=re.I)
+    t = re.sub(rf'^{PET}\b[,!]?\s*', '', t, flags=re.I)
+    t = re.sub(rf',\s*{PET}\b(?=\s*([.!?,]|$|[\U0001F300-\U0001FAFF]))', '', t, flags=re.I)
+    return re.sub(r'\s+', ' ', t).strip(' ,') or t
+
+FORMAL = ((r',?\s*(eu )?fico (muito |bem |super |tão )?feliz( que (vc |você )?(tenha )?(gostado|curtido)| em (poder )?ajudar| com (isso|seu elogio))?', ''),
+          (r'obrigada pelo elogio', 'obrigada'), (r'\s+com (muito|bastante|todo o?|todo) carinho', ''), (r',?\s*estou à disposição', ''))
+def unformal(t):
+    for a, b in FORMAL: t = re.sub(a, b, t, flags=re.I)
+    t = re.sub(r'\s+([,.!?])', r'\1', re.sub(r'\s+', ' ', t)).strip(' ,')
+    return re.sub(r'^[,.]\s*', '', t)
+
 def _clean_ai(text):
     if not isinstance(text, str): return ''
     t = text.strip()
@@ -335,26 +353,28 @@ def _clean_ai(text):
     return t[:600]
 
 # ---------- passos do funil ----------
-async def show_menu(cfg, contact, text=None):
-    text = text or random.choice(['o que você quer?', 'o que te deixou curioso?', 'qual desses combina com você?'])
+QUIET = ['olha 👇', 'tenho esses:', 'escolhe aqui:']
+async def show_menu(cfg, contact, text=None, quiet=False):
+    text = text or (random.choice(QUIET) if quiet else random.choice(['o que você quer?', 'o que te deixou curioso?', 'qual desses combina com você?']))
     ks = kinds_on(cfg)
     if not ks: return await send_text(cfg, contact, 'no momento não tô com horários nem pedidos abertos, mas logo volto, tá?')
-    if len(ks) == 1: return await pick_kind(cfg, contact, ks[0])
+    if len(ks) == 1: return await pick_kind(cfg, contact, ks[0], quiet)
     await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'escolhendo'}})
     return await send_buttons(cfg, contact, text, [(f'k:{k}', KINDS[k]) for k in ks])
 
-async def pick_kind(cfg, contact, kind):
+async def pick_kind(cfg, contact, kind, quiet=False):
     items = on_items(cfg, kind)
     if not items: return await show_menu(cfg, contact, 'esse agora não tenho, mas olha o que tenho:')
-    if len(items) > 1: return await send_buttons(cfg, contact, 'qual você prefere?', [(f'i:{i["id"]}', i['name'], money(i['cents'])) for i in items] if len(items) > 3 else [(f'i:{i["id"]}', f"{i['name'][:12]} {money(i['cents'])}") for i in items])
-    return await pick_item(cfg, contact, items[0])
+    if len(items) > 1: return await send_buttons(cfg, contact, random.choice(QUIET) if quiet else 'qual você prefere?', [(f'i:{i["id"]}', i['name'], money(i['cents'])) for i in items] if len(items) > 3 else [(f'i:{i["id"]}', f"{i['name'][:12]} {money(i['cents'])}") for i in items])
+    return await pick_item(cfg, contact, items[0], quiet)
 
-async def pick_item(cfg, contact, item):
+async def pick_item(cfg, contact, item, quiet=False):
     if item['kind'] == 'call':
         slots = await free_slots(cfg, int(item.get('minutes') or 10))
         if not slots: return await send_text(cfg, contact, 'essa semana minha agenda tá cheia, amor. me chama de novo em uns dias que eu abro horário pra você')
         await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'escolhendo', 'pending_item': item['id']}})
-        return await send_buttons(cfg, contact, random.choice([f"é ao vivo, só eu e você, {item.get('minutes') or 10} minutinhos. tenho esses horários:", f"{item.get('minutes') or 10} minutinhos ao vivo comigo! olha os horários que eu tenho:", f"vai ser só nosso, {item.get('minutes') or 10} minutos ao vivo. qual horário fica bom pra você?"]), [(f's:{item["id"]}:{int(s.timestamp())}', slot_label(s)) for s in slots[:10]])
+        lead = random.choice(['meus horários 👇', 'tenho esses horários:', 'escolhe um horário:']) if quiet else random.choice([f"é ao vivo, só eu e você, {item.get('minutes') or 10} minutinhos. tenho esses horários:", f"{item.get('minutes') or 10} minutinhos ao vivo comigo! olha os horários que eu tenho:", f"vai ser só nosso, {item.get('minutes') or 10} minutos ao vivo. qual horário fica bom pra você?"])
+        return await send_buttons(cfg, contact, lead, [(f's:{item["id"]}:{int(s.timestamp())}', slot_label(s)) for s in slots[:10]])
     if item['kind'] == 'custom':
         await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'stage': 'pedido', 'pending_item': item['id']}})
         return await send_text(cfg, contact, random.choice(['amo gravar vídeo personalizado! me conta: é pra você ou pra presentear alguém? qual o nome e o que você quer que eu fale?', 'que delícia! é pra você ou é presente? me fala o nome e o recadinho que eu gravo do meu jeito', 'bora! me conta pra quem é, se é alguma ocasião especial e o que você quer que eu diga']))
@@ -387,7 +407,7 @@ async def handle_in(cfg, contact, text, button_id=None):
             contact['age_ok'] = True
             ks = kinds_on(cfg)
             lst = ', '.join(KINDS[k].lower() for k in ks)
-            intro = random.choice([f'perfeito! aqui eu tenho {lst}.', f'que bom! por aqui eu faço {lst}.', f'ebaa, então vamos lá: aqui tem {lst}.']) if ks else 'que bom te ter aqui!'
+            intro = random.choice([f'aah que bom! aqui eu tenho {lst}.', f'que bom! por aqui eu faço {lst}.', f'ebaa, então vamos lá: aqui tem {lst}.']) if ks else 'que bom te ter aqui!'
             await send_text(cfg, contact, intro)
             return await show_menu(cfg, contact)
         tries = int(contact.get('age_tries') or 0)
@@ -433,17 +453,22 @@ async def handle_in(cfg, contact, text, button_id=None):
         return await show_menu(cfg, contact, 'deixa eu te mostrar o que tenho por aqui:')
     if contact.get('ai_fail'): await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'ai_fail': 0}})
     txt = _clean_ai(out.get('texto'))
+    if txt:
+        txt = unformal(txt)
+        last = [m.get('text') or '' for m in hist if m.get('dir') == 'out'][-2:]
+        if any(has_pet(x) for x in last): txt = drop_pet(txt)
     if not txt and not out.get('acao'): return await to_human(cfg, contact, 'resposta da IA barrada pelas regras', f"Fã: \"{(text or '')[:120]}\"")
     if txt:
         for part in zap_parts(txt): await send_text(cfg, contact, part)
     ac = out.get('acao')
-    if ac == 'menu': return await show_menu(cfg, contact)
+    q = bool(txt)  # a IA já falou: os botões vêm só com um rótulo curto, sem repetir pergunta
+    if ac == 'menu': return await show_menu(cfg, contact, quiet=q)
     if ac == 'horarios':
         it = (on_items(cfg, 'call') or [None])[0]
-        if it: return await pick_item(cfg, contact, it)
+        if it: return await pick_item(cfg, contact, it, q)
     if ac == 'item' and out.get('item_id'):
         it = item_by_id(cfg, str(out['item_id']))
-        if it and it['kind'] in ('photos', 'videos') and not await open_order(contact, it['id']): return await pick_item(cfg, contact, it)
+        if it and it['kind'] in ('photos', 'videos') and not await open_order(contact, it['id']): return await pick_item(cfg, contact, it, q)
     if ac == 'pedido_video':
         p = out.get('pedido') or {}
         it = next((i for i in on_items(cfg, 'custom') if i['id'] == contact.get('pending_item')), None) or (on_items(cfg, 'custom') or [None])[0]
