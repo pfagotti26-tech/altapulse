@@ -18,7 +18,7 @@ from typing import Optional, Literal
 import httpx
 from pydantic import Field
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from core import db, now, iso, uid, current_user, manager, is_staff, audit
 from schemas import Strict
 from extension_routes import extension_user
@@ -402,6 +402,10 @@ async def handle_in(cfg, contact, text, button_id=None):
         except Exception: pass
         return
     t = _n(text)
+    if re.fullmatch(r'\s*(parar|pare|sair|stop|descadastrar|cancelar mensagens)\s*[.!]?\s*', t):  # pediu para parar (política de privacidade)
+        try: await send_text(cfg, contact, 'tudo bem, não te mando mais mensagens por aqui. se cuida!', 'sistema')
+        except HTTPException: pass
+        return await block(contact, 'pediu para parar de receber mensagens')
     if MINOR.search(t) or (age_of(t) is not None and age_of(t) < 18 and contact.get('stage') in ('novo', 'idade')):
         await block(contact, 'menor de idade')
         try: await send_text(cfg, contact, 'obrigada pela mensagem! aqui é só para maiores de 18, então não vou poder seguir com você. se cuida!', 'sistema')
@@ -928,3 +932,35 @@ async def sim_probe(creator_id: str, user=Depends(manager)):
     cfg = await get_cfg(creator_id)
     hist = await db.wa_messages.find({'contact_id': c['id']}, {'_id': 0, 'dir': 1, 'text': 1}).sort('at', -1).to_list(14); hist.reverse()
     return [await ai_reply(cfg, {**c, 'sim': False}, hist, variant=v, probe=True) for v in (0, 1, 2)]
+
+# ---------- página pública de privacidade (exigida pela Meta para publicar o app do WhatsApp) ----------
+PRIVACY_HTML = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Política de Privacidade · Alta Agency</title>
+<style>body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f7f7f8;color:#262629;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:32px 16px 48px}h1{color:#C41E3A;font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 8px}
+p,li{color:#3d3d44}.muted{color:#6b6b73;font-size:14px}a{color:#C41E3A}</style></head><body><main>
+<h1>Política de Privacidade</h1>
+<p class="muted">Alta Agency · FAGOTTI MARKETING DIRETO LTDA · atualizada em 22/10/2026</p>
+<p>Esta política explica como tratamos os dados de quem conversa com os números de WhatsApp atendidos pela Alta Agency, em nome das criadoras de conteúdo que representamos.</p>
+<h2>1. Quais dados coletamos</h2>
+<ul><li>Número de WhatsApp e nome de perfil.</li><li>Mensagens trocadas na conversa, incluindo escolhas feitas nos botões.</li>
+<li>Pedidos feitos (item, valor, horário agendado, situação do pagamento). Não recebemos nem guardamos dados de cartão: o pagamento acontece no ambiente do meio de pagamento.</li>
+<li>Confirmação de maioridade (18 anos ou mais).</li></ul>
+<h2>2. Para que usamos</h2>
+<ul><li>Responder às mensagens, apresentar os produtos e serviços e agendar atendimentos.</li><li>Gerar a cobrança e confirmar o pagamento.</li>
+<li>Enviar lembretes e entregas ligados a um pedido feito por você.</li><li>Segurança: bloquear menores de idade, golpes e uso indevido.</li></ul>
+<p>Parte das respostas pode ser escrita com apoio de ferramentas de inteligência artificial e revisada pela nossa equipe. Sempre que você pedir, a conversa passa para uma pessoa da equipe.</p>
+<h2>3. Com quem compartilhamos</h2>
+<p>Somente com os serviços necessários para funcionar: Meta/WhatsApp (envio das mensagens), o meio de pagamento escolhido (cobrança), o provedor de servidores onde o sistema roda e o provedor de inteligência artificial que ajuda a escrever as respostas. Não vendemos seus dados.</p>
+<h2>4. Por quanto tempo guardamos</h2>
+<p>As conversas ficam guardadas por até 400 dias e depois são apagadas automaticamente. Registros de pagamento podem ser mantidos pelo prazo exigido em lei.</p>
+<h2>5. Seus direitos (LGPD)</h2>
+<p>Você pode pedir acesso, correção ou exclusão dos seus dados, ou parar de receber mensagens, a qualquer momento. Para parar, basta escrever "parar" na conversa.</p>
+<h2 id="exclusao">6. Como pedir a exclusão dos dados</h2>
+<p>Envie um e-mail para <a href="mailto:contato@altaagencydigital.com">contato@altaagencydigital.com</a> com o assunto "Exclusão de dados" e o número de WhatsApp usado. Respondemos em até 15 dias.</p>
+<h2>7. Contato</h2>
+<p>FAGOTTI MARKETING DIRETO LTDA (Alta Agency) · <a href="mailto:contato@altaagencydigital.com">contato@altaagencydigital.com</a></p>
+</main></body></html>"""
+
+@router.get('/privacidade', response_class=HTMLResponse)
+async def privacy_page(): return HTMLResponse(PRIVACY_HTML)
