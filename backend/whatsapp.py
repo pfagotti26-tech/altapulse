@@ -176,9 +176,16 @@ def slot_label(t):
     return f"{d} {t.strftime('%H:%M')}"
 
 # ---------- pedidos ----------
+async def open_order(contact, item_id):
+    """Pedido do mesmo item nas últimas 24 h ainda esperando Pix, ou pago e não entregue (chamada: ainda não feita)."""
+    return await db.wa_orders.find_one({'contact_id': contact['id'], 'item_id': item_id, 'created_at': {'$gte': (now() - timedelta(hours=24)).isoformat()},
+                                        '$or': [{'status': 'aguardando_pix'}, {'status': 'pago', 'delivered_at': None, 'call_status': {'$in': [None, 'agendada']}}]}, {'_id': 0})
+
 async def create_order(cfg, contact, item, slot=None, custom=None, by='ia'):
     import payments
     if not _in_window(contact): raise HTTPException(409, 'Passou de 24 h da última mensagem do contato: peça para ele mandar um oi antes de vender.')
+    # trocou de horário/item antes de pagar: o pedido anterior do mesmo item que ainda espera Pix é cancelado (nunca duas cobranças abertas)
+    await db.wa_orders.update_many({'contact_id': contact['id'], 'item_id': item['id'], 'status': 'aguardando_pix'}, {'$set': {'status': 'cancelado', 'cancel_reason': 'substituído por novo pedido'}})
     hold = int((cfg.get('pay') or {}).get('hold_min') or 15)
     o = {'id': uid(), 'creator_id': cfg['creator_id'], 'contact_id': contact['id'], 'contact_name': contact.get('name'), 'item_id': item['id'], 'item': item['name'],
          'kind': item['kind'], 'cents': int(item['cents']), 'minutes': int(item.get('minutes') or 0), 'days': int(item.get('days') or 0),
@@ -265,7 +272,8 @@ Regras que nunca mudam:
 - Primeiro responda de verdade ao que ele disse (pergunta, elogio, piada), com personalidade; só depois, se fizer sentido, puxe para o que ela vende. Não seja robótica nem vendedora o tempo todo.
 - Nunca deixe a conversa morrer: termine com uma pergunta leve ou um convite.
 - Se ele escrever a escolha em vez de tocar no botão (ex.: "quero a chamada", "quinta pode?"), use a ação certa para o sistema mostrar as opções de novo.
-- Se ele já pagou, agradeça e converse; não ofereça o mesmo item de novo.
+- Se ele já pagou, agradeça e converse; não ofereça o mesmo item de novo e não use "acao" para ele (só se ele pedir OUTRA coisa).
+- Varie o começo das frases: não comece toda mensagem com "obrigada" nem repita o apelido em todas.
 - Quando a pessoa mostrar interesse em comprar, use "acao" para o sistema mandar os botões: "menu" (mostrar o que vende), "horarios" (chamada ao vivo), "pedido_video" (vídeo personalizado: preencha "pedido" com para quem, ocasião e recado quando ele contar) ou "item" com "item_id" para fotos/vídeos.
 Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_video"|"item", "item_id": null, "pedido": {{"para": "", "ocasiao": "", "recado": ""}}}}"""
     msgs = [{'role': 'system', 'content': system}]
@@ -408,13 +416,14 @@ async def handle_in(cfg, contact, text, button_id=None):
         if it: return await pick_item(cfg, contact, it)
     if ac == 'item' and out.get('item_id'):
         it = item_by_id(cfg, str(out['item_id']))
-        if it and it['kind'] in ('photos', 'videos'): return await pick_item(cfg, contact, it)
+        if it and it['kind'] in ('photos', 'videos') and not await open_order(contact, it['id']): return await pick_item(cfg, contact, it)
     if ac == 'pedido_video':
         p = out.get('pedido') or {}
         it = next((i for i in on_items(cfg, 'custom') if i['id'] == contact.get('pending_item')), None) or (on_items(cfg, 'custom') or [None])[0]
         if it and (p.get('para') or '').strip() and (p.get('recado') or '').strip():
             custom = {k: str(p.get(k) or '')[:300] for k in ('para', 'ocasiao', 'recado')}
             if SEXUAL.search(_n(' '.join(custom.values()))): return await to_human(cfg, contact, 'pedido de vídeo com tema adulto')
+            if await open_order(contact, it['id']): return  # já tem esse vídeo pedido (pago ou esperando Pix): não cobra de novo
             return await create_order(cfg, contact, it, custom=custom)
         if it and contact.get('stage') != 'pedido':
             if txt:  # a IA já pediu os detalhes do vídeo com as palavras dela: só marca a etapa, sem repetir a pergunta fixa
