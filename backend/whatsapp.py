@@ -276,8 +276,10 @@ Regras que nunca mudam:
 - Varie o começo das frases: não comece toda mensagem com "obrigada" nem repita o apelido em todas.
 - Quando a pessoa mostrar interesse em comprar, use "acao" para o sistema mandar os botões: "menu" (mostrar o que vende), "horarios" (chamada ao vivo), "pedido_video" (vídeo personalizado: preencha "pedido" com para quem, ocasião e recado quando ele contar) ou "item" com "item_id" para fotos/vídeos.
 Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_video"|"item", "item_id": null, "pedido": {{"para": "", "ocasiao": "", "recado": ""}}}}"""
-    msgs = [{'role': 'system', 'content': system}]
-    for m in history[-14:]: msgs.append({'role': 'assistant' if m['dir'] == 'out' else 'user', 'content': m['text'][:600]})
+    # lote 170: conversa vai como transcrição numa mensagem só (igual à Alta Ajuda); em turnos separados a xAI às vezes devolvia só "false"/"null"
+    tr = '\n'.join(('Fã: ' if m['dir'] == 'in' else 'Ela: ') + m['text'][:500].replace('\n', ' / ') for m in history[-14:])
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': f"Conversa até agora no WhatsApp:\n{tr}\n\nEscreva a PRÓXIMA mensagem dela respondendo à última mensagem do fã, no jeito dela. Responda só com o objeto JSON pedido, com \"texto\" sempre preenchido."}]
     try:
         async with httpx.AsyncClient(timeout=30) as cl:
             r = await cl.post(f'{A.XAI}/chat/completions', headers={'Authorization': f'Bearer {key}'},
