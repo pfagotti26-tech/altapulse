@@ -270,7 +270,8 @@ Regras que nunca mudam:
 - Nunca marque encontro, nunca passe contato pessoal, endereço ou outra rede, nunca aceite pagamento por fora.
 - Chamada ao vivo é ao vivo de verdade, com ela, no horário marcado. Nunca diga que é gravada.
 - Não diga valor que não está na lista. Não prometa prazo diferente.
-- Mensagens curtas (1 a 3 frases), naturais, em português do Brasil, sem listas, sem repetir frase que você já mandou.
+- Jeito de WhatsApp: mensagem CURTA (no máximo umas 20 palavras), solta, como quem digita no celular. Pode começar com minúscula, sem ponto final, abreviações naturais de vez em quando (vc, tb, pq, tô, tá, pra). No máximo 1 emoji, e nem sempre. Nada de frases formais ("fico feliz em poder ajudar", "que gentileza", "transmitindo"). Sem listas e sem repetir frase que já mandou.
+- Apelido carinhoso (amor, bb, lindo) no máximo de vez em quando, não em toda mensagem.
 - Primeiro responda de verdade ao que ele disse (pergunta, elogio, piada), com personalidade; só depois, se fizer sentido, puxe para o que ela vende. Não seja robótica nem vendedora o tempo todo.
 - Nunca deixe a conversa morrer: termine com uma pergunta leve ou um convite.
 - Se ele escrever a escolha em vez de tocar no botão (ex.: "quero a chamada", "quinta pode?"), use a ação certa para o sistema mostrar as opções de novo.
@@ -309,6 +310,21 @@ Responda SÓ em JSON: {{"texto": "...", "acao": null|"menu"|"horarios"|"pedido_v
         return out
     except Exception as e:
         print('wa ia: falhou', repr(e)[:300], flush=True); return None
+
+def zap_parts(t):
+    """Deixa com cara de WhatsApp: tira ponto final, minúscula no começo e quebra mensagem longa em até 2 balões."""
+    t = re.sub(r'\s+', ' ', t).strip()
+    parts = [t]
+    if len(t) > 120:
+        cut = [m.end() for m in re.finditer(r'[.!?](\s|$)', t) if 30 <= m.end() <= len(t) - 20]
+        if cut:
+            k = min(cut, key=lambda x: abs(x - len(t) / 2)); parts = [t[:k].strip(), t[k:].strip()]
+    out = []
+    for p in parts:
+        p = re.sub(r'(?<![.])\.$', '', p).strip()  # sem ponto final (mantém reticências)
+        if p and p[0].isupper() and not (len(p) > 1 and p[1].isupper()): p = p[0].lower() + p[1:]
+        if p: out.append(p)
+    return out or [t]
 
 def _clean_ai(text):
     if not isinstance(text, str): return ''
@@ -418,7 +434,8 @@ async def handle_in(cfg, contact, text, button_id=None):
     if contact.get('ai_fail'): await db.wa_contacts.update_one({'id': contact['id']}, {'$set': {'ai_fail': 0}})
     txt = _clean_ai(out.get('texto'))
     if not txt and not out.get('acao'): return await to_human(cfg, contact, 'resposta da IA barrada pelas regras', f"Fã: \"{(text or '')[:120]}\"")
-    if txt: await send_text(cfg, contact, txt)
+    if txt:
+        for part in zap_parts(txt): await send_text(cfg, contact, part)
     ac = out.get('acao')
     if ac == 'menu': return await show_menu(cfg, contact)
     if ac == 'horarios':
