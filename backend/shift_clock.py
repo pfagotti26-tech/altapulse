@@ -102,6 +102,10 @@ async def sweep_loop():
             from content import goal_tick
             await goal_tick()  # metas de posts: alertas às 14h e 19h, registro do dia às 23h50
         except Exception: logging.exception('metas de conteúdo')
+        try:
+            from chat_sales import daily_digest
+            await daily_digest()  # lote 189: resumo diário das vendas de chat por origem, 23h50
+        except Exception: logging.exception('resumo de vendas de chat')
         await asyncio.sleep(60)
 
 class ExtendIn(Strict):

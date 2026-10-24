@@ -148,6 +148,15 @@ async def ingest(body: Observation, source: dict):
             await on_paid({**row, 'creator_id': body.creator_id, 'event_ref': body.event_ref}, old)
         except Exception:
             import logging; logging.exception('mídia paga')
+    # lote 189 (Paulo): toda venda de chat → e-mail com a origem (automação, chatter, massa, não identificado)
+    try:
+        from chat_sales import on_chat_sale
+        if body.kind == 'sale' and body.sale_origin == 'chat' and (row.get('sale_status') or 'confirmed') == 'confirmed' and not (old and old.get('kind') == 'sale'):
+            await on_chat_sale(body.creator_id, row.get('fan_ref'), row.get('fan_name'), row.get('amount_cents'), row.get('confirmed_at') or iso(), body.sale_source or 'list', '', body.event_ref)
+        elif body.kind == 'offer' and body.offer_status == 'paid' and body.offer_type == 'request' and not (old and old.get('offer_status') == 'paid'):
+            await on_chat_sale(body.creator_id, row.get('fan_ref'), row.get('fan_name'), row.get('amount_cents'), row.get('confirmed_at') or row.get('offered_at') or iso(), 'request', '', body.event_ref)
+    except Exception:
+        import logging; logging.exception('e-mail de venda de chat')
     # lote 150: total gasto do fã subiu na lista no valor de uma Solicitação nossa aberta → mesma coisa (pedido + aviso)
     if body.kind == 'sale' and body.sale_origin == 'chat' and not old:
         try:
