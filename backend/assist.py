@@ -896,6 +896,9 @@ FIM DA CONVERSA:
         if len(PM._norm(txt0)) > 6: longo = (len(PM._norm(txt0)), 6)
         elif txt0.strip().endswith('?'): mech = 'pergunta depois de elogio simples'
     seen = PM.claims_seen(txt0) if out and not out.get('alerta') and not _paid_req and not mreq else ''
+    # lote 186: nada nosso (foto, vídeo, solicitação) saiu nesta conversa e a sugestão fala como se já tivesse mandado → refaz; se insistir, alerta
+    _we_sent = any(media_info(m.text) for m in msgs if m.ours) or bool(mreq) or bool(_open_req) or bool(_paid_req)
+    sent_claim = PM.claims_sent(txt0) if out and not out.get('alerta') and not _we_sent else ''
     why = []; first_try = dict(out) if isinstance(out, dict) else None
     if body.mode == 'puxada' and out and not out.get('alerta'): longo = PM.too_long(txt0, 'oi')  # lote 118: puxada é sempre uma linha curta
     onl = PM.says_online(txt0) if body.mode == 'puxada' and out and not out.get('alerta') else ''
@@ -953,7 +956,7 @@ FIM DA CONVERSA:
         ('cobrou', cbk), ('generica', gen), ('puxada-sem-?', pxq), ('repetiu', rep), ('rotina', rot), ('midia', med), ('encontro', meet), ('nao-fechou', close), ('gravada', recd),
         ('frase-de-outro', reused), ('gratis', free), ('bordao', tic), ('longa', longo), ('mesma-ideia', vibe), ('sem-oferta', nosale), ('objecao', obj), ('bronca', scold),
         ('duracao', dur), ('catalogo', cat), ('familia', fam), ('papeis', flip), ('valor', pricetxt), ('reacao', react), ('chamada-promessa', callp), ('molhad', wet),
-        ('online', onl), ('fugiu-dela', dodge), ('inventou', claim), ('disse-que-viu', seen), ('mecanica', mech)) if v]
+        ('online', onl), ('fugiu-dela', dodge), ('inventou', claim), ('disse-que-viu', seen), ('disse-que-mandou', sent_claim), ('mecanica', mech)) if v]
     # lote 142b: só estilo (frase já usada com outro fã, mecânica, longa até 2x, eco, rotina…) não paga uma 2ª chamada: aceita como está.
     # Segurança e venda (valor, pagar, encontro, ao vivo, chamada, viu mídia, repetiu com o MESMO fã…) continuam refazendo.
     _style_only = {'frase-de-outro', 'mecanica', 'midia', 'mesma-ideia', 'rotina', 'eco', 'bordao', 'catalogo', 'duracao', 'generica'}
@@ -966,6 +969,7 @@ FIM DA CONVERSA:
         if schl: why.append(f'entrou no tema escolar ("{schl}"); é PROIBIDO: não fale de colegial, saia, aluna, escola; traga para adultos com charme, sem oferta')
         if expl: why.append(f'disse "{expl}" sobre vídeo de sexo, mas ela NÃO tem conteúdo explícito; nunca confirme nem negue: responda com mistério e provocação ("só vendo pra saber 😏", "o que você acha que rola?") e não descreva sexo')
         if mech: why.append(f'ficou mecânico ("{mech}"); ' + ('cumprimente de volta e pergunte dele ("oi amor! tudo bem? e com você?"), sem falar de post nem oferecer nada' if _gr else 'agradeça curto, sem pergunta ("obrigada amor! 😘")' if _ck == 'neutro' else 'brinque com o que ele disse e devolva uma pergunta curta que explore o desejo dele ("você acha mesmo amor? rs")'))
+        if sent_claim: why.append(f'disse "{sent_claim}" como se já tivesse mandado algo, mas NADA foi enviado nesta conversa (nenhuma foto, vídeo ou solicitação); nunca diga que mandou nem que bugou: se quiser que ele veja algo, ofereça pela solicitação de mídia com o item e o valor')
         if seen: why.append(f'disse "{seen}", mas não há Solicitação de mídia paga na conversa: nada chegou e você não enxerga imagem; nunca diga que viu nem elogie a mídia dele: diga com charme que não chegou e que pra ela ver é pela solicitação')
         if claim: why.append(f'afirmou "{claim}", que a ficha não diz; nunca invente idade, cidade, trabalho, namoro ou nome: desvie brincando ("hum, você é bem curioso, né? rs") e puxe para os dois')
         if dodge: why.append(f'o fã pediu "{dodge}" e a resposta não falou dela; fale dela em primeira pessoa (jeito, gostos, pela ficha, sem dado pessoal) ou devolva com charme "o que você quer saber de mim?"; nunca "o que chamou atenção no meu perfil"')
@@ -1021,6 +1025,8 @@ FIM DA CONVERSA:
                 if o2 and str(o2.get('texto') or '').strip(): out = o2
         except httpx.HTTPError: pass
         # ainda aceitando encontro/programa depois da segunda tentativa: não sai sugestão nenhuma (vira alerta, nunca vai para o fã)
+        if sent_claim and out and not out.get('alerta') and PM.claims_sent(str(out.get('texto') or '')):
+            out = {'alerta': True, 'motivo': 'a sugestão diz que já mandou mídia, mas nada foi enviado nesta conversa; responda à mão (ofereça pela solicitação, nunca diga que mandou)'}
         if seen and out and not out.get('alerta') and PM.claims_seen(str(out.get('texto') or '')):
             out = {'alerta': True, 'motivo': 'o fã disse que mandou mídia, não há solicitação paga e a sugestão insistiu que viu; responda à mão (nada chegou, é pela solicitação)'}
         if meet and out and not out.get('alerta') and PM.accepts_meeting(str(out.get('texto') or ''), [m.text for m in msgs[-6:] if not m.ours]):

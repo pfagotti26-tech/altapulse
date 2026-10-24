@@ -570,6 +570,11 @@ def goodbye(fan_last, talked=False):
     # lote 146: "boa noite" sem sinal de ir embora é ambíguo (quase sempre cumprimento: "Boa noite minha musa", "Boa noite bem e vc")
     if re.search(r'\b(e (voc[eê]|vc|tu)|tudo bem|td bem|tudo bom|como (voc[eê]|vc|tu|vai|est[aá]))\b', t, re.I): return False
     return 'ambiguo' if talked and '?' not in t and re.search(r'\bboa noite\b', t, re.I) else False
+# lote 186: a IA diz que JÁ MANDOU algo ("abre o que te mandei", "deve ter bugado, abre de novo") sem nenhuma mídia/solicitação nossa na conversa
+CLAIMS_SENT = re.compile(r'\b(que (eu )?te mandei|te mandei|mandei pra (vc|voc[eê]|ti)|j[aá] (te )?mandei|j[aá] (te )?enviei|te enviei|abre (de novo|a[ií] o que|logo o que|o que)|deve ter bugado|olha o que (eu )?te mandei|o que te mandei)\b', re.I)
+def claims_sent(text):
+    m = CLAIMS_SENT.search(text or '')
+    return m.group(0) if m else ''
 def claims_seen(text):
     m = SEEN.search(text or '')
     return m.group(0) if m else ''
