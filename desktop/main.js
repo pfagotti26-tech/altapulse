@@ -949,12 +949,12 @@ async function tryAutoDecide(view, creatorId, expectName, platform, waitS) {
       appLog('fila', `ensaio: ${r.product} R$ ${(r.product_cents/100).toFixed(2)} · legenda: ${r.caption || '-'} · depois: ${r.after || '-'}`);
       await tryMediaRequest(view, creatorId, r.product, r.product_cents, fan_ref, true);
       await view.webContents.executeJavaScript(
-        `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify(r.reason || '')}, ${JSON.stringify({item: r.product, cents: r.product_cents, caption: r.caption, after: r.after})})`,
+        `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify((expectName ? expectName + ' · ' : '') + (r.reason || ''))}, ${JSON.stringify({item: r.product, cents: r.product_cents, caption: r.caption, after: r.after})})`,
         true
       );
     } else if (r && (r.suggested_text || r.reason)) {
       await view.webContents.executeJavaScript(
-        `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify(r.reason || '')}, ${JSON.stringify(r.product ? {item: r.product, cents: r.product_cents, caption: r.caption, after: r.after} : null)})`,
+        `window.__altaShowEnsaio && window.__altaShowEnsaio(${JSON.stringify(r.suggested_text || '')}, ${JSON.stringify((expectName ? expectName + ' · ' : '') + (r.reason || ''))}, ${JSON.stringify(r.product ? {item: r.product, cents: r.product_cents, caption: r.caption, after: r.after} : null)})`,
         true
       );
     }

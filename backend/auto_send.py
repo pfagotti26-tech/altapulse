@@ -3,7 +3,7 @@ Envio automático — teste Aline Fishborn (modo ensaio).
 O servidor só decide e registra. Quem envia é o app de teste.
 Desligador: auto_config.enabled no banco, lido a cada mensagem.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 from typing import Optional, List
@@ -230,13 +230,37 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
 
         caption = ""
         after = ""
+        # lote 185: conversa travada por "tema proibido" que um humano da equipe já respondeu volta para a automação.
+        # A trava em si não muda: palavra de família do fã, bloqueio da equipe e o alerta da IA continuam valendo para o que vier
+        # depois. Só deixamos de reler o trecho antigo (já revisado por gente) que fazia a IA travar de novo a cada mensagem.
+        decide_msgs = list(body.messages)
+        released = ""
+        try:
+            _trav = await db.auto_log.find_one({"creator_id": body.creator_id, "fan_ref": body.fan_ref, "decision": "travado",
+                                                "reason": {"$regex": "proibido", "$options": "i"},
+                                                "at": {"$gte": ((datetime.now(timezone.utc) - timedelta(days=3))).isoformat()}}, {"_id": 0, "last_fan": 1, "at": 1}, sort=[("at", -1)])
+            _last_ok = await db.auto_log.find_one({"creator_id": body.creator_id, "fan_ref": body.fan_ref, "decision": "enviado"}, {"_id": 0, "at": 1}, sort=[("at", -1)]) if _trav else None
+            if _trav and not (_last_ok and _last_ok.get("at", "") > _trav.get("at", "")):
+                _flag = scrub(_trav.get("last_fan") or "")[:500]
+                _i = next((i for i in range(len(decide_msgs) - 1, -1, -1) if not decide_msgs[i].ours and scrub(decide_msgs[i].text or "")[:500] == _flag), -1)
+                if _i >= 0:
+                    _auto_sent = {str(r.get("suggested_text") or "").strip() for r in await db.auto_log.find(
+                        {"creator_id": body.creator_id, "fan_ref": body.fan_ref, "decision": "enviado",
+                         "at": {"$gte": ((datetime.now(timezone.utc) - timedelta(days=3))).isoformat()}}, {"_id": 0, "suggested_text": 1}).to_list(50)}
+                    _j = next((j for j in range(_i + 1, len(decide_msgs)) if decide_msgs[j].ours and str(decide_msgs[j].text or "").strip() and str(decide_msgs[j].text or "").strip() not in _auto_sent), -1)
+                    if _j >= 0 and any(not m.ours and (m.text or "").strip() for m in decide_msgs[_j + 1:]) \
+                            and not any(PM.family_word(m.text or "") for m in decide_msgs[_j + 1:] if not m.ours):
+                        decide_msgs = decide_msgs[_j:]
+                        released = "liberada: humano respondeu depois da trava"
+        except Exception as e:
+            logging.getLogger("auto").warning("liberar trava: %s", e)
         # Call existing suggest logic
         try:
             suggest_body = A.SuggestIn(
                 creator_id=body.creator_id,
                 platform=body.platform,
                 fan_ref=body.fan_ref,
-                messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in body.messages],
+                messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in decide_msgs],
                 mode='reply',
                 max_cents=_hv.get("max_cents"),
             )
@@ -247,10 +271,10 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             second = None
             if isinstance(result, dict) and result.get("alert") and not result.get("blocked") and "proibido" in str(result.get("reason") or "").lower():
                 import profile_model as PM2
-                fan_txt = [m.text for m in body.messages[-6:] if not m.ours and m.text]
+                fan_txt = [m.text for m in decide_msgs[-6:] if not m.ours and m.text]
                 if not any(PM2.family_word(t) for t in fan_txt):
-                    trimmed = [m for m in body.messages if not (m.ours and len(m.text or "") > 280)]
-                    if trimmed and len(trimmed) < len(body.messages):
+                    trimmed = [m for m in decide_msgs if not (m.ours and len(m.text or "") > 280)]
+                    if trimmed and len(trimmed) < len(decide_msgs):
                         suggest_body2 = A.SuggestIn(creator_id=body.creator_id, platform=body.platform, fan_ref=body.fan_ref,
                                                     messages=[A.ChatMsg(ours=m.ours, text=m.text) for m in trimmed], mode='reply', max_cents=_hv.get("max_cents"))
                         r2 = await A.suggest(suggest_body2, user)
@@ -323,6 +347,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
             "fan_name": scrub(body.fan_name or "")[:80] if body.fan_name else None,
             "last_fan": scrub(last_text)[:500],
             "decision": decision, "reason": reason, "mode_src": mode_src,
+            **({"released": released} if released else {}),
             "suggested_text": suggested,
             "usage_id": (result.get("usage_id") if isinstance(result, dict) else None),
         })
