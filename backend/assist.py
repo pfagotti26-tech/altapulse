@@ -577,7 +577,9 @@ Responda SOMENTE com JSON válido, sem texto fora dele, no formato:
             marks = ' '.join(re.findall(r'\[[^\]]{0,90}\]', t))
             return t[:150].rstrip() + '… [mensagem em massa/post]' + (' ' + marks if marks else '')
         return t[:500]
-    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + _short(m) for m in msgs[-14:]) or '(conversa ainda sem mensagens)'
+    # lote 188: as 6 últimas mensagens vão inteiras; as anteriores vão resumidas (160 letras), que é o que a IA usa de contexto
+    _win = msgs[-14:]; _cut = max(0, len(_win) - 6)
+    convo = '\n'.join(('CRIADORA: ' if m.ours else 'FÃ: ') + (_short(m) if k >= _cut else _short(m)[:160]) for k, m in enumerate(_win)) or '(conversa ainda sem mensagens)'
     recent_ours = [scrub(m.text) for m in msgs[-14:] if m.ours]
     # lote 97: o que esta criadora já mandou a OUTROS fãs nas últimas 8 h (frases e cenas não podem se repetir entre conversas)
     _since = (now() - timedelta(hours=8)).isoformat()
@@ -1308,7 +1310,7 @@ async def consumption(days: int = 30, user=Depends(owner)):
     c = await config()
     start = (datetime.now(BR) - timedelta(days=days - 1)).strftime('%Y-%m-%d')
     rows = await db.assist_usage.find({'day': {'$gte': start}}, {'_id': 0, 'user_id': 1, 'user_name': 1, 'creator_id': 1, 'mode': 1, 'style': 1,
-        'day': 1, 'at': 1, 'cost_usd': 1, 'prompt_tokens': 1, 'cached_tokens': 1, 'completion_tokens': 1, 'tokens': 1, 'ms': 1, 'used': 1}).to_list(300000)
+        'day': 1, 'at': 1, 'cost_usd': 1, 'prompt_tokens': 1, 'cached_tokens': 1, 'completion_tokens': 1, 'tokens': 1, 'ms': 1, 'used': 1, 'retry': 1}).to_list(300000)
     names = {x['id']: x['name'] for x in await db.creators.find({}, {'_id': 0, 'id': 1, 'name': 1}).to_list(2000)}
     td = today()
     def blank(): return {'n': 0, 'cost': 0.0, 'used': 0, 'today': 0, 'cost_today': 0.0, 'ms': 0, 'ms_n': 0}
@@ -1318,6 +1320,7 @@ async def consumption(days: int = 30, user=Depends(owner)):
         if r.get('ms'): b['ms'] += r['ms']; b['ms_n'] += 1
     tot = blank(); by_user, by_creator, by_mode, by_day, by_hour = {}, {}, {}, {}, [0] * 24
     pt = ct = 0
+    _ot_tot=[0]; _n_tok=[0]; _retry=[0]; _retry_why={}; _pt_today=[0]; _ct_today=[0]; _n_today=[0]; _retry_today=[0]
     for r in rows:
         add(tot, r)
         u = by_user.setdefault(r['user_id'], {**blank(), 'name': r.get('user_name') or '—'}); add(u, r)
@@ -1328,6 +1331,14 @@ async def consumption(days: int = 30, user=Depends(owner)):
         try: by_hour[datetime.fromisoformat(r['at']).astimezone(BR).hour] += 1
         except Exception: pass
         pt += r.get('prompt_tokens') or 0; ct += r.get('cached_tokens') or 0
+        # lote 188: tokens de saída, segunda tentativa e motivos (para medir onde o custo vai)
+        _ot_tot[0] += r.get('completion_tokens') or 0; _n_tok[0] += 1 if r.get('prompt_tokens') else 0
+        if r.get('retry'):
+            _retry[0] += 1
+            for k in r['retry']: _retry_why[k] = _retry_why.get(k, 0) + 1
+        if r['day'] == td:
+            _pt_today[0] += r.get('prompt_tokens') or 0; _ct_today[0] += r.get('cached_tokens') or 0; _n_today[0] += 1 if r.get('prompt_tokens') else 0
+            if r.get('retry'): _retry_today[0] += 1
     def fin(b):
         out = {k: v for k, v in b.items() if k not in ('ms', 'ms_n')}
         out['cost'] = round(b['cost'], 4); out['cost_today'] = round(b['cost_today'], 4)
@@ -1345,6 +1356,10 @@ async def consumption(days: int = 30, user=Depends(owner)):
     return {'days': days, 'team_daily_limit': c['team_daily_limit'], 'daily_limit': c['daily_limit'], 'model': c.get('suggest_model'),
             'total': fin(tot), 'month_projection': round(daily_avg * 30, 2), 'daily_avg_7d': round(daily_avg, 4),
             'cache_pct': round(100 * ct / pt) if pt else None, 'active_days': len(active_days),
+            'tokens': {'avg_prompt': round(pt / _n_tok[0]) if _n_tok[0] else None, 'avg_cached': round(ct / _n_tok[0]) if _n_tok[0] else None, 'avg_out': round(_ot_tot[0] / _n_tok[0]) if _n_tok[0] else None,
+                       'retry_pct': round(100 * _retry[0] / _n_tok[0]) if _n_tok[0] else None, 'retry_why': sorted(_retry_why.items(), key=lambda x: -x[1])[:10],
+                       'today': {'avg_prompt': round(_pt_today[0] / _n_today[0]) if _n_today[0] else None, 'cache_pct': round(100 * _ct_today[0] / _pt_today[0]) if _pt_today[0] else None,
+                                 'retry_pct': round(100 * _retry_today[0] / _n_today[0]) if _n_today[0] else None}},
             'by_user': sorted([{'user_id': k, **fin(v)} for k, v in by_user.items()], key=lambda x: -x['cost']),
             'by_creator': sorted([{'creator_id': k, **fin(v)} for k, v in by_creator.items()], key=lambda x: -x['cost']),
             'by_mode': sorted([fin(v) for v in by_mode.values()], key=lambda x: -x['n']),
