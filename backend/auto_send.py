@@ -297,7 +297,7 @@ async def decide(body: DecideIn, user=Depends(extension_user)):
                     _encerrada = result.get("blocked") or "encerrada" in _rl or "bloqueado" in _rl
                     _ev = ("reclamacao" if "pagou e não recebeu" in _r else "divulgacao" if "divulgando" in _r
                            else "encontro" if ("encontro" in _r or "programa" in _r)
-                           else "menor" if _menor else (None if _encerrada else "travado" if "proibido" in _rl else None))
+                           else "menor" if _menor else (None if _encerrada else "travado" if ("proibido" in _rl or "vetado" in _rl) else None))
                     if _ev:
                         _body = _r[:300]
                         if _ev == "travado":

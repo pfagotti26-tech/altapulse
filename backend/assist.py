@@ -483,6 +483,15 @@ async def suggest(body: SuggestIn, user=Depends(extension_user)):
                                   'by_id': 'sistema', 'by_name': 'Sistema', 'at': iso()}}, upsert=True)
             return {'alert': True, 'remaining': None, 'blocked': True,
                     'reason': 'Assinante citou tema proibido: conversa ENCERRADA. Não responda mais este fã. A IA bloqueou; só gestor desbloqueia (Sombra → Fãs bloqueados).'}
+    # lote 187 (Paulo, Ruiva Braba): bandeira "drogas" na ficha → fã que fala de droga/álcool/vício não recebe resposta da IA, nem para desviar.
+    # Não bloqueia o fã: a equipe assume a conversa; depois que um humano responder, a automação volta (lote 185).
+    if body.fan_ref and body.mode == 'reply':
+        _pf = await db.assist_profiles.find_one({'creator_id': body.creator_id}, {'_id': 0, 'limit_flags': 1}) or {}
+        if 'drogas' in (_pf.get('limit_flags') or []):
+            _dw = PM.drug_talk([m.text for m in body.messages[-3:] if not m.ours and m.text])
+            if _dw:
+                return {'alert': True, 'remaining': None,
+                        'reason': f'Assunto vetado pela criadora (drogas/álcool/vício: "{_dw}"): a IA não responde nada sobre isso. A equipe assume a conversa e muda de assunto.'}
     # lote 159 (Paulo): criadora/criador NUNCA recebe mensagem. Quem escreve divulgando o próprio perfil ("acabei de postar… vem ver") é outra
     # criadora: a IA não responde e o contato fica bloqueado para a IA (gestor desbloqueia em Sombra → Fãs bloqueados se for engano)
     if body.fan_ref and body.mode == 'reply':

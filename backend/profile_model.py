@@ -16,7 +16,16 @@ TONES = {'dominadora': 'Dominadora (manda, não pede)', 'namoradinha': 'Namoradi
 LIMIT_FLAGS = {'encontro': 'Encontro presencial / programa', 'contato': 'Passar contato pessoal (telefone, @, e-mail; Telegram só se a ficha disser que usa)', 'scat': 'Scat',
                'golden': 'Golden shower', 'ageplay': 'Ageplay', 'fisting': 'Fisting', 'traicao': 'Insinuação de traição',
                'incesto': 'Incesto (mesmo fantasia)', 'violencia': 'Violência / falta de consentimento', 'nome_fa': 'Falar o nome do fã',
-               'trisal': 'Trisal', 'com_fa': 'Gravar com fã / assinante'}
+               'trisal': 'Trisal', 'com_fa': 'Gravar com fã / assinante',
+               'drogas': 'Drogas, álcool ou vício: a IA não responde (trava na hora e a equipe assume)'}  # lote 187 (Ruiva Braba)
+# lote 187: assunto vetado pela criadora (drogas/álcool/vício). Só vale com a bandeira "drogas" ligada na ficha.
+DRUG_RX = re.compile(r'\b(droga|drogas|drogado|drogada|maconha|baseado|beck|haxixe|skunk|coca[ií]na|cheirar|cheirei|cheirando|crack|n[oó]ia|noiado|noiada|biqueira|traficante|tr[aá]fico|ecstasy|lsd|lan[çc]a[- ]?perfume|lol[oó]|anfetamina|rebite|hero[ií]na|metanfetamina|cigarro|fuma|fumo|fumar|fumando|fumei|b[eê]bad[oa]|bebi demais|bebendo|beber|bebida|cerveja|cacha[çc]a|vodka|whisky|u[ií]sque|porre|ressaca|alco[oó]l|alcoolismo|alco[oó]latra|(em|na) recupera[çc][aã]o|cl[ií]nica de recupera[çc][aã]o|narc[oó]ticos an[oô]nimos|alco[oó]licos an[oô]nimos|rec[aá]ida|reca[ií])\b', re.I)
+def drug_talk(texts):
+    for t in texts:
+        m = DRUG_RX.search(t or '')
+        if m: return m.group(0)
+    return ''
+
 TELEGRAM = {'nao': 'Não usa Telegram com fãs', 'fas': 'Usa Telegram com fãs (conversa direta)', 'vip': 'Só grupo VIP pago no Telegram'}
 GENDERS = {'f': 'Feminino', 'm': 'Masculino', 'o': 'Outro / não binário'}
 AUDIENCES = {'homens': 'Homens (hétero)', 'mulheres': 'Mulheres', 'gays': 'Homens gays / bi', 'misto': 'Misto'}
