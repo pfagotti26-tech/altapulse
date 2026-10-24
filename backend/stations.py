@@ -153,7 +153,7 @@ async def ingest(body: Observation, source: dict):
         from chat_sales import on_chat_sale
         if body.kind == 'sale' and body.sale_origin == 'chat' and (row.get('sale_status') or 'confirmed') == 'confirmed' and not (old and old.get('kind') == 'sale'):
             await on_chat_sale(body.creator_id, row.get('fan_ref'), row.get('fan_name'), row.get('amount_cents'), row.get('confirmed_at') or iso(), body.sale_source or 'list', '', body.event_ref)
-        elif body.kind == 'offer' and body.offer_status == 'paid' and body.offer_type == 'request' and not (old and old.get('offer_status') == 'paid'):
+        elif body.kind == 'offer' and body.offer_status == 'paid' and not (old and old.get('offer_status') == 'paid'):  # solicitação OU mídia paga (PPV): as duas são venda de chat
             await on_chat_sale(body.creator_id, row.get('fan_ref'), row.get('fan_name'), row.get('amount_cents'), row.get('confirmed_at') or row.get('offered_at') or iso(), 'request', '', body.event_ref)
     except Exception:
         import logging; logging.exception('e-mail de venda de chat')

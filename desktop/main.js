@@ -1385,7 +1385,9 @@ async function readAllNow() {
     sendRadar(id, radar).catch(() => {});
     const creator = state.creators.find((c) => c.id === id);
     const shift = creator && creator.shift;
-    const mine = (shift && shift.operator_id === state.user.id && !shift.paused) || (ALTA_TESTE && global.autoCreatorId === id && filaEnsaio && filaEnsaio.running); // AUTO (Grok)
+    // lote 190: no app de teste, as criadoras ligadas na automação têm os eventos enviados mesmo sem turno (antes 'global.autoCreatorId'
+    // nunca era definido e TODOS os eventos da automação — ofertas, pagas, vendas da lista — eram descartados; caso Curioso/Aline, 24/10)
+    const mine = (shift && shift.operator_id === state.user.id && !shift.paused) || (ALTA_TESTE && filaEnsaio && filaEnsaio.running && (filaEnsaio.isEnabled(id) || global.autoCreatorId === id)); // AUTO (Grok)
     // com o extrato funcionando para esta criadora, a venda inferida pela lista de conversas não é
     // enviada (o extrato traz a mesma venda com hora, produto e situação exatos; evita contar em dobro)
     if (extratoHealthy(id)) events = events.filter((e) => e.kind !== 'sale');

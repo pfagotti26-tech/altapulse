@@ -29,6 +29,7 @@ module.exports = function createFila(deps) {
     return [...(current || []), ...extra];
   }
   let running = false;
+  let enabledIds = new Set();
   let timer = null;
   let ticking = false;
   let seen = new Set();
@@ -74,6 +75,7 @@ module.exports = function createFila(deps) {
       if (day !== seenDay) { seen = new Set(); seenDay = day; }
       const configs = await api('GET', '/auto/app-configs').catch(() => []);
       const enabled = (configs || []).filter(c => c.enabled && inWindow(c.windows));
+      enabledIds = new Set(enabled.map(c => c.creator_id)); // lote 190: quem está ligado na automação (o leitor envia os eventos dessas criadoras)
       if (!enabled.length) return;
       // Reinicia se parada 5 min com fã esperando
       if (Date.now() - lastAction > 5 * 60 * 1000) {
@@ -224,5 +226,5 @@ module.exports = function createFila(deps) {
     if (timer) clearTimeout(timer);
   }
   // lote 179: quantos fãs a fila viu esperando resposta na última volta (o puxar conversa dá a vez quando há alguém)
-  return { start, stop, markRecent, pendingCount, firstUnanswered, waitingNow: () => pendingNow, get running() { return running; } };
+  return { start, stop, markRecent, pendingCount, firstUnanswered, waitingNow: () => pendingNow, get running() { return running; }, isEnabled: (id) => enabledIds.has(id) };
 };
